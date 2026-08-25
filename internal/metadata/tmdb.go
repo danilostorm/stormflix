@@ -31,7 +31,7 @@ func NewTMDBProvider(token, apiKey, language string) *TMDBProvider {
 func (p *TMDBProvider) Name() string { return "tmdb" }
 func (p *TMDBProvider) Ready() bool { return p.token != "" || p.apiKey != "" }
 func (p *TMDBProvider) Supports(kind string) bool {
-	return kind == "movies" || kind == "series" || kind == "anime"
+	return kind == "movies" || kind == "series" || kind == "anime" || kind == "mixed"
 }
 
 func (p *TMDBProvider) Lookup(ctx context.Context, item SourceItem, parsed ParsedName) (Result, error) {
@@ -43,6 +43,14 @@ func (p *TMDBProvider) Lookup(ctx context.Context, item SourceItem, parsed Parse
 	if len(titles) == 0 {
 		titles = []string{parsed.Title}
 	}
+	animeResolved := item.LibraryKind == "anime"
+	if item.LibraryKind == "anime" || item.LibraryKind == "mixed" {
+		if match, err := defaultAniDBResolver.Resolve(ctx, titles); err == nil && strings.TrimSpace(match.Title) != "" {
+			animeResolved = true
+			titles = prependSearchTitle(match.Title, titles)
+		}
+	}
+
 	mediaTypes := []string{"tv"}
 	switch item.LibraryKind {
 	case "movies":
@@ -54,6 +62,12 @@ func (p *TMDBProvider) Lookup(ctx context.Context, item SourceItem, parsed Parse
 			mediaTypes = []string{"movie", "tv"}
 		} else {
 			mediaTypes = []string{"tv", "movie"}
+		}
+	case "mixed":
+		if parsed.LikelyMovie || animeResolved {
+			mediaTypes = []string{"movie", "tv"}
+		} else {
+			mediaTypes = []string{"movie", "tv"}
 		}
 	default:
 		mediaTypes = []string{"movie", "tv"}
@@ -70,13 +84,37 @@ func (p *TMDBProvider) Lookup(ctx context.Context, item SourceItem, parsed Parse
 			if id == 0 {
 				continue
 			}
+			var result Result
 			if mediaType == "movie" {
-				return p.movie(ctx, id, parsed)
+				result, err = p.movie(ctx, id, parsed)
+			} else {
+				result, err = p.tv(ctx, id, parsed)
 			}
-			return p.tv(ctx, id, parsed)
+			if err != nil {
+				return Result{}, err
+			}
+			if animeResolved {
+				result.MediaType = "anime"
+			}
+			return result, nil
 		}
 	}
 	return Result{}, fmt.Errorf("TMDB: no match; tried %s", strings.Join(searched, " | "))
+}
+
+func prependSearchTitle(value string, items []string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return items
+	}
+	key := normalizeTitle(value)
+	out := []string{value}
+	for _, item := range items {
+		if normalizeTitle(item) != key {
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 type tmdbSearchResponse struct {
@@ -328,7 +366,7 @@ func (p *TMDBProvider) get(ctx context.Context, rawURL string, dest any) error {
 		req.Header.Set("Authorization", "Bearer "+p.token)
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "StormFlix/0.3")
+	req.Header.Set("User-Agent", "StormFlix/0.6")
 	resp, err := p.client.Do(req)
 	if err != nil {
 		return err
