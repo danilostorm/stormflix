@@ -62,5 +62,13 @@ func (s *server) monitoringOverview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, data)
+	analytics, err := s.admin.MonitoringAnalytics(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
+		admin.MonitoringOverview
+		Analytics admin.MonitoringAnalytics `json:"analytics"`
+	}{MonitoringOverview: data, Analytics: analytics})
 }
