@@ -1,0 +1,17 @@
+services:
+  stormflix:
+    build: .
+    container_name: stormflix
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    environment:
+      STORMFLIX_ADDR: ":8090"
+      STORMFLIX_DATA_DIR: "/data"
+      # Opcional: cria automaticamente a primeira biblioteca no primeiro boot.
+      # STORMFLIX_BOOTSTRAP_LIBRARY_NAME: "Filmes"
+      # STORMFLIX_BOOTSTRAP_LIBRARY_PATH: "/media/Filmes"
+    volumes:
+      - ./data:/data
+      # Troque pelo caminho REAL onde seu Google Drive/rclone já está montado.
+      - /mnt/gdrive:/media:ro
