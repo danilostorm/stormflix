@@ -38,6 +38,7 @@ func (s *server) listLibraries(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, items)
 }
+
 func (s *server) createLibrary(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Name    string `json:"name"`
@@ -57,6 +58,7 @@ func (s *server) createLibrary(w http.ResponseWriter, r *http.Request) {
 	s.admin.Log(r.Context(), "info", "library", "Library created", &uid, v.Path)
 	writeJSON(w, 201, v)
 }
+
 func (s *server) updateLibrary(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r.PathValue("id"))
 	if err != nil {
@@ -81,6 +83,7 @@ func (s *server) updateLibrary(w http.ResponseWriter, r *http.Request) {
 	s.admin.Log(r.Context(), "info", "library", "Library updated", &uid, v.Name)
 	writeJSON(w, 200, v)
 }
+
 func (s *server) deleteLibrary(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r.PathValue("id"))
 	if err != nil {
@@ -100,22 +103,24 @@ func (s *server) deleteLibrary(w http.ResponseWriter, r *http.Request) {
 	s.admin.Log(r.Context(), "info", "library", "Library removed from catalog; files untouched", &uid, v.Path)
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }
+
 func (s *server) scanLibrary(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r.PathValue("id"))
 	if err != nil {
 		writeError(w, 400, err)
 		return
 	}
-	result, err := s.libraries.AdminScan(r.Context(), id)
+	lib, err := s.libraries.StartAdminScan(r.Context(), id)
 	uid := currentUser(r).ID
 	if err != nil {
-		s.admin.Log(r.Context(), "error", "scanner", "Library scan failed", &uid, err.Error())
-		writeError(w, 500, err)
+		s.admin.Log(r.Context(), "error", "scanner", "Library scan could not start", &uid, err.Error())
+		writeError(w, 400, err)
 		return
 	}
-	s.admin.Log(r.Context(), "info", "scanner", "Library scan completed", &uid, fmt.Sprintf("%d files", result.Files))
-	writeJSON(w, 200, result)
+	s.admin.Log(r.Context(), "info", "scanner", "Library scan started", &uid, lib.Name)
+	writeJSON(w, http.StatusAccepted, map[string]any{"status": "running", "library_id": id, "message": "scan started in background"})
 }
+
 func (s *server) listMedia(w http.ResponseWriter, r *http.Request) {
 	libraryID, _ := strconv.ParseInt(r.URL.Query().Get("library_id"), 10, 64)
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
@@ -136,6 +141,7 @@ func (s *server) listMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, items)
 }
+
 func (s *server) streamMedia(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r.PathValue("id"))
 	if err != nil {
@@ -174,3 +180,5 @@ func (s *server) streamMedia(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "private, max-age=0")
 	http.ServeContent(w, r, stat.Name(), stat.ModTime(), file)
 }
+
+var _ = fmt.Sprintf
