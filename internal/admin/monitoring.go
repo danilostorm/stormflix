@@ -64,15 +64,15 @@ type PlaybackHistory struct {
 }
 
 type MonitoringStats struct {
-	ActiveStreams       int64 `json:"active_streams"`
-	DirectPlayStreams   int64 `json:"direct_play_streams"`
-	WebRemuxStreams     int64 `json:"web_remux_streams"`
-	PausedStreams       int64 `json:"paused_streams"`
-	BandwidthKbps       int64 `json:"bandwidth_kbps"`
-	PlaysToday          int64 `json:"plays_today"`
-	Plays7Days          int64 `json:"plays_7_days"`
-	UniqueUsers7Days    int64 `json:"unique_users_7_days"`
-	WatchSeconds7Days   int64 `json:"watch_seconds_7_days"`
+	ActiveStreams     int64 `json:"active_streams"`
+	DirectPlayStreams int64 `json:"direct_play_streams"`
+	WebRemuxStreams   int64 `json:"web_remux_streams"`
+	PausedStreams     int64 `json:"paused_streams"`
+	BandwidthKbps     int64 `json:"bandwidth_kbps"`
+	PlaysToday        int64 `json:"plays_today"`
+	Plays7Days        int64 `json:"plays_7_days"`
+	UniqueUsers7Days  int64 `json:"unique_users_7_days"`
+	WatchSeconds7Days int64 `json:"watch_seconds_7_days"`
 }
 
 type MonitoringOverview struct {
@@ -95,7 +95,9 @@ func EnsureMonitoring(db *sql.DB) error {
 		{"bitrate_kbps", "INTEGER NOT NULL DEFAULT 0"},
 	}
 	for _, column := range columns {
-		if err := ensurePlaybackColumn(db, column.name, column.definition); err != nil { return err }
+		if err := ensurePlaybackColumn(db, column.name, column.definition); err != nil {
+			return err
+		}
 	}
 	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS playback_history (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -119,14 +121,28 @@ func EnsureMonitoring(db *sql.DB) error {
 
 func ensurePlaybackColumn(db *sql.DB, name, definition string) error {
 	rows, err := db.Query(`PRAGMA table_info(playback_sessions)`)
-	if err != nil { return err }
-	defer rows.Close()
+	if err != nil {
+		return err
+	}
+	found := false
 	for rows.Next() {
 		var cid, notNull, pk int
 		var columnName, columnType string
 		var defaultValue any
-		if err := rows.Scan(&cid, &columnName, &columnType, &notNull, &defaultValue, &pk); err != nil { return err }
-		if columnName == name { return nil }
+		if err := rows.Scan(&cid, &columnName, &columnType, &notNull, &defaultValue, &pk); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if columnName == name {
+			found = true
+			break
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if found {
+		return nil
 	}
 	_, err = db.Exec(fmt.Sprintf(`ALTER TABLE playback_sessions ADD COLUMN %s %s`, name, definition))
 	return err
@@ -134,7 +150,10 @@ func ensurePlaybackColumn(db *sql.DB, name, definition string) error {
 
 func (s *Service) Heartbeat(ctx context.Context, userID, mediaID int64, device, ip string, hb PlaybackHeartbeat) error {
 	mode := normalizeMode(hb.Mode)
-	state := strings.ToLower(strings.TrimSpace(hb.State)); if state != "paused" { state = "playing" }
+	state := strings.ToLower(strings.TrimSpace(hb.State))
+	if state != "paused" {
+		state = "playing"
+	}
 	bitrate := hb.BitrateKbps
 	if bitrate <= 0 && hb.DurationSeconds > 0 {
 		var size int64
@@ -154,37 +173,90 @@ func (s *Service) FinishPlayback(ctx context.Context, userID, mediaID int64, dev
 	var ip, mode, started string
 	var position, duration float64
 	err := s.db.QueryRowContext(ctx, `SELECT id,ip,mode,position_seconds,duration_seconds,started_at FROM playback_sessions WHERE user_id=? AND media_id=? AND device=?`, userID, mediaID, device).Scan(&id, &ip, &mode, &position, &duration, &started)
-	if err == sql.ErrNoRows { return nil }
-	if err != nil { return err }
-	progress := 0.0; if duration > 0 { progress = math.Min(100, position/duration*100) }
-	if _, err := s.db.ExecContext(ctx, `INSERT INTO playback_history(user_id,media_id,device,ip,mode,progress_percent,watch_seconds,started_at) VALUES(?,?,?,?,?,?,?,?)`, userID, mediaID, device, ip, normalizeMode(mode), progress, math.Max(0, position), started); err != nil { return err }
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	progress := 0.0
+	if duration > 0 {
+		progress = math.Min(100, position/duration*100)
+	}
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO playback_history(user_id,media_id,device,ip,mode,progress_percent,watch_seconds,started_at) VALUES(?,?,?,?,?,?,?,?)`, userID, mediaID, device, ip, normalizeMode(mode), progress, math.Max(0, position), started); err != nil {
+		return err
+	}
 	_, err = s.db.ExecContext(ctx, `DELETE FROM playback_sessions WHERE id=?`, id)
 	return err
 }
 
 func (s *Service) Monitoring(ctx context.Context) (MonitoringOverview, error) {
 	var out MonitoringOverview
+	if err := s.archiveStalePlaybacks(ctx); err != nil {
+		return out, err
+	}
 	active, err := s.monitoringActive(ctx)
-	if err != nil { return out, err }
+	if err != nil {
+		return out, err
+	}
 	out.Active = active
-	if out.Active == nil { out.Active = []MonitoringPlayback{} }
+	if out.Active == nil {
+		out.Active = []MonitoringPlayback{}
+	}
 	for _, p := range out.Active {
 		out.Stats.ActiveStreams++
 		out.Stats.BandwidthKbps += p.BitrateKbps
-		if p.State == "paused" { out.Stats.PausedStreams++ }
-		if p.Mode == "web_remux" { out.Stats.WebRemuxStreams++ } else { out.Stats.DirectPlayStreams++ }
+		if p.State == "paused" {
+			out.Stats.PausedStreams++
+		}
+		if p.Mode == "web_remux" {
+			out.Stats.WebRemuxStreams++
+		} else {
+			out.Stats.DirectPlayStreams++
+		}
 	}
-	queries := []struct{ q string; dst *int64 }{
+	queries := []struct {
+		q   string
+		dst *int64
+	}{
 		{`SELECT COUNT(*) FROM playback_history WHERE stopped_at>=datetime('now','start of day')`, &out.Stats.PlaysToday},
 		{`SELECT COUNT(*) FROM playback_history WHERE stopped_at>=datetime('now','-7 days')`, &out.Stats.Plays7Days},
 		{`SELECT COUNT(DISTINCT user_id) FROM playback_history WHERE stopped_at>=datetime('now','-7 days')`, &out.Stats.UniqueUsers7Days},
 		{`SELECT COALESCE(SUM(watch_seconds),0) FROM playback_history WHERE stopped_at>=datetime('now','-7 days')`, &out.Stats.WatchSeconds7Days},
 	}
-	for _, query := range queries { if err := s.db.QueryRowContext(ctx, query.q).Scan(query.dst); err != nil { return out, err } }
+	for _, query := range queries {
+		if err := s.db.QueryRowContext(ctx, query.q).Scan(query.dst); err != nil {
+			return out, err
+		}
+	}
 	out.History, err = s.monitoringHistory(ctx, 80)
-	if err != nil { return out, err }
-	if out.History == nil { out.History = []PlaybackHistory{} }
+	if err != nil {
+		return out, err
+	}
+	if out.History == nil {
+		out.History = []PlaybackHistory{}
+	}
 	return out, nil
+}
+
+func (s *Service) archiveStalePlaybacks(ctx context.Context) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	_, err = tx.ExecContext(ctx, `INSERT INTO playback_history(user_id,media_id,device,ip,mode,progress_percent,watch_seconds,started_at,stopped_at)
+SELECT user_id,media_id,device,ip,mode,
+CASE WHEN duration_seconds>0 THEN MIN(100,position_seconds/duration_seconds*100) ELSE 0 END,
+MAX(0,position_seconds),started_at,last_seen_at
+FROM playback_sessions WHERE last_seen_at<datetime('now','-2 minutes')`)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM playback_sessions WHERE last_seen_at<datetime('now','-2 minutes')`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Service) monitoringActive(ctx context.Context) ([]MonitoringPlayback, error) {
@@ -193,13 +265,19 @@ COALESCE((SELECT a.public_url FROM media_artwork a WHERE a.media_id=m.id AND a.k
 p.device,p.ip,p.state,p.mode,p.position_seconds,p.duration_seconds,p.resolution,p.video_codec,p.audio_codec,p.audio_language,p.subtitle_language,p.bitrate_kbps,p.started_at,p.last_seen_at
 FROM playback_sessions p JOIN users u ON u.id=p.user_id JOIN media m ON m.id=p.media_id JOIN libraries l ON l.id=m.library_id
 WHERE p.last_seen_at>=datetime('now','-75 seconds') ORDER BY p.last_seen_at DESC`)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	defer rows.Close()
 	out := []MonitoringPlayback{}
 	for rows.Next() {
 		var v MonitoringPlayback
-		if err := rows.Scan(&v.ID,&v.UserID,&v.Username,&v.DisplayName,&v.MediaID,&v.Title,&v.LibraryName,&v.PosterURL,&v.Device,&v.IP,&v.State,&v.Mode,&v.PositionSeconds,&v.DurationSeconds,&v.Resolution,&v.VideoCodec,&v.AudioCodec,&v.AudioLanguage,&v.SubtitleLanguage,&v.BitrateKbps,&v.StartedAt,&v.LastSeenAt); err != nil { return nil, err }
-		if v.DurationSeconds > 0 { v.ProgressPercent = math.Min(100, v.PositionSeconds/v.DurationSeconds*100) }
+		if err := rows.Scan(&v.ID, &v.UserID, &v.Username, &v.DisplayName, &v.MediaID, &v.Title, &v.LibraryName, &v.PosterURL, &v.Device, &v.IP, &v.State, &v.Mode, &v.PositionSeconds, &v.DurationSeconds, &v.Resolution, &v.VideoCodec, &v.AudioCodec, &v.AudioLanguage, &v.SubtitleLanguage, &v.BitrateKbps, &v.StartedAt, &v.LastSeenAt); err != nil {
+			return nil, err
+		}
+		if v.DurationSeconds > 0 {
+			v.ProgressPercent = math.Min(100, v.PositionSeconds/v.DurationSeconds*100)
+		}
 		out = append(out, v)
 	}
 	return out, rows.Err()
@@ -208,15 +286,25 @@ WHERE p.last_seen_at>=datetime('now','-75 seconds') ORDER BY p.last_seen_at DESC
 func (s *Service) monitoringHistory(ctx context.Context, limit int) ([]PlaybackHistory, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT h.id,h.user_id,u.display_name,h.media_id,m.title,l.name,h.device,h.ip,h.mode,h.progress_percent,h.watch_seconds,h.started_at,h.stopped_at
 FROM playback_history h JOIN users u ON u.id=h.user_id JOIN media m ON m.id=h.media_id JOIN libraries l ON l.id=m.library_id ORDER BY h.id DESC LIMIT ?`, limit)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	defer rows.Close()
 	out := []PlaybackHistory{}
-	for rows.Next() { var v PlaybackHistory; if err := rows.Scan(&v.ID,&v.UserID,&v.DisplayName,&v.MediaID,&v.Title,&v.LibraryName,&v.Device,&v.IP,&v.Mode,&v.ProgressPercent,&v.WatchSeconds,&v.StartedAt,&v.StoppedAt); err != nil { return nil, err }; out=append(out,v) }
+	for rows.Next() {
+		var v PlaybackHistory
+		if err := rows.Scan(&v.ID, &v.UserID, &v.DisplayName, &v.MediaID, &v.Title, &v.LibraryName, &v.Device, &v.IP, &v.Mode, &v.ProgressPercent, &v.WatchSeconds, &v.StartedAt, &v.StoppedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
 	return out, rows.Err()
 }
 
 func normalizeMode(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))
-	if strings.Contains(value, "remux") { return "web_remux" }
+	if strings.Contains(value, "remux") {
+		return "web_remux"
+	}
 	return "direct_play"
 }
