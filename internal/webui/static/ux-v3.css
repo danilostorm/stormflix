@@ -1,0 +1,21 @@
+/* StormFlix UX v3 */
+.content-row.has-overflow>.row-nav:not(:disabled){opacity:.96!important;pointer-events:auto!important}
+.row-nav{width:64px!important;top:44px!important;bottom:18px!important}
+.row-nav.left{left:0!important}
+.row-nav.right{right:0!important}
+.row-nav span{width:42px;height:58px;border-radius:10px;display:grid;place-items:center;background:rgba(10,12,17,.78);border:1px solid rgba(255,255,255,.18);box-shadow:0 12px 30px rgba(0,0,0,.45);transform:translateY(-18px)!important}
+.row-nav:hover span,.row-nav:focus-visible span{background:rgba(30,34,43,.96);border-color:rgba(255,255,255,.45)}
+body.sf-keyboard-nav .media-tile:focus,
+body.sf-keyboard-nav .main-nav button:focus,
+body.sf-keyboard-nav .primary:focus,
+body.sf-keyboard-nav .secondary:focus,
+body.sf-keyboard-nav .row-nav:focus,
+body.sf-keyboard-nav .header-actions button:focus,
+body.sf-keyboard-nav .header-actions a:focus{
+  outline:3px solid #fff!important;
+  outline-offset:4px!important;
+  box-shadow:0 0 0 7px rgba(255,49,90,.28),0 18px 45px rgba(0,0,0,.55)!important
+}
+body.sf-keyboard-nav .media-tile:focus{transform:translateY(-5px) scale(1.045);z-index:20}
+body.sf-keyboard-nav .media-tile:focus .tile-play{opacity:1;transform:none}
+@media(max-width:800px){.row-nav{display:none!important}}
