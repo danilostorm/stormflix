@@ -46,7 +46,8 @@ func ParseFilename(path, libraryKind string) ParsedName {
 	clean := cleanMetadataText(base)
 
 	var out ParsedName
-	out.LikelyMovie = libraryKind == "movies" || (libraryKind == "anime" && animeMoviePath(path))
+	animeCapable := libraryKind == "anime" || libraryKind == "mixed"
+	out.LikelyMovie = libraryKind == "movies" || (animeCapable && animeMoviePath(path))
 	if match := seasonRE.FindStringSubmatch(clean); len(match) == 3 {
 		out.Season, _ = strconv.Atoi(match[1])
 		out.Episode, _ = strconv.Atoi(match[2])
@@ -71,7 +72,7 @@ func ParseFilename(path, libraryKind string) ParsedName {
 	// Anime collections commonly use names such as "Filme 15 - O Renascimento
 	// de Freeza". The movie number is useful for humans but usually hurts
 	// provider search, so remove it and use the franchise directory as context.
-	if libraryKind == "anime" && movieIndexRE.MatchString(out.Title) {
+	if animeCapable && movieIndexRE.MatchString(out.Title) {
 		out.LikelyMovie = true
 		withoutIndex := compactTitle(movieIndexRE.ReplaceAllString(out.Title, " "))
 		withoutIndex = strings.Trim(withoutIndex, " -–—:·")
@@ -97,7 +98,7 @@ func ParseFilename(path, libraryKind string) ParsedName {
 
 	// Episode files are often named only "S01E01" while the series title is
 	// carried by the parent directory.
-	if (libraryKind == "series" || libraryKind == "anime") && len(strings.TrimSpace(out.Title)) < 2 {
+	if (libraryKind == "series" || animeCapable) && len(strings.TrimSpace(out.Title)) < 2 {
 		if parent := meaningfulAncestor(path, originalTitle, out.Title); parent != "" {
 			out.Title = parent
 		}
