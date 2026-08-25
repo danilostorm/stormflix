@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>StormFlix Admin</title>
+  <link rel="stylesheet" href="/admin/admin.css">
+</head>
+<body>
+<div id="gate" class="gate">
+  <form id="gate-form" class="gate-card">
+    <div class="brand">STORM<span>FLIX</span></div>
+    <p class="kicker" id="gate-kicker">Administração</p>
+    <h1 id="gate-title">Entrar</h1>
+    <input id="gate-display" placeholder="Nome de exibição" class="setup-only hidden">
+    <input id="gate-user" placeholder="Usuário" required autocomplete="username">
+    <input id="gate-pass" type="password" placeholder="Senha" required autocomplete="current-password">
+    <button id="gate-submit">Entrar</button>
+    <p id="gate-message" class="msg"></p>
+  </form>
+</div>
+<div id="app" class="app hidden">
+  <aside>
+    <div class="brand">STORM<span>FLIX</span></div>
+    <div class="sub">ADMIN · DIRECT PLAY ONLY</div>
+    <nav>
+      <button data-page="dashboard" class="active">Dashboard</button>
+      <button data-page="users" data-admin>Usuários</button>
+      <button data-page="libraries">Bibliotecas</button>
+      <button data-page="sessions" data-admin>Sessões</button>
+      <button data-page="playbacks">Reproduzindo agora</button>
+      <button data-page="storage">Armazenamento</button>
+      <button data-page="logs">Logs</button>
+      <button data-page="server">Servidor</button>
+    </nav>
+    <div class="aside-bottom"><a href="/">← StormFlix</a><button id="logout" class="ghost">Sair</button></div>
+  </aside>
+  <main>
+    <header><div><p class="kicker">Painel administrativo</p><h1 id="page-title">Dashboard</h1></div><div id="who" class="who"></div></header>
+    <div id="notice" class="notice"></div>
+    <section id="dashboard" class="page"></section>
+    <section id="users" class="page hidden"></section>
+    <section id="libraries" class="page hidden"></section>
+    <section id="sessions" class="page hidden"></section>
+    <section id="playbacks" class="page hidden"></section>
+    <section id="storage" class="page hidden"></section>
+    <section id="logs" class="page hidden"></section>
+    <section id="server" class="page hidden"></section>
+  </main>
+</div>
+<script src="/admin/admin.js" defer></script>
+</body>
+</html>
