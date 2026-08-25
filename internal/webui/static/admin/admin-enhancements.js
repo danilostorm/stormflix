@@ -13,8 +13,8 @@
     if(lib?.kind==='mixed')select.value='mixed';
     const hint=document.createElement('div');hint.className='wide phase2-hint library-agent-hint';
     const sync=()=>{
-      if(select.value==='mixed')hint.innerHTML='<b>Identificação híbrida:</b> AniDB resolve títulos de anime e o TMDB identifica/enriquece junto com Fanart.tv. Ideal para anime e animação ocidental na mesma pasta.';
-      else if(select.value==='anime')hint.innerHTML='<b>Anime:</b> AniList é o agente principal; AniDB ajuda a resolver títulos e TMDB/Fanart enriquecem dados e artes.';
+      if(select.value==='mixed')hint.innerHTML='<b>Identificação híbrida:</b> TMDB tenta primeiro; AniDB + MyAnimeList recuperam animes que falharem. Fanart.tv complementa as artes.';
+      else if(select.value==='anime')hint.innerHTML='<b>Anime:</b> AniList é o principal; AniDB resolve nomes e MyAnimeList recupera títulos/capas ausentes. TMDB/Fanart complementam quando possível.';
       else if(select.value==='series')hint.innerHTML='<b>Séries:</b> TMDB organiza série → temporadas → episódios automaticamente.';
       else hint.innerHTML='<b>Filmes:</b> TMDB + Fanart.tv.';
     };
@@ -28,13 +28,18 @@
       const grid=document.querySelector('#metadata .agent-grid');
       if(grid&&!grid.querySelector('[data-anidb-agent]')){
         const card=document.createElement('div');card.className='agent-card';card.dataset.anidbAgent='1';
-        card.innerHTML='<div class="agent-status ready">● ATIVO</div><h3>AniDB</h3><p>Resolvedor de títulos para anime. Trabalha junto com AniList nas bibliotecas Anime e com TMDB nas bibliotecas Filmes + Anime misto.</p>';
+        card.innerHTML='<div class="agent-status ready">● ATIVO</div><h3>AniDB</h3><p>Resolvedor de nomes e aliases de anime. É usado antes do fallback MyAnimeList para melhorar a correspondência.</p>';
         grid.insertBefore(card,grid.children[2]||null);
+      }
+      if(grid&&!grid.querySelector('[data-mal-agent]')){
+        const card=document.createElement('div');card.className='agent-card';card.dataset.malAgent='1';
+        card.innerHTML='<div class="agent-status ready">● ATIVO</div><h3>MyAnimeList</h3><p>Fallback para animes que AniList/TMDB não encontraram. Recupera identidade, sinopse, nota e principalmente capas via Jikan/MAL.</p>';
+        grid.insertBefore(card,grid.children[3]||null);
       }
       document.querySelectorAll('#metadata tbody tr').forEach(row=>{
         const name=row.querySelector('td b')?.textContent||'';const lib=libs.find(x=>x.name===name);if(!lib)return;
         const typeCell=row.children[1];if(!typeCell)return;
-        const strategy=lib.kind==='mixed'?'AniDB + TMDB + Fanart':lib.kind==='anime'?'AniList + AniDB + TMDB':lib.kind==='series'?'TMDB (séries/episódios)':'TMDB + Fanart';
+        const strategy=lib.kind==='mixed'?'TMDB → AniDB → MyAnimeList → Fanart':lib.kind==='anime'?'AniList → AniDB → MyAnimeList → TMDB':lib.kind==='series'?'TMDB (séries/episódios)':'TMDB + Fanart';
         if(!typeCell.querySelector('.agent-strategy'))typeCell.insertAdjacentHTML('beforeend',`<small class="agent-strategy">${esc(strategy)}</small>`);
       });
     };
