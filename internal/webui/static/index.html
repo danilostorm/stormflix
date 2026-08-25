@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#090b10">
+  <title>StormFlix</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <div class="brand">STORM<span>FLIX</span></div>
+      <div class="tagline">Direct Play Only</div>
+    </div>
+    <div class="status"><span class="dot"></span> servidor online</div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">StormFlix Server</p>
+        <h1>Sua biblioteca. Seu armazenamento. Sem transcodificação.</h1>
+        <p>Cadastre o caminho já montado pelo rclone, faça a varredura e reproduza o arquivo diretamente.</p>
+      </div>
+      <div class="direct-card">
+        <strong>DIRECT PLAY</strong>
+        <span>Transcoding permanentemente desativado</span>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div><p class="eyebrow">Configuração</p><h2>Bibliotecas</h2></div>
+        <button id="reload" class="secondary">Atualizar</button>
+      </div>
+      <form id="library-form" class="library-form">
+        <input id="name" placeholder="Nome: Filmes 4K" required>
+        <select id="kind">
+          <option value="movies">Filmes</option>
+          <option value="series">Séries</option>
+          <option value="anime">Animes</option>
+          <option value="shows">Shows</option>
+          <option value="other">Outros</option>
+        </select>
+        <input id="path" placeholder="/media/Filmes 4K" required>
+        <button type="submit">Adicionar biblioteca</button>
+      </form>
+      <div id="message" class="message"></div>
+      <div id="libraries" class="libraries"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div><p class="eyebrow">Catálogo</p><h2>Mídias encontradas</h2></div>
+        <input id="search" class="search" placeholder="Buscar título...">
+      </div>
+      <div id="media" class="media-grid"></div>
+    </section>
+  </main>
+
+  <template id="media-template">
+    <article class="media-card">
+      <div class="poster"><span>▶</span></div>
+      <div class="media-body">
+        <strong class="media-title"></strong>
+        <small class="media-meta"></small>
+        <a class="play" target="_blank">Reproduzir direto</a>
+      </div>
+    </article>
+  </template>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>
