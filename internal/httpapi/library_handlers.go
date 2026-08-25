@@ -40,9 +40,10 @@ func (s *server) listLibraries(w http.ResponseWriter, r *http.Request) {
 }
 func (s *server) createLibrary(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Name string `json:"name"`
-		Kind string `json:"kind"`
-		Path string `json:"path"`
+		Name    string `json:"name"`
+		Kind    string `json:"kind"`
+		Path    string `json:"path"`
+		Enabled bool   `json:"enabled"`
 	}
 	if decodeJSON(w, r, &in) != nil {
 		return
