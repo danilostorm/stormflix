@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/danilostorm/stormflix/internal/assets"
+	"github.com/danilostorm/stormflix/internal/config"
 	appsettings "github.com/danilostorm/stormflix/internal/settings"
 )
 
@@ -54,6 +55,7 @@ func (s *server) updateSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	effective = config.NormalizeCredentials(effective)
 	if err := s.assets.Configure(effective.AssetDir, effective.AssetPublicBaseURL); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
