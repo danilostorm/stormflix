@@ -79,6 +79,27 @@ func (s *server) startMetadataJob(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, job)
 }
 
+func (s *server) retryMetadataErrors(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r.PathValue("id"))
+	if err != nil {
+		writeError(w, 400, err)
+		return
+	}
+	if err := s.metadata.ValidateLibraryJob(r.Context(), id); err != nil {
+		writeError(w, 409, err)
+		return
+	}
+	job, err := s.metadata.StartLibraryErrorJob(r.Context(), id)
+	if err != nil {
+		writeError(w, 400, err)
+		return
+	}
+	go s.metadata.WatchJob(job.ID, 35*time.Minute)
+	uid := currentUser(r).ID
+	s.admin.Log(r.Context(), "info", "metadata", "Metadata error-only retry started", &uid, job.Library)
+	writeJSON(w, http.StatusAccepted, job)
+}
+
 func (s *server) refreshMediaMetadata(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r.PathValue("id"))
 	if err != nil {
