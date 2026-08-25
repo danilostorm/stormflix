@@ -115,6 +115,7 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("GET /api/v1/admin/metadata/errors", s.requireRole("operator", s.metadataErrors))
 	mux.HandleFunc("GET /api/v1/admin/metadata/jobs", s.requireRole("operator", s.metadataJobs))
 	mux.HandleFunc("POST /api/v1/admin/libraries/{id}/metadata", s.requireRole("operator", s.startMetadataJob))
+	mux.HandleFunc("POST /api/v1/admin/libraries/{id}/metadata/errors/retry", s.requireRole("operator", s.retryMetadataErrors))
 	mux.HandleFunc("POST /api/v1/admin/media/{id}/metadata", s.requireRole("operator", s.refreshMediaMetadata))
 	mux.HandleFunc("GET /api/v1/admin/media/{id}/artwork", s.requireRole("operator", s.mediaArtwork))
 	mux.HandleFunc("POST /api/v1/admin/media/{id}/artwork/{artwork_id}/select", s.requireRole("manager", s.selectMediaArtwork))
