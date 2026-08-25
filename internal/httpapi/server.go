@@ -16,7 +16,7 @@ import (
 )
 
 const sessionCookie = "stormflix_session"
-const version = "0.2.0-admin"
+const version = "0.2.1-admin"
 
 type contextKey string
 
@@ -61,6 +61,7 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("GET /api/v1/admin/storage", s.requireRole("operator", s.storage))
 	mux.HandleFunc("GET /api/v1/admin/playbacks", s.requireRole("operator", s.playbacks))
 	mux.HandleFunc("GET /api/v1/admin/server", s.requireRole("operator", s.serverInfo))
+	mux.HandleFunc("GET /api/v1/admin/filesystem", s.requireRole("manager", s.browseFilesystem))
 	staticFS, err := fs.Sub(webui.Static, "static")
 	if err != nil {
 		panic(err)
