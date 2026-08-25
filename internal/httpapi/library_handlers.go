@@ -128,6 +128,22 @@ func (s *server) scanLibrary(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]any{"status": "running", "library_id": id, "message": "scan started in background"})
 }
 
+func (s *server) cancelLibraryScan(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r.PathValue("id"))
+	if err != nil {
+		writeError(w, 400, err)
+		return
+	}
+	uid := currentUser(r).ID
+	if err := s.libraries.CancelAdminScan(r.Context(), id); err != nil {
+		s.admin.Log(r.Context(), "error", "scanner", "Library scan cancel failed", &uid, err.Error())
+		writeError(w, 409, err)
+		return
+	}
+	s.admin.Log(r.Context(), "info", "scanner", "Library scan cancel requested", &uid, strconv.FormatInt(id, 10))
+	writeJSON(w, http.StatusAccepted, map[string]any{"status": "cancelling", "library_id": id})
+}
+
 func (s *server) listMedia(w http.ResponseWriter, r *http.Request) {
 	libraryID, _ := strconv.ParseInt(r.URL.Query().Get("library_id"), 10, 64)
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
