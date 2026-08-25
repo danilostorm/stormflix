@@ -6,6 +6,7 @@
   <meta name="theme-color" content="#050609">
   <title>StormFlix</title>
   <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/ux-v2.css">
 </head>
 <body>
 <div id="login" class="login-overlay hidden">
@@ -25,7 +26,7 @@
 <div id="shell" class="hidden">
   <header id="topbar" class="topbar">
     <a href="#" class="brand" id="brand-home">STORM<span>FLIX</span></a>
-    <nav class="main-nav">
+    <nav class="main-nav" aria-label="Navegação principal">
       <button data-nav="home" class="active">Início</button>
       <button data-nav="movie">Filmes</button>
       <button data-nav="series">Séries</button>
@@ -104,13 +105,14 @@
   </article>
 </div>
 
-<div id="player-modal" class="player-modal hidden">
-  <div class="player-bar"><strong id="player-title"></strong><div><span class="direct-badge">DIRECT PLAY</span><button id="player-close">✕</button></div></div>
+<div id="player-modal" class="player-modal hidden" role="dialog" aria-label="Player StormFlix">
+  <div class="player-bar"><strong id="player-title"></strong><div><span class="direct-badge">DIRECT PLAY</span><button id="player-close" aria-label="Fechar player">✕</button></div></div>
   <video id="player" controls playsinline preload="metadata"></video>
   <div id="player-help" class="player-help hidden">Este navegador não reproduziu o formato diretamente. O arquivo não será transcodificado; use um cliente StormFlix compatível ou um formato suportado pelo navegador.</div>
 </div>
 
 <audio id="theme-audio" preload="none"></audio>
 <script src="/app.js" defer></script>
+<script src="/ux-v2.js" defer></script>
 </body>
 </html>
