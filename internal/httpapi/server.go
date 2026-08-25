@@ -20,7 +20,7 @@ import (
 )
 
 const sessionCookie = "stormflix_session"
-const version = "0.5.0-webcompat"
+const version = "0.6.0-series-monitoring"
 
 type contextKey string
 
@@ -55,6 +55,9 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	if err != nil {
 		panic(err)
 	}
+	if err := admin.EnsureMonitoring(db); err != nil {
+		panic(err)
+	}
 	s := &server{
 		db: db, libraries: libraries, media: media.NewService(db), auth: auth.NewService(db), admin: admin.NewService(db),
 		assets: assetStore, settings: settingsService, baseConfig: cfg, config: effective, startedAt: time.Now(),
@@ -78,6 +81,8 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("DELETE /api/v1/libraries/{id}", s.requireRole("manager", s.deleteLibrary))
 	mux.HandleFunc("POST /api/v1/libraries/{id}/scan", s.requireRole("operator", s.scanLibrary))
 	mux.HandleFunc("GET /api/v1/home", s.requireAuth(s.homeFeed))
+	mux.HandleFunc("GET /api/v1/series", s.requireAuth(s.listSeries))
+	mux.HandleFunc("GET /api/v1/series/{id}", s.requireAuth(s.seriesDetails))
 	mux.HandleFunc("GET /api/v1/media", s.requireAuth(s.listMedia))
 	mux.HandleFunc("GET /api/v1/media/{id}", s.requireAuth(s.mediaDetails))
 	mux.HandleFunc("GET /api/v1/media/{id}/stream", s.requireAuth(s.streamMedia))
@@ -86,6 +91,8 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("GET /api/v1/media/{id}/versions", s.requireAuth(s.mediaVersions))
 	mux.HandleFunc("GET /api/v1/media/{id}/subtitles", s.requireAuth(s.mediaSubtitles))
 	mux.HandleFunc("GET /api/v1/media/{id}/subtitles/{subtitle_id}/vtt", s.requireAuth(s.subtitleVTT))
+	mux.HandleFunc("POST /api/v1/media/{id}/playback", s.requireAuth(s.playbackHeartbeat))
+	mux.HandleFunc("DELETE /api/v1/media/{id}/playback", s.requireAuth(s.playbackStop))
 	mux.HandleFunc("GET /api/v1/admin/dashboard", s.requireRole("operator", s.adminDashboard))
 	mux.HandleFunc("GET /api/v1/admin/users", s.requireRole("admin", s.listUsers))
 	mux.HandleFunc("POST /api/v1/admin/users", s.requireRole("admin", s.createUser))
@@ -96,6 +103,7 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("GET /api/v1/admin/logs", s.requireRole("operator", s.logs))
 	mux.HandleFunc("GET /api/v1/admin/storage", s.requireRole("operator", s.storage))
 	mux.HandleFunc("GET /api/v1/admin/playbacks", s.requireRole("operator", s.playbacks))
+	mux.HandleFunc("GET /api/v1/admin/monitoring", s.requireRole("operator", s.monitoringOverview))
 	mux.HandleFunc("GET /api/v1/admin/server", s.requireRole("operator", s.serverInfo))
 	mux.HandleFunc("GET /api/v1/admin/filesystem", s.requireRole("manager", s.browseFilesystem))
 	mux.HandleFunc("GET /api/v1/admin/agents", s.requireRole("operator", s.agentStatus))
