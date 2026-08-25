@@ -82,18 +82,33 @@ func (s *Service) Home(ctx context.Context, allowedLibraryIDs []int64, heroMode,
 	}
 
 	libraryOrder := []string{}
+	seenLibraries := map[string]bool{}
 	byLibrary := map[string][]Item{}
 	for _, item := range recent {
-		if _, ok := byLibrary[item.LibraryName]; !ok {
-			libraryOrder = append(libraryOrder, item.LibraryName)
+		name := strings.TrimSpace(item.LibraryName)
+		if name == "" || seenLibraries[name] {
+			continue
 		}
+		seenLibraries[name] = true
+		libraryOrder = append(libraryOrder, name)
 	}
 	for _, item := range items {
-		if len(byLibrary[item.LibraryName]) < 24 {
-			byLibrary[item.LibraryName] = append(byLibrary[item.LibraryName], item)
+		name := strings.TrimSpace(item.LibraryName)
+		if name == "" {
+			continue
+		}
+		if !seenLibraries[name] {
+			seenLibraries[name] = true
+			libraryOrder = append(libraryOrder, name)
+		}
+		if len(byLibrary[name]) < 24 {
+			byLibrary[name] = append(byLibrary[name], item)
 		}
 	}
 	for _, name := range libraryOrder {
+		if len(byLibrary[name]) == 0 {
+			continue
+		}
 		feed.Rows = append(feed.Rows, HomeRow{ID: "library-" + slug(name), Title: name, Items: byLibrary[name]})
 	}
 
