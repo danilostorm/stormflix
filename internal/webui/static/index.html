@@ -1,75 +1,17 @@
 <!doctype html>
 <html lang="pt-BR">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#090b10">
-  <title>StormFlix</title>
-  <link rel="stylesheet" href="/styles.css">
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#090b10">
+  <title>StormFlix</title><link rel="stylesheet" href="/styles.css">
+  <style>.hidden{display:none!important}.top-actions,.catalog-tools{display:flex;gap:10px;align-items:center}.login-overlay{position:fixed;z-index:100;inset:0;background:rgba(5,7,10,.94);display:grid;place-items:center}.login-card{width:min(410px,92vw);display:grid;gap:11px;background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:30px}.login-card h2{margin:4px 0}.login-card a{color:var(--muted);text-align:center}.catalog-tools select{min-width:190px}@media(max-width:850px){.catalog-tools{width:100%;flex-direction:column}}</style>
 </head>
 <body>
-  <header class="topbar">
-    <div>
-      <div class="brand">STORM<span>FLIX</span></div>
-      <div class="tagline">Direct Play Only</div>
-    </div>
-    <div class="status"><span class="dot"></span> servidor online</div>
-  </header>
-
-  <main>
-    <section class="hero">
-      <div>
-        <p class="eyebrow">StormFlix Server</p>
-        <h1>Sua biblioteca. Seu armazenamento. Sem transcodificação.</h1>
-        <p>Cadastre o caminho já montado pelo rclone, faça a varredura e reproduza o arquivo diretamente.</p>
-      </div>
-      <div class="direct-card">
-        <strong>DIRECT PLAY</strong>
-        <span>Transcoding permanentemente desativado</span>
-      </div>
-    </section>
-
-    <section class="panel">
-      <div class="panel-head">
-        <div><p class="eyebrow">Configuração</p><h2>Bibliotecas</h2></div>
-        <button id="reload" class="secondary">Atualizar</button>
-      </div>
-      <form id="library-form" class="library-form">
-        <input id="name" placeholder="Nome: Filmes 4K" required>
-        <select id="kind">
-          <option value="movies">Filmes</option>
-          <option value="series">Séries</option>
-          <option value="anime">Animes</option>
-          <option value="shows">Shows</option>
-          <option value="other">Outros</option>
-        </select>
-        <input id="path" placeholder="/media/Filmes 4K" required>
-        <button type="submit">Adicionar biblioteca</button>
-      </form>
-      <div id="message" class="message"></div>
-      <div id="libraries" class="libraries"></div>
-    </section>
-
-    <section class="panel">
-      <div class="panel-head">
-        <div><p class="eyebrow">Catálogo</p><h2>Mídias encontradas</h2></div>
-        <input id="search" class="search" placeholder="Buscar título...">
-      </div>
-      <div id="media" class="media-grid"></div>
-    </section>
-  </main>
-
-  <template id="media-template">
-    <article class="media-card">
-      <div class="poster"><span>▶</span></div>
-      <div class="media-body">
-        <strong class="media-title"></strong>
-        <small class="media-meta"></small>
-        <a class="play" target="_blank">Reproduzir direto</a>
-      </div>
-    </article>
-  </template>
-
-  <script src="/app.js" defer></script>
-</body>
-</html>
+<div id="login" class="login-overlay hidden"><form id="login-form" class="login-card"><div class="brand">STORM<span>FLIX</span></div><h2>Entrar</h2><input id="login-user" placeholder="Usuário" required><input id="login-pass" type="password" placeholder="Senha" required><button>Entrar</button><p id="login-error" class="message error"></p><a href="/admin/">Administração</a></form></div>
+<header class="topbar"><div><div class="brand">STORM<span>FLIX</span></div><div class="tagline">Direct Play Only</div></div><div class="top-actions"><a id="admin-link" class="secondary hidden" href="/admin/">Admin</a><span id="user-label" class="status"></span><button id="logout" class="secondary hidden">Sair</button></div></header>
+<main>
+  <section class="hero"><div><p class="eyebrow">StormFlix Server</p><h1>Sua biblioteca. Seu armazenamento. Sem transcodificação.</h1><p>Catálogo leve com reprodução direta dos arquivos do seu servidor.</p></div><div class="direct-card"><strong>DIRECT PLAY</strong><span>Transcoding permanentemente desativado</span></div></section>
+  <section class="panel"><div class="panel-head"><div><p class="eyebrow">Catálogo</p><h2>Mídias</h2></div><div class="catalog-tools"><select id="library-filter"><option value="">Todas as bibliotecas</option></select><input id="search" class="search" placeholder="Buscar título..."></div></div><div id="message" class="message"></div><div id="media" class="media-grid"></div></section>
+</main>
+<template id="media-template"><article class="media-card"><div class="poster"><span>▶</span></div><div class="media-body"><strong class="media-title"></strong><small class="media-meta"></small><a class="play" target="_blank">Reproduzir direto</a></div></article></template>
+<script src="/app.js" defer></script>
+</body></html>
