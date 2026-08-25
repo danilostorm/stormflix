@@ -18,4 +18,13 @@ body.sf-keyboard-nav .header-actions a:focus{
 }
 body.sf-keyboard-nav .media-tile:focus{transform:translateY(-5px) scale(1.045);z-index:20}
 body.sf-keyboard-nav .media-tile:focus .tile-play{opacity:1;transform:none}
-@media(max-width:800px){.row-nav{display:none!important}}
+
+/* When Filmes/Séries/Animes hide the hero, never let posters slide behind the fixed top menu. */
+#hero.hidden ~ #catalog-view:not(.hidden){margin-top:0!important;padding-top:104px!important}
+#hero.hidden ~ #catalog-view:not(.hidden) .content-row:first-child{padding-top:6px}
+#hero.hidden ~ #catalog-view:not(.hidden) .rows{min-height:calc(100vh - 104px)}
+
+@media(max-width:800px){
+  .row-nav{display:none!important}
+  #hero.hidden ~ #catalog-view:not(.hidden){padding-top:76px!important}
+}
