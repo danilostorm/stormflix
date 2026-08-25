@@ -30,6 +30,10 @@ type Item struct {
 	PosterURL      string   `json:"poster_url"`
 	BackdropURL    string   `json:"backdrop_url"`
 	LogoURL        string   `json:"logo_url"`
+	EntityType     string   `json:"entity_type,omitempty"`
+	SeriesID       string   `json:"series_id,omitempty"`
+	SeasonCount    int      `json:"season_count,omitempty"`
+	EpisodeCount   int      `json:"episode_count,omitempty"`
 }
 
 type StreamItem struct {
