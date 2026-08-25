@@ -2,6 +2,19 @@
 (function(){
   const modal=document.querySelector('#player-modal');
 
+  const originalRenderRows=renderRows;
+  renderRows=function(rows){
+    const seen=new Set();
+    const clean=(rows||[]).filter(row=>{
+      const ids=(row.items||[]).map(item=>item.id).join(',');
+      const key=String(row.id||row.title||'')+'|'+ids;
+      if(seen.has(key))return false;
+      seen.add(key);
+      return true;
+    });
+    originalRenderRows(clean);
+  };
+
   const originalSetupTheme=setupTheme;
   setupTheme=function(d){
     const series=d && d.media_type==='series';
