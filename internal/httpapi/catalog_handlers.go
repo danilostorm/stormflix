@@ -14,7 +14,7 @@ func (s *server) homeFeed(w http.ResponseWriter, r *http.Request) {
 	if roleLevel(u.Role) < 2 {
 		allowed = u.LibraryIDs
 	}
-	feed, err := s.media.Home(r.Context(), allowed, s.config.HomeHeroMode, s.config.ServerName, s.config.ThemePreviewEnabled, s.config.ThemePreviewVolume, s.config.ThemePreviewAutoplay)
+	feed, err := s.media.HomeGrouped(r.Context(), allowed, s.config.HomeHeroMode, s.config.ServerName, s.config.ThemePreviewEnabled, s.config.ThemePreviewVolume, s.config.ThemePreviewAutoplay)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
