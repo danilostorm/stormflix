@@ -1,114 +1,14 @@
-const $ = (selector) => document.querySelector(selector);
-const api = '/api/v1';
-
-async function request(url, options = {}) {
-  const response = await fetch(url, {
-    ...options,
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-  return data;
-}
-
-function message(text, error = false) {
-  const el = $('#message');
-  el.textContent = text;
-  el.className = `message ${error ? 'error' : 'success'}`;
-  if (text) setTimeout(() => { el.textContent = ''; el.className = 'message'; }, 5000);
-}
-
-async function loadLibraries() {
-  const libraries = await request(`${api}/libraries`);
-  const root = $('#libraries');
-  root.innerHTML = '';
-  if (!libraries.length) {
-    root.innerHTML = '<div class="empty">Nenhuma biblioteca cadastrada ainda.</div>';
-    return;
-  }
-
-  for (const lib of libraries) {
-    const card = document.createElement('div');
-    card.className = 'library-card';
-    card.innerHTML = `
-      <div><strong>${escapeHTML(lib.name)}</strong><small>${escapeHTML(lib.kind)} · ${escapeHTML(lib.path)}</small></div>
-      <button data-scan="${lib.id}">Escanear</button>`;
-    root.appendChild(card);
-  }
-
-  root.querySelectorAll('[data-scan]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      button.disabled = true;
-      button.textContent = 'Escaneando...';
-      try {
-        const result = await request(`${api}/libraries/${button.dataset.scan}/scan`, { method: 'POST' });
-        message(`${result.files} arquivos encontrados.`);
-        await loadMedia();
-      } catch (err) {
-        message(err.message, true);
-      } finally {
-        button.disabled = false;
-        button.textContent = 'Escanear';
-      }
-    });
-  });
-}
-
-async function loadMedia() {
-  const q = $('#search').value.trim();
-  const items = await request(`${api}/media?limit=200&q=${encodeURIComponent(q)}`);
-  const root = $('#media');
-  root.innerHTML = '';
-  if (!items.length) {
-    root.innerHTML = '<div class="empty">Nenhuma mídia encontrada. Escaneie uma biblioteca.</div>';
-    return;
-  }
-
-  for (const item of items) {
-    const fragment = $('#media-template').content.cloneNode(true);
-    fragment.querySelector('.media-title').textContent = item.title;
-    fragment.querySelector('.media-meta').textContent = `${item.extension.replace('.', '').toUpperCase()} · ${formatBytes(item.size_bytes)}`;
-    fragment.querySelector('.play').href = `${api}/media/${item.id}/stream`;
-    root.appendChild(fragment);
-  }
-}
-
-$('#library-form').addEventListener('submit', async (event) => {
-  event.preventDefault();
-  try {
-    await request(`${api}/libraries`, {
-      method: 'POST',
-      body: JSON.stringify({ name: $('#name').value, kind: $('#kind').value, path: $('#path').value }),
-    });
-    event.target.reset();
-    message('Biblioteca adicionada. Agora clique em Escanear.');
-    await loadLibraries();
-  } catch (err) {
-    message(err.message, true);
-  }
-});
-
-$('#reload').addEventListener('click', async () => {
-  await Promise.all([loadLibraries(), loadMedia()]);
-});
-
-let searchTimer;
-$('#search').addEventListener('input', () => {
-  clearTimeout(searchTimer);
-  searchTimer = setTimeout(loadMedia, 250);
-});
-
-function formatBytes(bytes) {
-  if (!bytes) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-  return `${(bytes / Math.pow(1024, i)).toFixed(i > 2 ? 2 : 1)} ${units[i]}`;
-}
-
-function escapeHTML(value) {
-  return String(value).replace(/[&<>'"]/g, (char) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
-  })[char]);
-}
-
-Promise.all([loadLibraries(), loadMedia()]).catch((err) => message(err.message, true));
+const $=s=>document.querySelector(s),api='/api/v1';let me=null;
+async function request(path,opt={}){const r=await fetch(api+path,{...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});const d=await r.json().catch(()=>({}));if(!r.ok)throw Object.assign(new Error(d.error||`HTTP ${r.status}`),{status:r.status});return d}
+async function boot(){const setup=await request('/setup/status');if(setup.needs_setup){location.href='/admin/';return}try{me=await request('/auth/me');authenticated()}catch{showLogin()}}
+function showLogin(){$('#login').classList.remove('hidden')}
+function authenticated(){$('#login').classList.add('hidden');$('#user-label').textContent=me.display_name;$('#logout').classList.remove('hidden');if(me.role!=='user')$('#admin-link').classList.remove('hidden');Promise.all([loadLibraries(),loadMedia()]).catch(e=>message(e.message,true))}
+$('#login-form').onsubmit=async e=>{e.preventDefault();try{me=await request('/auth/login',{method:'POST',body:JSON.stringify({username:$('#login-user').value,password:$('#login-pass').value})});authenticated()}catch(err){$('#login-error').textContent=err.message}}
+$('#logout').onclick=async()=>{await request('/auth/logout',{method:'POST'}).catch(()=>{});location.reload()}
+async function loadLibraries(){const a=await request('/libraries');const s=$('#library-filter');s.innerHTML='<option value="">Todas as bibliotecas</option>'+a.map(x=>`<option value="${x.id}">${escapeHTML(x.name)}</option>`).join('')}
+async function loadMedia(){const q=$('#search').value.trim(),lib=$('#library-filter').value;const items=await request(`/media?limit=200&q=${encodeURIComponent(q)}&library_id=${encodeURIComponent(lib)}`);const root=$('#media');root.innerHTML='';if(!items.length){root.innerHTML='<div class="empty">Nenhuma mídia disponível para este perfil.</div>';return}for(const item of items){const f=$('#media-template').content.cloneNode(true);f.querySelector('.media-title').textContent=item.title;f.querySelector('.media-meta').textContent=`${item.extension.replace('.','').toUpperCase()} · ${formatBytes(item.size_bytes)}`;f.querySelector('.play').href=`${api}/media/${item.id}/stream`;root.appendChild(f)}}
+let timer;$('#search').oninput=()=>{clearTimeout(timer);timer=setTimeout(loadMedia,250)};$('#library-filter').onchange=loadMedia;
+function message(t,e=false){$('#message').textContent=t;$('#message').className=`message ${e?'error':'success'}`}
+function formatBytes(b){if(!b)return'0 B';const u=['B','KB','MB','GB','TB'],i=Math.min(Math.floor(Math.log(b)/Math.log(1024)),u.length-1);return`${(b/1024**i).toFixed(i>2?2:1)} ${u[i]}`}
+function escapeHTML(v){return String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+boot().catch(e=>message(e.message,true));
