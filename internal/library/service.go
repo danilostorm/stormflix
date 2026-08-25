@@ -29,14 +29,15 @@ type ScanResult struct {
 }
 
 type Service struct {
-	db      *sql.DB
-	scanMu  sync.Mutex
-	running map[int64]bool
+	db         *sql.DB
+	scanMu     sync.Mutex
+	running    map[int64]bool
+	scanCancel map[int64]context.CancelFunc
 }
 
 func NewService(db *sql.DB) *Service {
-	s := &Service{db: db, running: map[int64]bool{}}
-	_, _ = db.Exec(`UPDATE libraries SET last_scan_status='interrupted',last_error='scan interrupted by server restart',updated_at=CURRENT_TIMESTAMP WHERE last_scan_status='running'`)
+	s := &Service{db: db, running: map[int64]bool{}, scanCancel: map[int64]context.CancelFunc{}}
+	_, _ = db.Exec(`UPDATE libraries SET last_scan_status='interrupted',last_error='scan interrupted by server restart',updated_at=CURRENT_TIMESTAMP WHERE last_scan_status IN ('running','cancelling')`)
 	return s
 }
 
@@ -161,8 +162,8 @@ VALUES(?, ?, ?, ?, ?, ?, 1)
 ON CONFLICT(library_id, path) DO UPDATE SET
     title = excluded.title,
     extension = excluded.extension,
-    size_bytes = excluded.size_bytes,
-    modified_unix = excluded.modified_unix,
+    size_bytes = CASE WHEN excluded.size_bytes > 0 THEN excluded.size_bytes ELSE media.size_bytes END,
+    modified_unix = CASE WHEN excluded.modified_unix > 0 THEN excluded.modified_unix ELSE media.modified_unix END,
     available = 1,
     updated_at = CURRENT_TIMESTAMP`,
 			libraryID, file.title, file.path, file.extension, file.sizeBytes, file.modifiedUnix)
@@ -182,6 +183,7 @@ func (s *Service) discover(ctx context.Context, lib Library, libraryID int64) ([
 	files := make([]discoveredFile, 0, 256)
 	dirs := []string{lib.Path}
 	lastProgress := time.Time{}
+	statWarnings := 0
 
 	for len(dirs) > 0 {
 		if err := ctx.Err(); err != nil {
@@ -206,17 +208,22 @@ func (s *Service) discover(ctx context.Context, lib Library, libraryID int64) ([
 			if !isVideo(path) {
 				continue
 			}
-			info, err := entryInfoContext(ctx, entry)
-			if err != nil {
-				return nil, fmt.Errorf("stat %s: %w", path, err)
+			file := discoveredFile{
+				path:      path,
+				title:     titleFromFilename(path),
+				extension: strings.ToLower(filepath.Ext(path)),
 			}
-			files = append(files, discoveredFile{
-				path:         path,
-				title:        titleFromFilename(path),
-				extension:    strings.ToLower(filepath.Ext(path)),
-				sizeBytes:    info.Size(),
-				modifiedUnix: info.ModTime().Unix(),
-			})
+			if info, infoErr := entryInfoContext(ctx, entry); infoErr == nil {
+				file.sizeBytes = info.Size()
+				file.modifiedUnix = info.ModTime().Unix()
+			} else if ctx.Err() != nil {
+				return nil, ctx.Err()
+			} else {
+				// A slow FUSE/rclone stat must not make an otherwise visible video
+				// disappear from the catalog. Keep the path and preserve old size/mtime.
+				statWarnings++
+			}
+			files = append(files, file)
 		}
 
 		if lastProgress.IsZero() || time.Since(lastProgress) >= 1500*time.Millisecond {
@@ -225,7 +232,10 @@ func (s *Service) discover(ctx context.Context, lib Library, libraryID int64) ([
 				rel = "/"
 			}
 			msg := fmt.Sprintf("scanning %s · %d files found", rel, len(files))
-			_, _ = s.db.Exec(`UPDATE libraries SET last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND last_scan_status='running'`, msg, libraryID)
+			if statWarnings > 0 {
+				msg += fmt.Sprintf(" · %d slow stats skipped", statWarnings)
+			}
+			_, _ = s.db.Exec(`UPDATE libraries SET last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND last_scan_status IN ('running','cancelling')`, msg, libraryID)
 			lastProgress = time.Now()
 		}
 	}
@@ -238,7 +248,7 @@ type readDirResult struct {
 }
 
 func readDirContext(parent context.Context, path string) ([]os.DirEntry, error) {
-	ctx, cancel := context.WithTimeout(parent, 90*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 60*time.Second)
 	defer cancel()
 	ch := make(chan readDirResult, 1)
 	go func() {
@@ -259,7 +269,7 @@ type infoResult struct {
 }
 
 func entryInfoContext(parent context.Context, entry os.DirEntry) (os.FileInfo, error) {
-	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 12*time.Second)
 	defer cancel()
 	ch := make(chan infoResult, 1)
 	go func() {
