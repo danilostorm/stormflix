@@ -18,11 +18,12 @@ var (
 )
 
 type ParsedName struct {
-	Title      string
-	Year       int
-	Season     int
-	Episode    int
-	Alternates []string
+	Title       string
+	Year        int
+	Season      int
+	Episode     int
+	LikelyMovie bool
+	Alternates  []string
 }
 
 func (p ParsedName) SearchTitles() []string {
@@ -45,14 +46,17 @@ func ParseFilename(path, libraryKind string) ParsedName {
 	clean := cleanMetadataText(base)
 
 	var out ParsedName
+	out.LikelyMovie = libraryKind == "movies" || (libraryKind == "anime" && animeMoviePath(path))
 	if match := seasonRE.FindStringSubmatch(clean); len(match) == 3 {
 		out.Season, _ = strconv.Atoi(match[1])
 		out.Episode, _ = strconv.Atoi(match[2])
 		clean = strings.Replace(clean, match[0], " ", 1)
+		out.LikelyMovie = false
 	} else if match := xEpisode.FindStringSubmatch(clean); len(match) == 3 {
 		out.Season, _ = strconv.Atoi(match[1])
 		out.Episode, _ = strconv.Atoi(match[2])
 		clean = strings.Replace(clean, match[0], " ", 1)
+		out.LikelyMovie = false
 	}
 
 	if match := yearRE.FindStringSubmatch(clean); len(match) == 2 {
@@ -68,6 +72,7 @@ func ParseFilename(path, libraryKind string) ParsedName {
 	// de Freeza". The movie number is useful for humans but usually hurts
 	// provider search, so remove it and use the franchise directory as context.
 	if libraryKind == "anime" && movieIndexRE.MatchString(out.Title) {
+		out.LikelyMovie = true
 		withoutIndex := compactTitle(movieIndexRE.ReplaceAllString(out.Title, " "))
 		withoutIndex = strings.Trim(withoutIndex, " -–—:·")
 		withoutIndex = compactTitle(withoutIndex)
@@ -101,6 +106,17 @@ func ParseFilename(path, libraryKind string) ParsedName {
 	out.Title = compactTitle(out.Title)
 	out.Alternates = uniqueTitles(out.Title, out.Alternates)
 	return out
+}
+
+func animeMoviePath(path string) bool {
+	clean := strings.ToLower(filepath.ToSlash(path))
+	markers := []string{"/filmes animes/", "/filmes anime/", "/anime movies/", "/anime filmes/"}
+	for _, marker := range markers {
+		if strings.Contains(clean, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func cleanMetadataText(value string) string {
