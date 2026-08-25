@@ -27,6 +27,12 @@ jobs:
       - name: Format check
         run: test -z "$(gofmt -l ./cmd ./internal)"
 
+      - name: JavaScript syntax
+        run: |
+          node --check internal/webui/static/admin/admin.js
+          node --check internal/webui/static/admin/admin-browser.js
+          node --check internal/webui/static/app.js
+
       - name: Test
         run: go test ./...
 
