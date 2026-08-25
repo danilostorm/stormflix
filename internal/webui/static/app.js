@@ -1,5 +1,5 @@
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)],api='/api/v1';
-let me=null,feed=null,currentDetail=null,searchTimer=null;
+let me=null,feed=null,currentDetail=null,searchTimer=null,detailReturnState=null;
 const themeAudio=$('#theme-audio'),player=$('#player');
 
 async function request(path,opt={}){
@@ -106,7 +106,54 @@ function allFeedItems(){
 }
 function findItem(id){return allFeedItems().find(x=>x.id===id)}
 
+function detailOpen(){return !$('#detail-modal').classList.contains('hidden')}
+function enterDetailPage(){
+  if(!detailOpen()){
+    detailReturnState={
+      heroHidden:$('#hero').classList.contains('hidden'),
+      searchHidden:$('#search-view').classList.contains('hidden'),
+      catalogHidden:$('#catalog-view').classList.contains('hidden'),
+      scrollY:window.scrollY
+    };
+  }
+  $('#hero').classList.add('hidden');
+  $('#search-view').classList.add('hidden');
+  $('#catalog-view').classList.add('hidden');
+  $('#detail-modal').classList.remove('hidden');
+  $('#detail-modal').setAttribute('aria-hidden','false');
+  document.body.classList.add('detail-open');
+  window.scrollTo({top:0,behavior:'auto'});
+}
+function discardDetailPage(){
+  if(!detailOpen())return;
+  stopTheme();
+  $('#detail-modal').classList.add('hidden');
+  $('#detail-modal').setAttribute('aria-hidden','true');
+  document.body.classList.remove('detail-open');
+  currentDetail=null;
+  detailReturnState=null;
+}
+function restoreFromDetailPage(){
+  stopTheme();
+  currentDetail=null;
+  $('#detail-modal').classList.add('hidden');
+  $('#detail-modal').setAttribute('aria-hidden','true');
+  document.body.classList.remove('detail-open');
+  const state=detailReturnState;
+  detailReturnState=null;
+  if(!state){
+    renderHero(feed?.hero);$('#catalog-view').classList.remove('hidden');return;
+  }
+  $('#hero').classList.toggle('hidden',state.heroHidden);
+  $('#search-view').classList.toggle('hidden',state.searchHidden);
+  $('#catalog-view').classList.toggle('hidden',state.catalogHidden);
+  requestAnimationFrame(()=>window.scrollTo({top:state.scrollY||0,behavior:'auto'}));
+}
+window.sfEnterDetailPage=enterDetailPage;
+window.sfDiscardDetailPage=discardDetailPage;
+
 $$('[data-nav]').forEach(button=>button.onclick=()=>{
+  discardDetailPage();
   const mode=button.dataset.nav;
   $$('[data-nav]').forEach(x=>x.classList.toggle('active',x===button));
   if(mode==='home'){showHome();return}
@@ -121,6 +168,7 @@ $$('[data-nav]').forEach(button=>button.onclick=()=>{
 });
 
 function showHome(){
+  discardDetailPage();
   $$('[data-nav]').forEach(x=>x.classList.toggle('active',x.dataset.nav==='home'));
   $('#search-view').classList.add('hidden');
   $('#catalog-view').classList.remove('hidden');
@@ -130,6 +178,7 @@ function showHome(){
 }
 
 $('#search-toggle').onclick=()=>{
+  discardDetailPage();
   stopTheme();
   $('#hero').classList.add('hidden');
   $('#catalog-view').classList.add('hidden');
@@ -176,9 +225,7 @@ async function openDetail(id){
     renderCast(d.cast||[]);
     renderRelated(d.related||[]);
     setupTheme(d);
-    $('#detail-modal').classList.remove('hidden');
-    $('#detail-modal').setAttribute('aria-hidden','false');
-    document.body.classList.add('modal-open');
+    enterDetailPage();
   }catch(err){console.error(err)}
 }
 
@@ -211,12 +258,7 @@ function setupTheme(d){
 }
 
 $$('[data-close-detail]').forEach(x=>x.onclick=closeDetail);
-function closeDetail(){
-  stopTheme();currentDetail=null;
-  $('#detail-modal').classList.add('hidden');
-  $('#detail-modal').setAttribute('aria-hidden','true');
-  document.body.classList.remove('modal-open');
-}
+function closeDetail(){restoreFromDetailPage()}
 function stopTheme(){
   if(!themeAudio)return;
   themeAudio.pause();themeAudio.currentTime=0;themeAudio.removeAttribute('src');themeAudio.load();
@@ -258,7 +300,7 @@ function cssURL(v){return String(v??'').replace(/["\\\n\r]/g,'')}
 document.addEventListener('keydown',e=>{
   if(e.key!=='Escape')return;
   if(!$('#player-modal').classList.contains('hidden'))closePlayer();
-  else if(!$('#detail-modal').classList.contains('hidden'))closeDetail();
+  else if(detailOpen())closeDetail();
   else if(!$('#search-view').classList.contains('hidden'))showHome();
 });
 
