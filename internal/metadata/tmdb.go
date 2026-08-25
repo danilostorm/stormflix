@@ -38,34 +38,57 @@ func (p *TMDBProvider) Lookup(ctx context.Context, item SourceItem, parsed Parse
 	if !p.Ready() {
 		return Result{}, errors.New("TMDB is not configured")
 	}
-	isMovie := item.LibraryKind == "movies"
-	mediaType := "tv"
-	if isMovie {
-		mediaType = "movie"
+
+	titles := parsed.SearchTitles()
+	if len(titles) == 0 {
+		titles = []string{parsed.Title}
 	}
-	id, err := p.search(ctx, mediaType, parsed.Title, parsed.Year)
-	if err != nil {
-		return Result{}, err
+	mediaTypes := []string{"tv"}
+	switch item.LibraryKind {
+	case "movies":
+		mediaTypes = []string{"movie"}
+	case "series":
+		mediaTypes = []string{"tv"}
+	case "anime":
+		if parsed.LikelyMovie {
+			mediaTypes = []string{"movie", "tv"}
+		} else {
+			mediaTypes = []string{"tv", "movie"}
+		}
+	default:
+		mediaTypes = []string{"movie", "tv"}
 	}
-	if id == 0 {
-		return Result{}, errors.New("TMDB: no match")
+
+	searched := make([]string, 0, len(mediaTypes)*len(titles))
+	for _, mediaType := range mediaTypes {
+		for _, title := range titles {
+			searched = append(searched, mediaType+":"+title)
+			id, err := p.search(ctx, mediaType, title, parsed.Year)
+			if err != nil {
+				return Result{}, err
+			}
+			if id == 0 {
+				continue
+			}
+			if mediaType == "movie" {
+				return p.movie(ctx, id, parsed)
+			}
+			return p.tv(ctx, id, parsed)
+		}
 	}
-	if isMovie {
-		return p.movie(ctx, id, parsed)
-	}
-	return p.tv(ctx, id, parsed)
+	return Result{}, fmt.Errorf("TMDB: no match; tried %s", strings.Join(searched, " | "))
 }
 
 type tmdbSearchResponse struct {
 	Results []struct {
-		ID           int64  `json:"id"`
-		Title        string `json:"title"`
-		OriginalTitle string `json:"original_title"`
-		Name         string `json:"name"`
-		OriginalName string `json:"original_name"`
-		ReleaseDate  string `json:"release_date"`
-		FirstAirDate string `json:"first_air_date"`
-		Popularity   float64 `json:"popularity"`
+		ID            int64   `json:"id"`
+		Title         string  `json:"title"`
+		OriginalTitle string  `json:"original_title"`
+		Name          string  `json:"name"`
+		OriginalName  string  `json:"original_name"`
+		ReleaseDate   string  `json:"release_date"`
+		FirstAirDate  string  `json:"first_air_date"`
+		Popularity    float64 `json:"popularity"`
 	} `json:"results"`
 }
 
