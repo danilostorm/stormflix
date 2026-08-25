@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -18,7 +19,7 @@ func (s *server) agentStatus(w http.ResponseWriter, r *http.Request) {
 	assetRoot, _ := filepath.Abs(s.assets.Root)
 	if s.config.AssetPublicBaseURL != "" {
 		mode = "external-cdn"
-	} else if rel, err := filepath.Rel(dataRoot, assetRoot); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	} else if rel, err := filepath.Rel(dataRoot, assetRoot); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
 		mode = "local"
 	}
 	writeJSON(w, 200, map[string]any{
