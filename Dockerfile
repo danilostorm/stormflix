@@ -6,7 +6,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/stormflix ./cmd/stormflix
 
 FROM alpine:3.21
-RUN apk add --no-cache ca-certificates tzdata && addgroup -S stormflix && adduser -S stormflix -G stormflix
+RUN apk add --no-cache ca-certificates tzdata ffmpeg && addgroup -S stormflix && adduser -S stormflix -G stormflix
 WORKDIR /app
 COPY --from=build /out/stormflix /usr/local/bin/stormflix
 RUN mkdir -p /data && chown -R stormflix:stormflix /data
