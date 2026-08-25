@@ -31,12 +31,14 @@ jobs:
         run: |
           node --check internal/webui/static/admin/admin.js
           node --check internal/webui/static/admin/admin-browser.js
+          node --check internal/webui/static/admin/admin-scanner.js
           node --check internal/webui/static/admin/admin-phase2.js
           node --check internal/webui/static/admin/admin-settings.js
           node --check internal/webui/static/admin/admin-diagnostics.js
           node --check internal/webui/static/app.js
           node --check internal/webui/static/ux-v2.js
           node --check internal/webui/static/ux-v3.js
+          node --check internal/webui/static/webcompat.js
 
       - name: Test
         run: go test ./...
