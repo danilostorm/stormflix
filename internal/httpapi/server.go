@@ -20,7 +20,7 @@ import (
 )
 
 const sessionCookie = "stormflix_session"
-const version = "0.4.3-navigation"
+const version = "0.5.0-webcompat"
 
 type contextKey string
 
@@ -81,6 +81,8 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("GET /api/v1/media", s.requireAuth(s.listMedia))
 	mux.HandleFunc("GET /api/v1/media/{id}", s.requireAuth(s.mediaDetails))
 	mux.HandleFunc("GET /api/v1/media/{id}/stream", s.requireAuth(s.streamMedia))
+	mux.HandleFunc("GET /api/v1/media/{id}/compatibility", s.requireAuth(s.mediaCompatibility))
+	mux.HandleFunc("GET /api/v1/media/{id}/remux", s.requireAuth(s.remuxMedia))
 	mux.HandleFunc("GET /api/v1/media/{id}/versions", s.requireAuth(s.mediaVersions))
 	mux.HandleFunc("GET /api/v1/media/{id}/subtitles", s.requireAuth(s.mediaSubtitles))
 	mux.HandleFunc("GET /api/v1/media/{id}/subtitles/{subtitle_id}/vtt", s.requireAuth(s.subtitleVTT))
