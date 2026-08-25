@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -72,7 +73,12 @@ func (s *server) startMetadataJob(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, err)
 		return
 	}
-	go s.metadata.WatchJob(job.ID, 35*time.Minute)
+	go func(jobID, libraryID int64) {
+		s.metadata.WatchJob(jobID, 35*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+		defer cancel()
+		s.metadata.RetryLibraryErrorsWithMyAnimeList(ctx, libraryID)
+	}(job.ID, id)
 	uid := currentUser(r).ID
 	s.admin.Log(r.Context(), "info", "metadata", "Metadata scan started", &uid, job.Library)
 	writeJSON(w, http.StatusAccepted, job)
@@ -84,7 +90,7 @@ func (s *server) refreshMediaMetadata(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, err)
 		return
 	}
-	if err := s.metadata.RefreshMedia(r.Context(), id); err != nil {
+	if err := s.metadata.RefreshMediaSmart(r.Context(), id); err != nil {
 		writeError(w, 400, err)
 		return
 	}
