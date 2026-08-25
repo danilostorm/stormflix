@@ -3,7 +3,6 @@ package httpapi
 import (
 	"database/sql"
 	"errors"
-	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -49,6 +48,10 @@ func (s *server) createLibrary(w http.ResponseWriter, r *http.Request) {
 	if decodeJSON(w, r, &in) != nil {
 		return
 	}
+	if err := s.libraries.ValidateLibraryPath(r.Context(), 0, in.Path); err != nil {
+		writeError(w, http.StatusConflict, err)
+		return
+	}
 	v, err := s.libraries.Create(r.Context(), in.Name, in.Kind, in.Path)
 	if err != nil {
 		writeError(w, 400, err)
@@ -72,6 +75,10 @@ func (s *server) updateLibrary(w http.ResponseWriter, r *http.Request) {
 		Enabled bool   `json:"enabled"`
 	}
 	if decodeJSON(w, r, &in) != nil {
+		return
+	}
+	if err := s.libraries.ValidateLibraryPath(r.Context(), id, in.Path); err != nil {
+		writeError(w, http.StatusConflict, err)
 		return
 	}
 	v, err := s.libraries.AdminUpdate(r.Context(), id, in.Name, in.Kind, in.Path, in.Enabled)
@@ -180,5 +187,3 @@ func (s *server) streamMedia(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "private, max-age=0")
 	http.ServeContent(w, r, stat.Name(), stat.ModTime(), file)
 }
-
-var _ = fmt.Sprintf
