@@ -17,14 +17,16 @@ import (
 )
 
 type Service struct {
-	db      *sql.DB
-	cfg     config.Config
-	assets  *assets.Store
-	tmdb    *TMDBProvider
-	anilist *AniListProvider
-	fanart  *FanartProvider
-	mu      sync.Mutex
-	running map[int64]bool
+	db         *sql.DB
+	assets     *assets.Store
+	providerMu sync.RWMutex
+	cfg        config.Config
+	tmdb       *TMDBProvider
+	anilist    *AniListProvider
+	fanart     *FanartProvider
+	theme      *ThemeProvider
+	mu         sync.Mutex
+	running    map[int64]bool
 }
 
 type Job struct {
@@ -44,24 +46,33 @@ type Job struct {
 }
 
 func NewService(db *sql.DB, cfg config.Config, store *assets.Store) *Service {
-	s := &Service{
-		db:      db,
-		cfg:     cfg,
-		assets:  store,
-		tmdb:    NewTMDBProvider(cfg.TMDBToken, cfg.TMDBAPIKey, cfg.MetadataLanguage),
-		anilist: NewAniListProvider(),
-		fanart:  NewFanartProvider(cfg.FanartAPIKey, cfg.FanartClientKey),
-		running: map[int64]bool{},
-	}
-	_, _ = db.Exec(`UPDATE metadata_jobs SET status='failed',message='server restarted while job was running',finished_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE status IN ('queued','running')`)
+	s := &Service{db: db, assets: store, running: map[int64]bool{}}
+	s.Configure(cfg)
 	return s
 }
 
+func (s *Service) Configure(cfg config.Config) {
+	s.providerMu.Lock()
+	defer s.providerMu.Unlock()
+	s.cfg = cfg
+	s.tmdb = NewTMDBProvider(cfg.TMDBToken, cfg.TMDBAPIKey, cfg.MetadataLanguage)
+	s.anilist = NewAniListProvider()
+	s.fanart = NewFanartProvider(cfg.FanartAPIKey, cfg.FanartClientKey)
+	s.theme = NewThemeProvider(cfg.ThemePreviewCountry)
+}
+
+func (s *Service) RecoverInterruptedJobs() {
+	_, _ = s.db.Exec(`UPDATE metadata_jobs SET status='failed',message='server restarted while job was running',finished_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE status IN ('queued','running')`)
+}
+
 func (s *Service) Agents() []AgentStatus {
+	s.providerMu.RLock()
+	defer s.providerMu.RUnlock()
 	return []AgentStatus{
-		{Name: "TMDB", Enabled: true, Ready: s.tmdb.Ready(), Description: "Filmes e séries: títulos, sinopses, gêneros, IDs, posters, backdrops, logos e episódios."},
+		{Name: "TMDB", Enabled: true, Ready: s.tmdb.Ready(), Description: "Filmes e séries: títulos, sinopses, elenco, direção, trailer, gêneros, IDs, posters, backdrops, logos e episódios."},
 		{Name: "AniList", Enabled: true, Ready: s.anilist.Ready(), Description: "Agente principal para anime: títulos, sinopses, capas, banners, gêneros e IDs AniList/MAL."},
 		{Name: "Fanart.tv", Enabled: true, Ready: s.fanart.Ready(), Description: "Artwork extra: logos, clearart, fanart, posters e backgrounds de alta qualidade."},
+		{Name: "Trilha Preview", Enabled: s.cfg.ThemePreviewEnabled, Ready: s.cfg.ThemePreviewEnabled, Description: "Prévia curta opcional de trilha sonora; nunca baixa ou toca a faixa completa."},
 	}
 }
 
@@ -152,38 +163,58 @@ func (s *Service) lookup(ctx context.Context, item SourceItem, parsed ParsedName
 	if strings.TrimSpace(parsed.Title) == "" {
 		return Result{}, errors.New("could not derive a title from filename")
 	}
+	s.providerMu.RLock()
+	cfg := s.cfg
+	tmdb := s.tmdb
+	anilist := s.anilist
+	fanart := s.fanart
+	theme := s.theme
+	s.providerMu.RUnlock()
+
+	var result Result
+	var err error
 	if item.LibraryKind == "anime" {
-		anime, animeErr := s.anilist.Lookup(ctx, item, parsed)
-		if animeErr == nil {
-			if s.tmdb.Ready() {
-				if tmdbResult, err := s.tmdb.Lookup(ctx, item, parsed); err == nil {
-					anime.TMDBID = tmdbResult.TMDBID
-					anime.TVDBID = tmdbResult.TVDBID
-					anime.IMDbID = tmdbResult.IMDbID
-					anime.Artwork = append(anime.Artwork, tmdbResult.Artwork...)
+		result, err = anilist.Lookup(ctx, item, parsed)
+		if err == nil {
+			if tmdb.Ready() {
+				if tmdbResult, tmdbErr := tmdb.Lookup(ctx, item, parsed); tmdbErr == nil {
+					result.TMDBID = tmdbResult.TMDBID
+					result.TVDBID = tmdbResult.TVDBID
+					result.IMDbID = tmdbResult.IMDbID
+					result.Artwork = append(result.Artwork, tmdbResult.Artwork...)
+					_ = tmdb.EnrichExperience(ctx, &tmdbResult)
+					result.OriginalTitle = tmdbResult.OriginalTitle
+					result.Tagline = tmdbResult.Tagline
+					result.Cast = tmdbResult.Cast
+					result.Directors = tmdbResult.Directors
+					result.TrailerURL = tmdbResult.TrailerURL
 				}
 			}
-			_ = s.fanart.Enrich(ctx, &anime)
-			return anime, nil
-		}
-		if s.tmdb.Ready() {
-			result, err := s.tmdb.Lookup(ctx, item, parsed)
+		} else if tmdb.Ready() {
+			result, err = tmdb.Lookup(ctx, item, parsed)
 			if err == nil {
 				result.MediaType = "anime"
-				_ = s.fanart.Enrich(ctx, &result)
-				return result, nil
 			}
 		}
-		return Result{}, animeErr
+	} else {
+		if !tmdb.Ready() {
+			return Result{}, errors.New("TMDB is not configured")
+		}
+		result, err = tmdb.Lookup(ctx, item, parsed)
 	}
-	if !s.tmdb.Ready() {
-		return Result{}, errors.New("TMDB is not configured")
-	}
-	result, err := s.tmdb.Lookup(ctx, item, parsed)
 	if err != nil {
 		return Result{}, err
 	}
-	_ = s.fanart.Enrich(ctx, &result)
+	if result.TMDBID > 0 {
+		_ = tmdb.EnrichExperience(ctx, &result)
+	}
+	_ = fanart.Enrich(ctx, &result)
+	if cfg.ThemePreviewEnabled && theme != nil {
+		if previewURL, previewTitle, previewErr := theme.Lookup(ctx, result.Title, result.Year); previewErr == nil {
+			result.ThemePreviewURL = previewURL
+			result.ThemePreviewTitle = previewTitle
+		}
+	}
 	return result, nil
 }
 
@@ -206,21 +237,26 @@ func (s *Service) libraryItems(ctx context.Context, libraryID int64) ([]SourceIt
 
 func (s *Service) saveResult(ctx context.Context, mediaID int64, result Result) error {
 	genres, _ := json.Marshal(result.Genres)
+	cast, _ := json.Marshal(result.Cast)
+	directors, _ := json.Marshal(result.Directors)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	_, err = tx.ExecContext(ctx, `
-INSERT INTO media_metadata(media_id,media_type,year,season_number,episode_number,overview,genres_json,rating,runtime_minutes,provider,provider_id,tmdb_id,tvdb_id,imdb_id,anilist_id,mal_id,status,last_error,updated_at)
-VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'matched','',CURRENT_TIMESTAMP)
+INSERT INTO media_metadata(media_id,media_type,year,season_number,episode_number,overview,genres_json,rating,runtime_minutes,provider,provider_id,tmdb_id,tvdb_id,imdb_id,anilist_id,mal_id,original_title,tagline,cast_json,directors_json,trailer_url,theme_preview_url,theme_preview_title,status,last_error,updated_at)
+VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'matched','',CURRENT_TIMESTAMP)
 ON CONFLICT(media_id) DO UPDATE SET
  media_type=excluded.media_type,year=excluded.year,season_number=excluded.season_number,episode_number=excluded.episode_number,
  overview=excluded.overview,genres_json=excluded.genres_json,rating=excluded.rating,runtime_minutes=excluded.runtime_minutes,
  provider=excluded.provider,provider_id=excluded.provider_id,tmdb_id=excluded.tmdb_id,tvdb_id=excluded.tvdb_id,imdb_id=excluded.imdb_id,
- anilist_id=excluded.anilist_id,mal_id=excluded.mal_id,status='matched',last_error='',updated_at=CURRENT_TIMESTAMP`,
+ anilist_id=excluded.anilist_id,mal_id=excluded.mal_id,original_title=excluded.original_title,tagline=excluded.tagline,
+ cast_json=excluded.cast_json,directors_json=excluded.directors_json,trailer_url=excluded.trailer_url,
+ theme_preview_url=excluded.theme_preview_url,theme_preview_title=excluded.theme_preview_title,status='matched',last_error='',updated_at=CURRENT_TIMESTAMP`,
 		mediaID, result.MediaType, result.Year, result.Season, result.Episode, result.Overview, string(genres), result.Rating, result.RuntimeMinutes,
-		result.Provider, result.ProviderID, result.TMDBID, result.TVDBID, result.IMDbID, result.AniListID, result.MALID)
+		result.Provider, result.ProviderID, result.TMDBID, result.TVDBID, result.IMDbID, result.AniListID, result.MALID,
+		result.OriginalTitle, result.Tagline, string(cast), string(directors), result.TrailerURL, result.ThemePreviewURL, result.ThemePreviewTitle)
 	if err != nil {
 		return err
 	}
