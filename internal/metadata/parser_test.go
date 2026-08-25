@@ -48,3 +48,26 @@ func TestParseRemovesAnimeMovieNumberInsideTitle(t *testing.T) {
 		t.Fatalf("important title parts were lost: %q", p.Title)
 	}
 }
+
+func TestParseSimpleNumberedSeriesEpisodeUsesFolder(t *testing.T) {
+	p := ParseFilename(`/media/Akumanimes/Animes/Dragon Quest - Dai no Daibouken/Fly (Dragon Quest - Dai no Daibouken) - 01.mkv`, "series")
+	if p.Title != "Dragon Quest - Dai no Daibouken" {
+		t.Fatalf("expected parent series title, got %q", p.Title)
+	}
+	if p.Season != 1 || p.Episode != 1 {
+		t.Fatalf("expected S01E01, got S%02dE%02d", p.Season, p.Episode)
+	}
+	if p.LikelyMovie {
+		t.Fatal("numbered series episode was classified as a movie")
+	}
+}
+
+func TestMixedAnimeMovieKeepsMovieClassification(t *testing.T) {
+	p := ParseFilename(`/media/Guilherme/Filmes Animes/Dragon Ball Z/Filme 15 - O Renascimento de Freeza.mkv`, "mixed")
+	if !p.LikelyMovie {
+		t.Fatal("mixed anime movie should still be classified as a movie")
+	}
+	if strings.Contains(strings.ToLower(p.Title), "filme 15") {
+		t.Fatalf("movie sequence marker should be removed: %q", p.Title)
+	}
+}
