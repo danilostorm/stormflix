@@ -18,24 +18,37 @@ type Artwork struct {
 	Score    float64
 }
 
+type Person struct {
+	Name       string `json:"name"`
+	Character  string `json:"character,omitempty"`
+	ProfileURL string `json:"profile_url,omitempty"`
+}
+
 type Result struct {
-	Title          string
-	MediaType      string
-	Year           int
-	Season         int
-	Episode        int
-	Overview       string
-	Genres         []string
-	Rating         float64
-	RuntimeMinutes int
-	Provider       string
-	ProviderID     string
-	TMDBID         int64
-	TVDBID         int64
-	IMDbID         string
-	AniListID      int64
-	MALID          int64
-	Artwork        []Artwork
+	Title             string
+	OriginalTitle     string
+	Tagline           string
+	MediaType         string
+	Year              int
+	Season            int
+	Episode           int
+	Overview          string
+	Genres            []string
+	Rating            float64
+	RuntimeMinutes    int
+	Provider          string
+	ProviderID        string
+	TMDBID            int64
+	TVDBID            int64
+	IMDbID            string
+	AniListID         int64
+	MALID             int64
+	Cast              []Person
+	Directors         []string
+	TrailerURL        string
+	ThemePreviewURL   string
+	ThemePreviewTitle string
+	Artwork           []Artwork
 }
 
 type Provider interface {
