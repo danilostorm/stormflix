@@ -107,5 +107,20 @@ CREATE INDEX IF NOT EXISTS idx_subtitle_jobs_library ON subtitle_jobs(library_id
 	if _, err := db.Exec(schema); err != nil {
 		return fmt.Errorf("migrate phase2 database: %w", err)
 	}
+
+	columns := []struct{ table, name, definition string }{
+		{"media_metadata", "original_title", "TEXT NOT NULL DEFAULT ''"},
+		{"media_metadata", "tagline", "TEXT NOT NULL DEFAULT ''"},
+		{"media_metadata", "cast_json", "TEXT NOT NULL DEFAULT '[]'"},
+		{"media_metadata", "directors_json", "TEXT NOT NULL DEFAULT '[]'"},
+		{"media_metadata", "trailer_url", "TEXT NOT NULL DEFAULT ''"},
+		{"media_metadata", "theme_preview_url", "TEXT NOT NULL DEFAULT ''"},
+		{"media_metadata", "theme_preview_title", "TEXT NOT NULL DEFAULT ''"},
+	}
+	for _, c := range columns {
+		if err := ensureColumn(db, c.table, c.name, c.definition); err != nil {
+			return err
+		}
+	}
 	return nil
 }
