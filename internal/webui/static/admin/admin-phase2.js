@@ -43,15 +43,16 @@ async function loadMetadataPhase2(){
       ${!(agents.metadata||[]).some(a=>a.name==='TMDB'&&a.ready)?'<div class="phase2-hint">TMDB ainda não está configurado. Use <b>Configurações → Metadados & Capas</b>; não é necessário editar Docker Compose.</div>':''}
     </div>
     <div class="panel">
-      <div class="panel-head"><div><h2>Escanear capas e informações</h2><small>O trabalho roda em segundo plano e não interrompe streaming.</small></div></div>
+      <div class="panel-head"><div><h2>Escanear capas e informações</h2><small>O trabalho roda em segundo plano e não interrompe streaming. Use “Reprocessar erros” após melhorias no parser para não tocar nos títulos já corretos.</small></div></div>
       <div class="table-wrap"><table><thead><tr><th>Biblioteca</th><th>Tipo</th><th>Mídias</th><th>Ações</th></tr></thead><tbody>
-        ${libs.map(l=>`<tr><td><b>${esc(l.name)}</b></td><td>${esc(l.kind)}</td><td>${l.media_count||0}</td><td class="actions"><button data-meta-scan="${l.id}">Buscar metadados</button><button data-meta-refresh="${l.id}">Atualizar tudo</button></td></tr>`).join('')||'<tr><td colspan="4">Nenhuma biblioteca.</td></tr>'}
+        ${libs.map(l=>`<tr><td><b>${esc(l.name)}</b></td><td>${esc(l.kind)}</td><td>${l.media_count||0}</td><td class="actions"><button data-meta-scan="${l.id}">Buscar metadados</button><button data-meta-errors="${l.id}">Reprocessar erros</button><button data-meta-refresh="${l.id}">Atualizar tudo</button></td></tr>`).join('')||'<tr><td colspan="4">Nenhuma biblioteca.</td></tr>'}
       </tbody></table></div>
     </div>
     ${renderMetadataJobs(jobs)}
   `;
   $$('[data-open-settings]').forEach(b=>b.onclick=()=>showSettings());
   $$('[data-meta-scan]').forEach(b=>b.onclick=()=>startMetadataPhase2(+b.dataset.metaScan,false));
+  $$('[data-meta-errors]').forEach(b=>b.onclick=()=>retryMetadataErrorsPhase2(+b.dataset.metaErrors));
   $$('[data-meta-refresh]').forEach(b=>b.onclick=()=>startMetadataPhase2(+b.dataset.metaRefresh,true));
   if((jobs||[]).some(j=>j.status==='queued'||j.status==='running'))phase2Timer=setTimeout(()=>{if(!$('#metadata').classList.contains('hidden'))loadMetadataPhase2()},2000);
 }
@@ -64,6 +65,14 @@ async function startMetadataPhase2(libraryID,refresh){
   notice(refresh?'Atualização completa iniciada...':'Busca de metadados iniciada...',true);
   try{
     await req(`/admin/libraries/${libraryID}/metadata${refresh?'?refresh=1':''}`,{method:'POST'});
+    await loadMetadataPhase2();
+  }catch(err){notice(err.message)}
+}
+
+async function retryMetadataErrorsPhase2(libraryID){
+  notice('Reprocessando somente os títulos com erro...',true);
+  try{
+    await req(`/admin/libraries/${libraryID}/metadata/errors/retry`,{method:'POST'});
     await loadMetadataPhase2();
   }catch(err){notice(err.message)}
 }
