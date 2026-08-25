@@ -1,3 +1,8 @@
+const baseAgentRenderer=renderAgent;
+renderAgent=function(agent){
+  return `<div class="agent-card"><div class="agent-status ${agent.ready?'ready':'missing'}">${agent.ready?'● CONFIGURADO':'● CONFIGURAR'}</div><h3>${esc(agent.name)}</h3><p>${esc(agent.description||'')}</p></div>`;
+};
+
 let baseMetadataLoader=loadMetadataPhase2;
 
 loadMetadataPhase2=async function(){
@@ -20,7 +25,7 @@ async function appendMetadataDiagnostics(){
     <div class="panel-head">
       <div>
         <h2>Diagnóstico de metadados</h2>
-        <small>Teste o agente antes de reprocessar a biblioteca. As mensagens abaixo vêm diretamente do erro salvo para cada mídia.</small>
+        <small>“Configurado” significa que existe uma credencial salva. Use o teste abaixo para confirmar autenticação e conectividade.</small>
       </div>
       <button id="test-tmdb-agent" class="primary">Testar TMDB</button>
     </div>
