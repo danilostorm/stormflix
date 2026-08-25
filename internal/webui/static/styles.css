@@ -46,8 +46,9 @@ button, .play { background: linear-gradient(135deg, var(--accent), var(--accent-
 .search { max-width: 320px; }
 .media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 15px; }
 .media-card { overflow: hidden; background: #0d1016; border: 1px solid var(--line); border-radius: 15px; }
-.poster { aspect-ratio: 2/2.8; display: grid; place-items: center; background: linear-gradient(145deg, #25111a, #151923 58%, #11141b); color: var(--accent); }
+.poster { position: relative; overflow: hidden; aspect-ratio: 2/2.8; display: grid; place-items: center; background: linear-gradient(145deg, #25111a, #151923 58%, #11141b); color: var(--accent); }
 .poster span { font-size: 34px; filter: drop-shadow(0 0 20px rgba(255,54,95,.35)); }
+.poster-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .media-body { padding: 13px; }
 .media-title { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .media-meta { color: var(--muted); display: block; margin: 4px 0 12px; }
