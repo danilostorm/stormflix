@@ -13,7 +13,7 @@
   async function loadMonitoring(){
     try{
       const data=await req('/admin/monitoring');
-      const s=data.stats||{},active=data.active||[],history=data.history||[];
+      const s=data.stats||{},active=data.active||[],history=data.history||[],analytics=data.analytics||{};
       $('#playbacks').innerHTML=`
         <div class="monitor-cards">
           ${monitorCard('Streams ativos',s.active_streams||0,'agora')}
@@ -24,11 +24,12 @@
           ${monitorCard('Tempo assistido 7d',monitorDuration(s.watch_seconds_7_days||0),`${s.unique_users_7_days||0} usuários`)}
         </div>
         <div class="panel monitor-panel">
-          <div class="panel-head"><div><h2>Atividade agora</h2><small>Atualização automática a cada 8 segundos · estilo Tautulli</small></div><span class="monitor-live">● AO VIVO</span></div>
+          <div class="panel-head"><div><h2>Atividade agora</h2><small>Atualização automática a cada 8 segundos · monitoramento detalhado</small></div><span class="monitor-live">● AO VIVO</span></div>
           <div class="monitor-active">${active.length?active.map(activePlaybackHTML).join(''):'<div class="monitor-empty">Ninguém está assistindo agora.</div>'}</div>
         </div>
+        ${analyticsHTML(analytics)}
         <div class="panel">
-          <div class="panel-head"><div><h2>Histórico recente</h2><small>Base para estatísticas, usuários, dispositivos e relatórios.</small></div></div>
+          <div class="panel-head"><div><h2>Histórico recente</h2><small>Usuário, dispositivo, IP, modo de reprodução, progresso e tempo assistido.</small></div></div>
           <div class="table-wrap"><table><thead><tr><th>Quando</th><th>Usuário</th><th>Mídia</th><th>Dispositivo / IP</th><th>Modo</th><th>Progresso</th><th>Assistido</th></tr></thead><tbody>
           ${history.length?history.map(historyHTML).join(''):'<tr><td colspan="7"><small>Nenhum histórico concluído ainda.</small></td></tr>'}
           </tbody></table></div>
@@ -56,6 +57,22 @@
     </article>`;
   }
 
+  function analyticsHTML(a){
+    const daily=a.daily||[],maxPlays=Math.max(1,...daily.map(d=>Number(d.plays)||0));
+    return `<div class="monitor-analytics-grid">
+      <div class="panel monitor-ranking"><div class="panel-head"><h2>Top usuários · 7 dias</h2></div>${rankHTML(a.top_users||[])}</div>
+      <div class="panel monitor-ranking"><div class="panel-head"><h2>Top títulos · 7 dias</h2></div>${rankHTML(a.top_media||[])}</div>
+      <div class="panel monitor-ranking"><div class="panel-head"><h2>Top bibliotecas · 7 dias</h2></div>${rankHTML(a.top_libraries||[])}</div>
+      <div class="panel monitor-week"><div class="panel-head"><h2>Atividade · 7 dias</h2></div><div class="monitor-bars">${daily.map(d=>`<div class="monitor-day" title="${d.plays} reproduções · ${monitorDuration(d.watch_seconds)}"><div class="monitor-bar-wrap"><span style="height:${Math.max(4,(Number(d.plays)||0)/maxPlays*100)}%"></span></div><b>${Number(d.plays)||0}</b><small>${shortDate(d.date)}</small></div>`).join('')||'<div class="monitor-empty">Sem atividade.</div>'}</div></div>
+    </div>`;
+  }
+
+  function rankHTML(items){
+    if(!items.length)return'<div class="monitor-empty compact">Sem dados ainda.</div>';
+    const max=Math.max(1,...items.map(x=>Number(x.watch_seconds)||0));
+    return `<div class="monitor-rank-list">${items.map((x,i)=>`<div class="monitor-rank"><span class="monitor-rank-number">${i+1}</span><div><b>${esc(x.label)}</b><div class="monitor-rank-bar"><span style="width:${Math.max(3,(Number(x.watch_seconds)||0)/max*100)}%"></span></div><small>${x.plays} plays · ${monitorDuration(x.watch_seconds)}</small></div></div>`).join('')}</div>`;
+  }
+
   function historyHTML(h){
     return `<tr><td><small>${esc(h.stopped_at)}</small></td><td><b>${esc(h.display_name)}</b></td><td><b>${esc(h.title)}</b><br><small>${esc(h.library_name)}</small></td><td><small>${esc(h.device)}<br>${esc(h.ip)}</small></td><td><span class="monitor-mode mini ${h.mode==='web_remux'?'remux':''}">${h.mode==='web_remux'?'WEB REMUX':'DIRECT PLAY'}</span></td><td>${Number(h.progress_percent||0).toFixed(0)}%</td><td>${monitorDuration(h.watch_seconds||0)}</td></tr>`;
   }
@@ -64,4 +81,5 @@
   function monitorBitrate(kbps){kbps=Number(kbps)||0;return kbps>=1000?`${(kbps/1000).toFixed(1)} Mbps`:`${Math.round(kbps)} Kbps`}
   function monitorDuration(seconds){seconds=Math.max(0,Math.floor(Number(seconds)||0));const d=Math.floor(seconds/86400),h=Math.floor(seconds%86400/3600),m=Math.floor(seconds%3600/60);return d?`${d}d ${h}h`:h?`${h}h ${m}m`:`${m} min`}
   function monitorClock(seconds){seconds=Math.max(0,Math.floor(Number(seconds)||0));const h=Math.floor(seconds/3600),m=Math.floor(seconds%3600/60),s=seconds%60;return h?`${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`:`${m}:${String(s).padStart(2,'0')}`}
+  function shortDate(value){const parts=String(value||'').split('-');return parts.length===3?`${parts[2]}/${parts[1]}`:value}
 })();
