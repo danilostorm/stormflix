@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/danilostorm/stormflix/internal/assets"
 	appsettings "github.com/danilostorm/stormflix/internal/settings"
 )
 
@@ -30,6 +31,20 @@ func (s *server) updateSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("metadata language cannot be empty"))
 		return
 	}
+
+	candidateDir := s.config.AssetDir
+	candidateURL := s.config.AssetPublicBaseURL
+	if in.AssetDir != nil {
+		candidateDir = strings.TrimSpace(*in.AssetDir)
+	}
+	if in.AssetPublicBaseURL != nil {
+		candidateURL = strings.TrimSpace(*in.AssetPublicBaseURL)
+	}
+	if _, err := assets.New(candidateDir, candidateURL); err != nil {
+		writeError(w, http.StatusBadRequest, errors.New("asset storage cannot be used: "+err.Error()))
+		return
+	}
+
 	if err := s.settings.Update(r.Context(), in); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
