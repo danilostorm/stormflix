@@ -24,6 +24,26 @@
     root.querySelectorAll('[data-open-series]').forEach(button=>button.onclick=e=>{e.stopPropagation();openSeries(button.dataset.openSeries)});
   };
 
+  // Replace the file-oriented nav filter from app.js. Series are top-level
+  // entities here; raw episode cards remain available only in "Novos episódios".
+  $$('[data-nav]').forEach(button=>button.onclick=()=>{
+    const mode=button.dataset.nav;
+    $$('[data-nav]').forEach(x=>x.classList.toggle('active',x===button));
+    if(mode==='home'){showHome();return}
+    stopTheme();
+    $('#search-view').classList.add('hidden');
+    $('#catalog-view').classList.remove('hidden');
+    $('#hero').classList.add('hidden');
+    const labels={movie:'Filmes',series:'Séries',anime:'Animes'};
+    const filtered=allFeedItems().filter(item=>{
+      if(mode==='series')return item.entity_type==='series'&&item.media_type==='series';
+      if(mode==='anime')return item.media_type==='anime'&&(item.entity_type==='series'||!item.episode_number);
+      return item.media_type==='movie'&&!item.episode_number;
+    });
+    renderRows([{id:mode,title:labels[mode],items:filtered}]);
+    window.scrollTo({top:0,behavior:'smooth'});
+  });
+
   searchMedia=async function(query){
     const root=$('#search-results');
     if(!query){root.innerHTML='<div class="empty-state">Digite para buscar na sua biblioteca.</div>';return}
@@ -33,9 +53,7 @@
         request(`/media?limit=200&q=${encodeURIComponent(query)}`),
         request(`/series?q=${encodeURIComponent(query)}`).catch(()=>[])
       ]);
-      const episodes=new Set();
-      for(const series of seriesItems||[])for(const season of series.seasons||[])for(const ep of season.episodes||[])episodes.add(Number(ep.id));
-      const topMedia=(mediaItems||[]).filter(x=>!x.episode_number&&!episodes.has(Number(x.id)));
+      const topMedia=(mediaItems||[]).filter(x=>!x.episode_number&&x.media_type!=='series');
       const cards=[...(seriesItems||[]).map(seriesCardItem),...topMedia];
       root.innerHTML=cards.length?cards.map(cardHTML).join(''):'<div class="empty-state">Nenhum título encontrado.</div>';
       bindCards(root);
