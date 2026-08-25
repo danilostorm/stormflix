@@ -185,12 +185,29 @@ func (s *Service) discover(ctx context.Context, lib Library, libraryID int64) ([
 	lastProgress := time.Time{}
 	statWarnings := 0
 
+	touchProgress := func(dir string, force bool) {
+		if !force && !lastProgress.IsZero() && time.Since(lastProgress) < 1500*time.Millisecond {
+			return
+		}
+		rel, _ := filepath.Rel(lib.Path, dir)
+		if rel == "." {
+			rel = "/"
+		}
+		msg := fmt.Sprintf("scanning %s · %d files found", rel, len(files))
+		if statWarnings > 0 {
+			msg += fmt.Sprintf(" · %d slow stats skipped", statWarnings)
+		}
+		_, _ = s.db.Exec(`UPDATE libraries SET last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND last_scan_status IN ('running','cancelling')`, msg, libraryID)
+		lastProgress = time.Now()
+	}
+
 	for len(dirs) > 0 {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		dir := dirs[0]
 		dirs = dirs[1:]
+		touchProgress(dir, lastProgress.IsZero())
 
 		entries, err := readDirContext(ctx, dir)
 		if err != nil {
@@ -203,9 +220,11 @@ func (s *Service) discover(ctx context.Context, lib Library, libraryID int64) ([
 			path := filepath.Join(dir, entry.Name())
 			if entry.IsDir() {
 				dirs = append(dirs, path)
+				touchProgress(dir, false)
 				continue
 			}
 			if !isVideo(path) {
+				touchProgress(dir, false)
 				continue
 			}
 			file := discoveredFile{
@@ -224,20 +243,9 @@ func (s *Service) discover(ctx context.Context, lib Library, libraryID int64) ([
 				statWarnings++
 			}
 			files = append(files, file)
+			touchProgress(dir, false)
 		}
-
-		if lastProgress.IsZero() || time.Since(lastProgress) >= 1500*time.Millisecond {
-			rel, _ := filepath.Rel(lib.Path, dir)
-			if rel == "." {
-				rel = "/"
-			}
-			msg := fmt.Sprintf("scanning %s · %d files found", rel, len(files))
-			if statWarnings > 0 {
-				msg += fmt.Sprintf(" · %d slow stats skipped", statWarnings)
-			}
-			_, _ = s.db.Exec(`UPDATE libraries SET last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND last_scan_status IN ('running','cancelling')`, msg, libraryID)
-			lastProgress = time.Now()
-		}
+		touchProgress(dir, true)
 	}
 	return files, nil
 }
