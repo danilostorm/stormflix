@@ -8,13 +8,14 @@ import (
 )
 
 var (
-	yearRE       = regexp.MustCompile(`\b(19\d{2}|20\d{2})\b`)
-	seasonRE     = regexp.MustCompile(`(?i)\bS(\d{1,2})[ ._-]*E(\d{1,3})\b`)
-	xEpisode     = regexp.MustCompile(`(?i)\b(\d{1,2})x(\d{1,3})\b`)
-	bracketRE    = regexp.MustCompile(`\[[^\]]+\]|\([^\)]*(?:1080|2160|720|480|x26|hevc|av1|web|bluray|remux|hdr|dv)[^\)]*\)`)
-	junkParenRE  = regexp.MustCompile(`(?i)\((?:vhs|dvd|bdrip|bluray|blu-ray|dublado|dual[ ._-]*audio|legendado|webrip|web-dl|remux)\)`)
-	movieIndexRE = regexp.MustCompile(`(?i)\b(?:filme|movie)\s*[-_. ]*\d{1,3}\b`)
-	seasonDirRE  = regexp.MustCompile(`(?i)^(?:season|temporada)\s*\d{1,3}$`)
+	yearRE          = regexp.MustCompile(`\b(19\d{2}|20\d{2})\b`)
+	seasonRE        = regexp.MustCompile(`(?i)\bS(\d{1,2})[ ._-]*E(\d{1,3})\b`)
+	xEpisode        = regexp.MustCompile(`(?i)\b(\d{1,2})x(\d{1,3})\b`)
+	serialEpisodeRE = regexp.MustCompile(`(?i)(?:^|[ ._-])(?:ep(?:isode|isodio|isódio)?[ ._-]*)?(\d{1,3})$`)
+	bracketRE       = regexp.MustCompile(`\[[^\]]+\]|\([^\)]*(?:1080|2160|720|480|x26|hevc|av1|web|bluray|remux|hdr|dv)[^\)]*\)`)
+	junkParenRE     = regexp.MustCompile(`(?i)\((?:vhs|dvd|bdrip|bluray|blu-ray|dublado|dual[ ._-]*audio|legendado|webrip|web-dl|remux)\)`)
+	movieIndexRE    = regexp.MustCompile(`(?i)\b(?:filme|movie)\s*[-_. ]*\d{1,3}\b`)
+	seasonDirRE     = regexp.MustCompile(`(?i)^(?:season|temporada)\s*\d{1,3}$`)
 )
 
 type ParsedName struct {
@@ -48,6 +49,7 @@ func ParseFilename(path, libraryKind string) ParsedName {
 	var out ParsedName
 	animeCapable := libraryKind == "anime" || libraryKind == "mixed"
 	out.LikelyMovie = libraryKind == "movies" || (animeCapable && animeMoviePath(path))
+	simpleEpisode := false
 	if match := seasonRE.FindStringSubmatch(clean); len(match) == 3 {
 		out.Season, _ = strconv.Atoi(match[1])
 		out.Episode, _ = strconv.Atoi(match[2])
@@ -58,6 +60,20 @@ func ParseFilename(path, libraryKind string) ParsedName {
 		out.Episode, _ = strconv.Atoi(match[2])
 		clean = strings.Replace(clean, match[0], " ", 1)
 		out.LikelyMovie = false
+	} else if libraryKind == "series" || (animeCapable && !out.LikelyMovie) {
+		if match := serialEpisodeRE.FindStringSubmatch(clean); len(match) == 2 && !movieIndexRE.MatchString(clean) {
+			episode, _ := strconv.Atoi(match[1])
+			if episode > 0 {
+				prefix := compactTitle(strings.TrimSuffix(clean, match[0]))
+				if prefix != "" || meaningfulAncestor(path, clean) != "" {
+					out.Season = 1
+					out.Episode = episode
+					clean = prefix
+					out.LikelyMovie = false
+					simpleEpisode = true
+				}
+			}
+		}
 	}
 
 	if match := yearRE.FindStringSubmatch(clean); len(match) == 2 {
@@ -68,6 +84,17 @@ func ParseFilename(path, libraryKind string) ParsedName {
 	clean = trimReleaseTail(clean)
 	originalTitle := compactTitle(clean)
 	out.Title = originalTitle
+
+	// Number-only episode naming such as "Dragon Quest - 01" is common in
+	// anime releases. The parent folder is a much stronger series identity.
+	if simpleEpisode {
+		if parent := meaningfulAncestor(path, originalTitle); parent != "" {
+			if originalTitle != "" {
+				out.Alternates = append(out.Alternates, originalTitle)
+			}
+			out.Title = parent
+		}
+	}
 
 	// Anime collections commonly use names such as "Filme 15 - O Renascimento
 	// de Freeza". The movie number is useful for humans but usually hurts
