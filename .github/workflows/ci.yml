@@ -35,6 +35,7 @@ jobs:
           node --check internal/webui/static/admin/admin-settings.js
           node --check internal/webui/static/admin/admin-diagnostics.js
           node --check internal/webui/static/app.js
+          node --check internal/webui/static/ux-v2.js
 
       - name: Test
         run: go test ./...
