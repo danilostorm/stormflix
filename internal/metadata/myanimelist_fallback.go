@@ -2,18 +2,20 @@ package metadata
 
 import (
 	"context"
-	"database/sql"
 	"errors"
+	"regexp"
 	"strings"
 	"time"
 )
 
 var stormflixMAL = NewMyAnimeListProvider()
 var stormflixAniDB = NewAniDBResolver()
+var metadataSpecialPrefixRE = regexp.MustCompile(`(?i)^(?:especiais?|specials?|ovas?|oavs?)\s+`)
+var metadataRapturaRE = regexp.MustCompile(`(?i)\braptura\b`)
 
-// RefreshMediaSmart keeps the regular provider chain first, then retries
-// unmatched anime/mixed-animation items against MyAnimeList. This is used by
-// the admin reprocess action so old TMDB errors can be recovered immediately.
+// RefreshMediaSmart keeps the regular provider chain first, then tries a small
+// set of safe filename corrections, and only then falls back to MyAnimeList for
+// anime/mixed libraries.
 func (s *Service) RefreshMediaSmart(ctx context.Context, mediaID int64) error {
 	var item SourceItem
 	if err := s.db.QueryRowContext(ctx, `SELECT m.id,m.library_id,l.kind,m.title,m.path FROM media m JOIN libraries l ON l.id=m.library_id WHERE m.id=? AND m.available=1`, mediaID).
@@ -25,6 +27,9 @@ func (s *Service) RefreshMediaSmart(ctx context.Context, mediaID int64) error {
 	if err == nil {
 		return s.saveResult(ctx, mediaID, result)
 	}
+	if alternate, altErr := s.lookupSafeTitleAlternates(ctx, item, parsed); altErr == nil {
+		return s.saveResult(ctx, mediaID, alternate)
+	}
 	fallback, fallbackErr := s.lookupMyAnimeListFallback(ctx, item, parsed)
 	if fallbackErr != nil {
 		_ = s.saveError(ctx, mediaID, parsed, errors.Join(err, fallbackErr))
@@ -33,9 +38,9 @@ func (s *Service) RefreshMediaSmart(ctx context.Context, mediaID int64) error {
 	return s.saveResult(ctx, mediaID, fallback)
 }
 
-// RetryLibraryErrorsWithMyAnimeList is intentionally a second pass. The normal
-// scan remains fast and keeps its existing provider priorities; only items that
-// actually failed are sent to MyAnimeList/Jikan.
+// RetryLibraryErrorsWithMyAnimeList is a smart second pass. It first retries
+// safe title aliases for every failed library item (including western movies),
+// then uses MyAnimeList only when the library is anime/mixed.
 func (s *Service) RetryLibraryErrorsWithMyAnimeList(ctx context.Context, libraryID int64) {
 	rows, err := s.db.QueryContext(ctx, `SELECT m.id,m.library_id,l.kind,m.title,m.path
 FROM media m JOIN libraries l ON l.id=m.library_id JOIN media_metadata mm ON mm.media_id=m.id
@@ -58,6 +63,10 @@ WHERE m.library_id=? AND m.available=1 AND mm.status='error' ORDER BY m.id`, lib
 		default:
 		}
 		parsed := ParseFilename(item.Path, item.LibraryKind)
+		if result, altErr := s.lookupSafeTitleAlternates(ctx, item, parsed); altErr == nil {
+			_ = s.saveResult(ctx, item.ID, result)
+			continue
+		}
 		result, lookupErr := s.lookupMyAnimeListFallback(ctx, item, parsed)
 		if lookupErr != nil {
 			continue
@@ -69,6 +78,49 @@ WHERE m.library_id=? AND m.available=1 AND mm.status='error' ORDER BY m.id`, lib
 			return
 		}
 	}
+}
+
+func (s *Service) lookupSafeTitleAlternates(ctx context.Context, item SourceItem, parsed ParsedName) (Result, error) {
+	alternates := safeMetadataParsedAlternates(parsed)
+	var lastErr error = errors.New("no safe metadata alternate")
+	for _, candidate := range alternates {
+		result, err := s.lookup(ctx, item, candidate)
+		if err == nil {
+			return result, nil
+		}
+		lastErr = err
+	}
+	return Result{}, lastErr
+}
+
+func safeMetadataParsedAlternates(parsed ParsedName) []ParsedName {
+	out := []ParsedName{}
+	seen := map[string]bool{normalizeTitle(parsed.Title): true}
+	add := func(title string) {
+		title = compactTitle(title)
+		key := normalizeTitle(title)
+		if title == "" || key == "" || seen[key] {
+			return
+		}
+		seen[key] = true
+		candidate := parsed
+		candidate.Title = title
+		candidate.Alternates = append([]string{parsed.Title}, parsed.Alternates...)
+		out = append(out, candidate)
+	}
+
+	// Common typo found in Brazilian collections: "Ponto de Raptura" instead
+	// of the localized title "Ponto de Ruptura".
+	add(metadataRapturaRE.ReplaceAllString(parsed.Title, "Ruptura"))
+
+	// Collection prefixes such as "Especiais Dragon Ball Z - ..." describe the
+	// folder/category, not the provider title. Retry without that prefix.
+	add(metadataSpecialPrefixRE.ReplaceAllString(parsed.Title, ""))
+
+	// Apply both corrections together when needed.
+	withoutPrefix := metadataSpecialPrefixRE.ReplaceAllString(parsed.Title, "")
+	add(metadataRapturaRE.ReplaceAllString(withoutPrefix, "Ruptura"))
+	return out
 }
 
 func (s *Service) lookupMyAnimeListFallback(ctx context.Context, item SourceItem, parsed ParsedName) (Result, error) {
@@ -129,7 +181,3 @@ func (s *Service) lookupMyAnimeListFallback(ctx context.Context, item SourceItem
 	}
 	return result, nil
 }
-
-// Keep database/sql referenced here so future package-level build tags do not
-// accidentally hide the sql import when this file is split by platform.
-var _ = sql.ErrNoRows
