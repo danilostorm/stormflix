@@ -145,6 +145,10 @@ func (s *server) storage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, err)
 		return
 	}
+	if v == nil {
+		writeJSON(w, 200, []struct{}{})
+		return
+	}
 	writeJSON(w, 200, v)
 }
 func (s *server) playbacks(w http.ResponseWriter, r *http.Request) {
