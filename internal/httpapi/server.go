@@ -20,7 +20,7 @@ import (
 )
 
 const sessionCookie = "stormflix_session"
-const version = "0.4.0-cinema"
+const version = "0.4.1-diagnostics"
 
 type contextKey string
 
@@ -50,6 +50,7 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	if err != nil {
 		panic(err)
 	}
+	effective = config.NormalizeCredentials(effective)
 	assetStore, err := assets.New(effective.AssetDir, effective.AssetPublicBaseURL)
 	if err != nil {
 		panic(err)
@@ -94,9 +95,11 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("GET /api/v1/admin/server", s.requireRole("operator", s.serverInfo))
 	mux.HandleFunc("GET /api/v1/admin/filesystem", s.requireRole("manager", s.browseFilesystem))
 	mux.HandleFunc("GET /api/v1/admin/agents", s.requireRole("operator", s.agentStatus))
+	mux.HandleFunc("POST /api/v1/admin/agents/tmdb/test", s.requireRole("operator", s.testTMDBAgent))
 	mux.HandleFunc("GET /api/v1/admin/settings", s.requireRole("admin", s.getSettings))
 	mux.HandleFunc("PUT /api/v1/admin/settings", s.requireRole("admin", s.updateSettings))
 	mux.HandleFunc("GET /api/v1/admin/metadata/status", s.requireRole("operator", s.metadataStatus))
+	mux.HandleFunc("GET /api/v1/admin/metadata/errors", s.requireRole("operator", s.metadataErrors))
 	mux.HandleFunc("GET /api/v1/admin/metadata/jobs", s.requireRole("operator", s.metadataJobs))
 	mux.HandleFunc("POST /api/v1/admin/libraries/{id}/metadata", s.requireRole("operator", s.startMetadataJob))
 	mux.HandleFunc("POST /api/v1/admin/media/{id}/metadata", s.requireRole("operator", s.refreshMediaMetadata))
