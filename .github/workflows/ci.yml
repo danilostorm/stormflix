@@ -25,12 +25,19 @@ jobs:
         run: go mod download
 
       - name: Format check
-        run: test -z "$(gofmt -l ./cmd ./internal)"
+        run: |
+          files="$(gofmt -l ./cmd ./internal)"
+          if [ -n "$files" ]; then
+            echo "Files requiring gofmt:"
+            echo "$files"
+            exit 1
+          fi
 
       - name: JavaScript syntax
         run: |
           node --check internal/webui/static/admin/admin.js
           node --check internal/webui/static/admin/admin-browser.js
+          node --check internal/webui/static/admin/admin-phase2.js
           node --check internal/webui/static/app.js
 
       - name: Test
