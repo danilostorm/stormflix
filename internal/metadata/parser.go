@@ -8,14 +8,17 @@ import (
 )
 
 var (
-	yearRE          = regexp.MustCompile(`\b(19\d{2}|20\d{2})\b`)
-	seasonRE        = regexp.MustCompile(`(?i)\bS(\d{1,2})[ ._-]*E(\d{1,3})\b`)
-	xEpisode        = regexp.MustCompile(`(?i)\b(\d{1,2})x(\d{1,3})\b`)
-	serialEpisodeRE = regexp.MustCompile(`(?i)(?:^|[ ._-])(?:ep(?:isode|isodio|isódio)?[ ._-]*)?(\d{1,3})$`)
-	bracketRE       = regexp.MustCompile(`\[[^\]]+\]|\([^\)]*(?:1080|2160|720|480|x26|hevc|av1|web|bluray|remux|hdr|dv)[^\)]*\)`)
-	junkParenRE     = regexp.MustCompile(`(?i)\((?:vhs|dvd|bdrip|bluray|blu-ray|dublado|dual[ ._-]*audio|legendado|webrip|web-dl|remux)\)`)
-	movieIndexRE    = regexp.MustCompile(`(?i)\b(?:filme|movie)\s*[-_. ]*\d{1,3}\b`)
-	seasonDirRE     = regexp.MustCompile(`(?i)^(?:season|temporada)\s*\d{1,3}$`)
+	yearRE           = regexp.MustCompile(`\b(19\d{2}|20\d{2})\b`)
+	twoDigitYearRE   = regexp.MustCompile(`(?:^|[ ._-])(\d{2})(?=$|[ ._-])`)
+	seasonRE         = regexp.MustCompile(`(?i)\bS(\d{1,2})[ ._-]*E(\d{1,3})\b`)
+	xEpisode         = regexp.MustCompile(`(?i)\b(\d{1,2})x(\d{1,3})\b`)
+	serialEpisodeRE  = regexp.MustCompile(`(?i)(?:^|[ ._-])(?:ep(?:isode|isodio|isódio)?[ ._-]*)?(\d{1,3})$`)
+	bracketRE        = regexp.MustCompile(`\[[^\]]+\]|\([^\)]*(?:1080|2160|720|480|x26|hevc|av1|web|bluray|remux|hdr|dv)[^\)]*\)`)
+	junkParenRE      = regexp.MustCompile(`(?i)\((?:vhs|dvd|bdrip|bluray|blu-ray|dublado|dual[ ._-]*audio|legendado|webrip|web-dl|remux)\)`)
+	emptyGroupRE     = regexp.MustCompile(`\(\s*\)|\[\s*\]|\{\s*\}`)
+	movieIndexRE     = regexp.MustCompile(`(?i)\b(?:filme|movie)\s*[-_. ]*\d{1,3}\b`)
+	seasonDirRE      = regexp.MustCompile(`(?i)^(?:season|temporada)\s*\d{1,3}$`)
+	wordNumberEndRE  = regexp.MustCompile(`(?i)([[:alpha:]])(\d{1,2})(?=$|[ ._-])`)
 )
 
 type ParsedName struct {
@@ -79,7 +82,21 @@ func ParseFilename(path, libraryKind string) ParsedName {
 	if match := yearRE.FindStringSubmatch(clean); len(match) == 2 {
 		out.Year, _ = strconv.Atoi(match[1])
 		clean = strings.Replace(clean, match[0], " ", 1)
+	} else if out.LikelyMovie || libraryKind == "movies" || libraryKind == "mixed" {
+		if match := twoDigitYearRE.FindStringSubmatch(clean); len(match) == 2 {
+			yy, _ := strconv.Atoi(match[1])
+			// Media libraries using two-digit years are overwhelmingly 20th century
+			// for 30-99 and 21st century for 00-29. Keeping this bounded avoids
+			// interpreting sequel numbers such as "Highlander 3" as a year.
+			if yy <= 29 {
+				out.Year = 2000 + yy
+			} else {
+				out.Year = 1900 + yy
+			}
+			clean = strings.Replace(clean, match[0], " ", 1)
+		}
 	}
+	clean = emptyGroupRE.ReplaceAllString(clean, " ")
 
 	clean = trimReleaseTail(clean)
 	originalTitle := compactTitle(clean)
@@ -150,6 +167,12 @@ func animeMoviePath(path string) bool {
 func cleanMetadataText(value string) string {
 	value = bracketRE.ReplaceAllString(value, " ")
 	value = junkParenRE.ReplaceAllString(value, " ")
+	// A number attached to the end of a title word is commonly a sequel marker
+	// (Highlander3, Filme6). Do not split codec/resolution numbers with 3+ digits.
+	value = wordNumberEndRE.ReplaceAllString(value, `$1 $2`)
+	// Some old Brazilian release names glue the uppercase negation between words.
+	// Splitting only the all-caps form avoids changing normal words containing "nao".
+	value = strings.ReplaceAll(value, "NAO", " Nao ")
 	value = strings.NewReplacer(".", " ", "_", " ", "–", " - ", "—", " - ").Replace(value)
 	return compactTitle(value)
 }
@@ -250,11 +273,23 @@ func isReleaseToken(word string) bool {
 		"bluray", "blu-ray", "bdrip", "brrip", "web", "web-dl", "webdl", "webrip", "hdtv", "remux",
 		"x264", "x265", "h264", "h265", "hevc", "av1", "xvid", "aac", "ac3", "eac3", "dts", "truehd",
 		"10bit", "8bit", "atmos", "ddp5", "ddp", "multi", "dual", "dual-audio",
+		"dublado", "legendado", "dc", "directorcut", "directorscut", "renegade", "trial", "medio",
 	}
 	for _, token := range known {
 		if w == token {
 			return true
 		}
 	}
-	return strings.HasPrefix(w, "1080") || strings.HasPrefix(w, "2160") || strings.HasPrefix(w, "720")
+	if strings.HasPrefix(w, "dual-") || strings.HasPrefix(w, "multi-") {
+		return true
+	}
+	// Old scene/private release tokens frequently glue the source and resolution
+	// together: TrialBD1080p, TetraBD1080p, BD1080p, etc.
+	if strings.Contains(w, "2160p") || strings.Contains(w, "1080p") || strings.Contains(w, "720p") || strings.Contains(w, "480p") {
+		return true
+	}
+	if strings.Contains(w, "bluray") || strings.Contains(w, "bdrip") || strings.Contains(w, "brrip") || strings.Contains(w, "remux") || strings.Contains(w, "webdl") || strings.Contains(w, "web-dl") {
+		return true
+	}
+	return false
 }
