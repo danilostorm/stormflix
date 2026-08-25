@@ -160,7 +160,6 @@ func (s *Service) Scan(ctx context.Context, libraryID int64) (ScanResult, error)
 INSERT INTO media(library_id, title, path, extension, size_bytes, modified_unix, available)
 VALUES(?, ?, ?, ?, ?, ?, 1)
 ON CONFLICT(library_id, path) DO UPDATE SET
-    title = excluded.title,
     extension = excluded.extension,
     size_bytes = CASE WHEN excluded.size_bytes > 0 THEN excluded.size_bytes ELSE media.size_bytes END,
     modified_unix = CASE WHEN excluded.modified_unix > 0 THEN excluded.modified_unix ELSE media.modified_unix END,
