@@ -5,11 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -29,11 +29,15 @@ type ScanResult struct {
 }
 
 type Service struct {
-	db *sql.DB
+	db      *sql.DB
+	scanMu  sync.Mutex
+	running map[int64]bool
 }
 
 func NewService(db *sql.DB) *Service {
-	return &Service{db: db}
+	s := &Service{db: db, running: map[int64]bool{}}
+	_, _ = db.Exec(`UPDATE libraries SET last_scan_status='interrupted',last_error='scan interrupted by server restart',updated_at=CURRENT_TIMESTAMP WHERE last_scan_status='running'`)
+	return s
 }
 
 func (s *Service) Bootstrap(name, path string) error {
@@ -109,7 +113,7 @@ func (s *Service) List(ctx context.Context) ([]Library, error) {
 	}
 	defer rows.Close()
 
-	var items []Library
+	items := []Library{}
 	for rows.Next() {
 		var item Library
 		if err := rows.Scan(&item.ID, &item.Name, &item.Kind, &item.Path, &item.CreatedAt, &item.UpdatedAt); err != nil {
@@ -120,6 +124,14 @@ func (s *Service) List(ctx context.Context) ([]Library, error) {
 	return items, rows.Err()
 }
 
+type discoveredFile struct {
+	path         string
+	title        string
+	extension    string
+	sizeBytes    int64
+	modifiedUnix int64
+}
+
 func (s *Service) Scan(ctx context.Context, libraryID int64) (ScanResult, error) {
 	started := time.Now()
 	lib, err := s.Get(ctx, libraryID)
@@ -127,38 +139,9 @@ func (s *Service) Scan(ctx context.Context, libraryID int64) (ScanResult, error)
 		return ScanResult{}, err
 	}
 
-	type discoveredFile struct {
-		path         string
-		title        string
-		extension    string
-		sizeBytes    int64
-		modifiedUnix int64
-	}
-
-	files := make([]discoveredFile, 0, 256)
-	walkErr := filepath.WalkDir(lib.Path, func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if d.IsDir() || !isVideo(path) {
-			return nil
-		}
-
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		files = append(files, discoveredFile{
-			path:         path,
-			title:        titleFromFilename(path),
-			extension:    strings.ToLower(filepath.Ext(path)),
-			sizeBytes:    info.Size(),
-			modifiedUnix: info.ModTime().Unix(),
-		})
-		return nil
-	})
-	if walkErr != nil {
-		return ScanResult{}, fmt.Errorf("scan library: %w", walkErr)
+	files, err := s.discover(ctx, lib, libraryID)
+	if err != nil {
+		return ScanResult{}, fmt.Errorf("scan library: %w", err)
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -193,6 +176,102 @@ ON CONFLICT(library_id, path) DO UPDATE SET
 	}
 
 	return ScanResult{LibraryID: libraryID, Files: len(files), DurationMS: time.Since(started).Milliseconds()}, nil
+}
+
+func (s *Service) discover(ctx context.Context, lib Library, libraryID int64) ([]discoveredFile, error) {
+	files := make([]discoveredFile, 0, 256)
+	dirs := []string{lib.Path}
+	lastProgress := time.Time{}
+
+	for len(dirs) > 0 {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		dir := dirs[0]
+		dirs = dirs[1:]
+
+		entries, err := readDirContext(ctx, dir)
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", dir, err)
+		}
+		for _, entry := range entries {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			path := filepath.Join(dir, entry.Name())
+			if entry.IsDir() {
+				dirs = append(dirs, path)
+				continue
+			}
+			if !isVideo(path) {
+				continue
+			}
+			info, err := entryInfoContext(ctx, entry)
+			if err != nil {
+				return nil, fmt.Errorf("stat %s: %w", path, err)
+			}
+			files = append(files, discoveredFile{
+				path:         path,
+				title:        titleFromFilename(path),
+				extension:    strings.ToLower(filepath.Ext(path)),
+				sizeBytes:    info.Size(),
+				modifiedUnix: info.ModTime().Unix(),
+			})
+		}
+
+		if lastProgress.IsZero() || time.Since(lastProgress) >= 1500*time.Millisecond {
+			rel, _ := filepath.Rel(lib.Path, dir)
+			if rel == "." {
+				rel = "/"
+			}
+			msg := fmt.Sprintf("scanning %s · %d files found", rel, len(files))
+			_, _ = s.db.Exec(`UPDATE libraries SET last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND last_scan_status='running'`, msg, libraryID)
+			lastProgress = time.Now()
+		}
+	}
+	return files, nil
+}
+
+type readDirResult struct {
+	entries []os.DirEntry
+	err     error
+}
+
+func readDirContext(parent context.Context, path string) ([]os.DirEntry, error) {
+	ctx, cancel := context.WithTimeout(parent, 90*time.Second)
+	defer cancel()
+	ch := make(chan readDirResult, 1)
+	go func() {
+		entries, err := os.ReadDir(path)
+		ch <- readDirResult{entries: entries, err: err}
+	}()
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("directory listing timeout: %w", ctx.Err())
+	case result := <-ch:
+		return result.entries, result.err
+	}
+}
+
+type infoResult struct {
+	info os.FileInfo
+	err  error
+}
+
+func entryInfoContext(parent context.Context, entry os.DirEntry) (os.FileInfo, error) {
+	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
+	defer cancel()
+	ch := make(chan infoResult, 1)
+	go func() {
+		info, err := entry.Info()
+		ch <- infoResult{info: info, err: err}
+	}()
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("file stat timeout: %w", ctx.Err())
+	case result := <-ch:
+		return result.info, result.err
+	}
 }
 
 func SupportedExtensions() []string {
