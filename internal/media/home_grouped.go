@@ -15,25 +15,22 @@ func (s *Service) HomeGrouped(ctx context.Context, allowedLibraryIDs []int64, he
 	if err != nil {
 		return HomeFeed{}, err
 	}
-	series, err := s.SeriesList(ctx, allowedLibraryIDs, "")
+	groups, err := s.seriesGroups(ctx, allowedLibraryIDs)
 	if err != nil {
 		return HomeFeed{}, err
 	}
-	allEpisodes, err := s.RecentEpisodes(ctx, allowedLibraryIDs, 0)
-	if err != nil {
-		return HomeFeed{}, err
-	}
-	episodeIDs := make(map[int64]bool, len(allEpisodes))
-	for _, episode := range allEpisodes {
-		episodeIDs[episode.ID] = true
-	}
-
-	seriesCards := make([]Item, 0, len(series))
-	seriesByLibrary := map[int64][]Item{}
-	for _, show := range series {
-		card := seriesToItem(show)
+	seriesCards := make([]Item, 0, len(groups))
+	allEpisodes := []Item{}
+	episodeToSeries := map[int64]Item{}
+	for _, group := range groups {
+		card := seriesToItem(group.SeriesSummary)
 		seriesCards = append(seriesCards, card)
-		seriesByLibrary[card.LibraryID] = append(seriesByLibrary[card.LibraryID], card)
+		for _, season := range group.Seasons {
+			for _, episode := range season.Episodes {
+				allEpisodes = append(allEpisodes, episode)
+				episodeToSeries[episode.ID] = card
+			}
+		}
 	}
 
 	for i := range feed.Rows {
@@ -42,13 +39,14 @@ func (s *Service) HomeGrouped(ctx context.Context, allowedLibraryIDs []int64, he
 		seenSeries := map[string]bool{}
 		seenMedia := map[int64]bool{}
 		for _, item := range row.Items {
-			if episodeIDs[item.ID] || isEpisodeItem(item) {
-				for _, show := range seriesByLibrary[item.LibraryID] {
-					if !seenSeries[show.SeriesID] {
-						seenSeries[show.SeriesID] = true
-						kept = append(kept, show)
-					}
+			if show, ok := episodeToSeries[item.ID]; ok {
+				if !seenSeries[show.SeriesID] {
+					seenSeries[show.SeriesID] = true
+					kept = append(kept, show)
 				}
+				continue
+			}
+			if isEpisodeItem(item) {
 				continue
 			}
 			if !seenMedia[item.ID] {
@@ -63,7 +61,7 @@ func (s *Service) HomeGrouped(ctx context.Context, allowedLibraryIDs []int64, he
 	topLevel := []Item{}
 	for _, row := range feed.Rows {
 		for _, item := range row.Items {
-			if !episodeIDs[item.ID] {
+			if _, rawEpisode := episodeToSeries[item.ID]; !rawEpisode {
 				topLevel = append(topLevel, item)
 			}
 		}
@@ -94,12 +92,17 @@ func (s *Service) HomeGrouped(ctx context.Context, allowedLibraryIDs []int64, he
 
 	// Never feature a raw episode in the main hero, including items that have
 	// not received provider metadata yet.
-	if feed.Hero != nil && (episodeIDs[feed.Hero.ID] || isEpisodeItem(*feed.Hero)) {
-		if len(topLevel) > 0 {
-			candidate := topLevel[0]
+	if feed.Hero != nil {
+		if show, ok := episodeToSeries[feed.Hero.ID]; ok {
+			candidate := show
 			feed.Hero = &candidate
-		} else {
-			feed.Hero = nil
+		} else if isEpisodeItem(*feed.Hero) {
+			if len(topLevel) > 0 {
+				candidate := topLevel[0]
+				feed.Hero = &candidate
+			} else {
+				feed.Hero = nil
+			}
 		}
 	}
 	return feed, nil
