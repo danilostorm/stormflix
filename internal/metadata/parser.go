@@ -9,7 +9,7 @@ import (
 
 var (
 	yearRE           = regexp.MustCompile(`\b(19\d{2}|20\d{2})\b`)
-	twoDigitYearRE   = regexp.MustCompile(`(?:^|[ ._-])(\d{2})(?=$|[ ._-])`)
+	twoDigitYearRE   = regexp.MustCompile(`(?:^|[ ._-])(\d{2})(?:$|[ ._-])`)
 	seasonRE         = regexp.MustCompile(`(?i)\bS(\d{1,2})[ ._-]*E(\d{1,3})\b`)
 	xEpisode         = regexp.MustCompile(`(?i)\b(\d{1,2})x(\d{1,3})\b`)
 	serialEpisodeRE  = regexp.MustCompile(`(?i)(?:^|[ ._-])(?:ep(?:isode|isodio|isódio)?[ ._-]*)?(\d{1,3})$`)
@@ -18,7 +18,7 @@ var (
 	emptyGroupRE     = regexp.MustCompile(`\(\s*\)|\[\s*\]|\{\s*\}`)
 	movieIndexRE     = regexp.MustCompile(`(?i)\b(?:filme|movie)\s*[-_. ]*\d{1,3}\b`)
 	seasonDirRE      = regexp.MustCompile(`(?i)^(?:season|temporada)\s*\d{1,3}$`)
-	wordNumberEndRE  = regexp.MustCompile(`(?i)([[:alpha:]])(\d{1,2})(?=$|[ ._-])`)
+	wordNumberEndRE  = regexp.MustCompile(`(?i)([[:alpha:]])(\d{1,2})(?:$|[ ._-])`)
 )
 
 type ParsedName struct {
@@ -169,7 +169,7 @@ func cleanMetadataText(value string) string {
 	value = junkParenRE.ReplaceAllString(value, " ")
 	// A number attached to the end of a title word is commonly a sequel marker
 	// (Highlander3, Filme6). Do not split codec/resolution numbers with 3+ digits.
-	value = wordNumberEndRE.ReplaceAllString(value, `$1 $2`)
+	value = wordNumberEndRE.ReplaceAllString(value, `$1 $2 `)
 	// Some old Brazilian release names glue the uppercase negation between words.
 	// Splitting only the all-caps form avoids changing normal words containing "nao".
 	value = strings.ReplaceAll(value, "NAO", " Nao ")
