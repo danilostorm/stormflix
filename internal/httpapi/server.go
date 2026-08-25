@@ -14,47 +14,53 @@ import (
 	"github.com/danilostorm/stormflix/internal/library"
 	"github.com/danilostorm/stormflix/internal/media"
 	"github.com/danilostorm/stormflix/internal/metadata"
+	appsettings "github.com/danilostorm/stormflix/internal/settings"
 	"github.com/danilostorm/stormflix/internal/subtitles"
 	"github.com/danilostorm/stormflix/internal/webui"
 )
 
 const sessionCookie = "stormflix_session"
-const version = "0.3.0-phase2"
+const version = "0.4.0-cinema"
 
 type contextKey string
 
 const userKey contextKey = "user"
 
 type server struct {
-	db        *sql.DB
-	libraries *library.Service
-	media     *media.Service
-	auth      *auth.Service
-	admin     *admin.Service
-	metadata  *metadata.Service
-	subtitles *subtitles.Service
-	assets    *assets.Store
-	config    config.Config
-	startedAt time.Time
+	db         *sql.DB
+	libraries  *library.Service
+	media      *media.Service
+	auth       *auth.Service
+	admin      *admin.Service
+	metadata   *metadata.Service
+	subtitles  *subtitles.Service
+	assets     *assets.Store
+	settings   *appsettings.Service
+	baseConfig config.Config
+	config     config.Config
+	startedAt  time.Time
 }
 
 func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler {
-	assetStore, err := assets.New(cfg.AssetDir, cfg.AssetPublicBaseURL)
+	settingsService, err := appsettings.New(db, cfg.DataDir)
+	if err != nil {
+		panic(err)
+	}
+	effective, err := settingsService.Apply(context.Background(), cfg)
+	if err != nil {
+		panic(err)
+	}
+	assetStore, err := assets.New(effective.AssetDir, effective.AssetPublicBaseURL)
 	if err != nil {
 		panic(err)
 	}
 	s := &server{
-		db:        db,
-		libraries: libraries,
-		media:     media.NewService(db),
-		auth:      auth.NewService(db),
-		admin:     admin.NewService(db),
-		assets:    assetStore,
-		config:    cfg,
-		startedAt: time.Now(),
+		db: db, libraries: libraries, media: media.NewService(db), auth: auth.NewService(db), admin: admin.NewService(db),
+		assets: assetStore, settings: settingsService, baseConfig: cfg, config: effective, startedAt: time.Now(),
 	}
-	s.metadata = metadata.NewService(db, cfg, assetStore)
-	s.subtitles = subtitles.NewService(db, cfg, assetStore)
+	s.metadata = metadata.NewService(db, effective, assetStore)
+	s.metadata.RecoverInterruptedJobs()
+	s.subtitles = subtitles.NewService(db, effective, assetStore)
 	s.auth.Cleanup(context.Background())
 
 	mux := http.NewServeMux()
@@ -70,7 +76,9 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("PUT /api/v1/libraries/{id}", s.requireRole("manager", s.updateLibrary))
 	mux.HandleFunc("DELETE /api/v1/libraries/{id}", s.requireRole("manager", s.deleteLibrary))
 	mux.HandleFunc("POST /api/v1/libraries/{id}/scan", s.requireRole("operator", s.scanLibrary))
+	mux.HandleFunc("GET /api/v1/home", s.requireAuth(s.homeFeed))
 	mux.HandleFunc("GET /api/v1/media", s.requireAuth(s.listMedia))
+	mux.HandleFunc("GET /api/v1/media/{id}", s.requireAuth(s.mediaDetails))
 	mux.HandleFunc("GET /api/v1/media/{id}/stream", s.requireAuth(s.streamMedia))
 	mux.HandleFunc("GET /api/v1/media/{id}/subtitles", s.requireAuth(s.mediaSubtitles))
 	mux.HandleFunc("GET /api/v1/admin/dashboard", s.requireRole("operator", s.adminDashboard))
@@ -86,6 +94,8 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("GET /api/v1/admin/server", s.requireRole("operator", s.serverInfo))
 	mux.HandleFunc("GET /api/v1/admin/filesystem", s.requireRole("manager", s.browseFilesystem))
 	mux.HandleFunc("GET /api/v1/admin/agents", s.requireRole("operator", s.agentStatus))
+	mux.HandleFunc("GET /api/v1/admin/settings", s.requireRole("admin", s.getSettings))
+	mux.HandleFunc("PUT /api/v1/admin/settings", s.requireRole("admin", s.updateSettings))
 	mux.HandleFunc("GET /api/v1/admin/metadata/status", s.requireRole("operator", s.metadataStatus))
 	mux.HandleFunc("GET /api/v1/admin/metadata/jobs", s.requireRole("operator", s.metadataJobs))
 	mux.HandleFunc("POST /api/v1/admin/libraries/{id}/metadata", s.requireRole("operator", s.startMetadataJob))
@@ -95,10 +105,7 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("GET /api/v1/admin/subtitles/jobs", s.requireRole("operator", s.subtitleJobs))
 	mux.HandleFunc("POST /api/v1/admin/libraries/{id}/subtitles", s.requireRole("operator", s.startSubtitleJob))
 
-	assetFiles := http.StripPrefix("/assets/", http.FileServer(http.Dir(assetStore.Root)))
-	mux.HandleFunc("GET /assets/", s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
-		assetFiles.ServeHTTP(w, r)
-	}))
+	mux.HandleFunc("GET /assets/", s.requireAuth(s.serveAsset))
 
 	staticFS, err := fs.Sub(webui.Static, "static")
 	if err != nil {
