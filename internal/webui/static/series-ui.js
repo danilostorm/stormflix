@@ -27,6 +27,7 @@
   // Replace the file-oriented nav filter from app.js. Series are top-level
   // entities here; raw episode cards remain available only in "Novos episódios".
   $$('[data-nav]').forEach(button=>button.onclick=()=>{
+    if(window.sfDiscardDetailPage)window.sfDiscardDetailPage();
     const mode=button.dataset.nav;
     $$('[data-nav]').forEach(x=>x.classList.toggle('active',x===button));
     if(mode==='home'){showHome();return}
@@ -93,10 +94,8 @@
       renderCast(representative?.cast||[]);
       $('#related-section').classList.add('hidden');
       renderSeriesSeasons(data);
-      if(representative&&data.media_type==='series')setupTheme(representative);else stopThemeButton();
-      $('#detail-modal').classList.remove('hidden');
-      $('#detail-modal').setAttribute('aria-hidden','false');
-      document.body.classList.add('modal-open');
+      if(representative)setupTheme(representative);else stopThemeButton();
+      if(window.sfEnterDetailPage)window.sfEnterDetailPage();
     }catch(err){console.error(err);if(typeof sfToast==='function')sfToast(err.message)}
   }
   window.openSeries=openSeries;
