@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/danilostorm/stormflix/internal/media"
 )
@@ -35,6 +36,7 @@ func (s *server) agentStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) metadataStatus(w http.ResponseWriter, r *http.Request) {
+	_, _ = s.metadata.RecoverStaleJobs(30 * time.Minute)
 	counts, err := s.metadata.StatusCounts(r.Context())
 	if err != nil {
 		writeError(w, 500, err)
@@ -44,6 +46,7 @@ func (s *server) metadataStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) metadataJobs(w http.ResponseWriter, r *http.Request) {
+	_, _ = s.metadata.RecoverStaleJobs(30 * time.Minute)
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	jobs, err := s.metadata.Jobs(r.Context(), limit)
 	if err != nil {
@@ -59,12 +62,17 @@ func (s *server) startMetadataJob(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, err)
 		return
 	}
+	if err := s.metadata.ValidateLibraryJob(r.Context(), id); err != nil {
+		writeError(w, 409, err)
+		return
+	}
 	refresh := r.URL.Query().Get("refresh") == "1" || strings.EqualFold(r.URL.Query().Get("refresh"), "true")
 	job, err := s.metadata.StartLibraryJob(r.Context(), id, refresh)
 	if err != nil {
 		writeError(w, 400, err)
 		return
 	}
+	go s.metadata.WatchJob(job.ID, 35*time.Minute)
 	uid := currentUser(r).ID
 	s.admin.Log(r.Context(), "info", "metadata", "Metadata scan started", &uid, job.Library)
 	writeJSON(w, http.StatusAccepted, job)
