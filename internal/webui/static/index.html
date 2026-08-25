@@ -7,6 +7,7 @@
   <title>StormFlix</title>
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/ux-v2.css">
+  <link rel="stylesheet" href="/ux-v3.css">
 </head>
 <body>
 <div id="login" class="login-overlay hidden">
@@ -84,7 +85,7 @@
         <div class="detail-actions">
           <button id="detail-play" class="primary play-button">▶ Assistir</button>
           <a id="detail-trailer" class="secondary hidden" target="_blank" rel="noopener">▷ Trailer</a>
-          <button id="theme-toggle" class="secondary hidden">♫ Prévia da trilha</button>
+          <button id="theme-toggle" class="secondary hidden">♫ Prévia da abertura</button>
         </div>
       </div>
       <div class="detail-grid">
@@ -98,7 +99,7 @@
           <div><span>Gêneros</span><b id="detail-genres">—</b></div>
           <div><span>Biblioteca</span><b id="detail-library">—</b></div>
           <div><span>Formato</span><b id="detail-format">Direct Play</b></div>
-          <div id="theme-info-wrap" class="hidden"><span>Trilha</span><b id="theme-info"></b></div>
+          <div id="theme-info-wrap" class="hidden"><span>Abertura</span><b id="theme-info"></b></div>
         </aside>
       </div>
     </div>
@@ -114,5 +115,6 @@
 <audio id="theme-audio" preload="none"></audio>
 <script src="/app.js" defer></script>
 <script src="/ux-v2.js" defer></script>
+<script src="/ux-v3.js" defer></script>
 </body>
 </html>
