@@ -1,11 +1,11 @@
-/* StormFlix UX v3: TV keyboard focus + stronger rails + episodic-only theme previews */
+/* StormFlix UX v3: TV keyboard focus + stronger rails + series-only theme previews */
 (function(){
   const modal=document.querySelector('#player-modal');
 
   const originalSetupTheme=setupTheme;
   setupTheme=function(d){
-    const episodic=d && (d.media_type==='series'||d.media_type==='anime');
-    if(!episodic){
+    const series=d && d.media_type==='series';
+    if(!series){
       stopTheme();
       const button=document.querySelector('#theme-toggle');
       const wrap=document.querySelector('#theme-info-wrap');
