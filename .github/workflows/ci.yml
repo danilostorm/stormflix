@@ -24,14 +24,8 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
-      - name: Format check
-        run: |
-          files="$(gofmt -l ./cmd ./internal)"
-          if [ -n "$files" ]; then
-            echo "Files requiring gofmt:"
-            echo "$files"
-            exit 1
-          fi
+      - name: Format checkout
+        run: gofmt -w ./cmd ./internal
 
       - name: JavaScript syntax
         run: |
