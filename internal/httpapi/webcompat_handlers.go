@@ -74,6 +74,7 @@ func (s *server) remuxMedia(w http.ResponseWriter, r *http.Request) {
 	s.admin.TouchPlayback(r.Context(), u.ID, id, shortDevice(r.UserAgent()), clientIP(r))
 	w.Header().Set("Content-Type", "video/mp4")
 	w.Header().Set("Cache-Control", "private, no-store")
+	w.Header().Set("X-Accel-Buffering", "no")
 	w.Header().Set("X-StormFlix-Playback", "direct-stream-remux")
 	w.Header().Set("X-StormFlix-Transcoding", "false")
 	w.Header().Set("X-StormFlix-Video-Codec", plan.VideoCodec)
