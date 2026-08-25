@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/ux-v2.css">
   <link rel="stylesheet" href="/ux-v3.css">
   <link rel="stylesheet" href="/series-ui.css">
+  <link rel="stylesheet" href="/detail-page.css">
 </head>
 <body>
 <div id="login" class="login-overlay hidden">
@@ -65,46 +66,45 @@
       <div id="search-results" class="poster-grid"></div>
     </section>
 
+    <section id="detail-modal" class="detail-page hidden" aria-hidden="true">
+      <article class="detail-card">
+        <button class="modal-close" data-close-detail aria-label="Voltar">←</button>
+        <div id="detail-backdrop" class="detail-backdrop"></div>
+        <div class="detail-gradient"></div>
+        <div class="detail-content">
+          <div class="detail-title-zone">
+            <img id="detail-logo" class="detail-logo hidden" alt="">
+            <h1 id="detail-title"></h1>
+            <p id="detail-tagline" class="detail-tagline"></p>
+            <div id="detail-meta" class="detail-meta"></div>
+            <div class="detail-actions">
+              <button id="detail-play" class="primary play-button">▶ Assistir</button>
+              <a id="detail-trailer" class="secondary hidden" target="_blank" rel="noopener">▷ Trailer</a>
+              <button id="theme-toggle" class="secondary hidden">♫ Prévia da abertura</button>
+            </div>
+          </div>
+          <div class="detail-grid">
+            <div class="detail-main">
+              <p id="detail-overview" class="detail-overview"></p>
+              <section id="cast-section" class="detail-section hidden"><h2>Elenco</h2><div id="cast-row" class="cast-row"></div></section>
+              <section id="related-section" class="detail-section hidden"><h2>Você também pode gostar</h2><div id="related-row" class="related-row"></div></section>
+            </div>
+            <aside class="detail-side">
+              <div><span>Direção</span><b id="detail-directors">—</b></div>
+              <div><span>Gêneros</span><b id="detail-genres">—</b></div>
+              <div><span>Biblioteca</span><b id="detail-library">—</b></div>
+              <div><span>Formato</span><b id="detail-format">Direct Play</b></div>
+              <div id="theme-info-wrap" class="hidden"><span>Abertura</span><b id="theme-info"></b></div>
+            </aside>
+          </div>
+        </div>
+      </article>
+    </section>
+
     <section id="catalog-view" class="catalog-view">
       <div id="rows" class="rows"></div>
     </section>
   </main>
-</div>
-
-<div id="detail-modal" class="modal hidden" aria-hidden="true">
-  <div class="modal-scrim" data-close-detail></div>
-  <article class="detail-card">
-    <button class="modal-close" data-close-detail aria-label="Fechar">✕</button>
-    <div id="detail-backdrop" class="detail-backdrop"></div>
-    <div class="detail-gradient"></div>
-    <div class="detail-content">
-      <div class="detail-title-zone">
-        <img id="detail-logo" class="detail-logo hidden" alt="">
-        <h1 id="detail-title"></h1>
-        <p id="detail-tagline" class="detail-tagline"></p>
-        <div id="detail-meta" class="detail-meta"></div>
-        <div class="detail-actions">
-          <button id="detail-play" class="primary play-button">▶ Assistir</button>
-          <a id="detail-trailer" class="secondary hidden" target="_blank" rel="noopener">▷ Trailer</a>
-          <button id="theme-toggle" class="secondary hidden">♫ Prévia da abertura</button>
-        </div>
-      </div>
-      <div class="detail-grid">
-        <div class="detail-main">
-          <p id="detail-overview" class="detail-overview"></p>
-          <section id="cast-section" class="detail-section hidden"><h2>Elenco</h2><div id="cast-row" class="cast-row"></div></section>
-          <section id="related-section" class="detail-section hidden"><h2>Você também pode gostar</h2><div id="related-row" class="related-row"></div></section>
-        </div>
-        <aside class="detail-side">
-          <div><span>Direção</span><b id="detail-directors">—</b></div>
-          <div><span>Gêneros</span><b id="detail-genres">—</b></div>
-          <div><span>Biblioteca</span><b id="detail-library">—</b></div>
-          <div><span>Formato</span><b id="detail-format">Direct Play</b></div>
-          <div id="theme-info-wrap" class="hidden"><span>Abertura</span><b id="theme-info"></b></div>
-        </aside>
-      </div>
-    </div>
-  </article>
 </div>
 
 <div id="player-modal" class="player-modal hidden" role="dialog" aria-label="Player StormFlix">
