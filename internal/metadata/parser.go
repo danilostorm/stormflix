@@ -82,12 +82,13 @@ func ParseFilename(path, libraryKind string) ParsedName {
 	if match := yearRE.FindStringSubmatch(clean); len(match) == 2 {
 		out.Year, _ = strconv.Atoi(match[1])
 		clean = strings.Replace(clean, match[0], " ", 1)
-	} else if out.LikelyMovie || libraryKind == "movies" || libraryKind == "mixed" {
+	} else if (out.LikelyMovie || libraryKind == "movies" || libraryKind == "mixed") && !(animeCapable && movieIndexRE.MatchString(clean)) {
 		if match := twoDigitYearRE.FindStringSubmatch(clean); len(match) == 2 {
 			yy, _ := strconv.Atoi(match[1])
 			// Media libraries using two-digit years are overwhelmingly 20th century
 			// for 30-99 and 21st century for 00-29. Keeping this bounded avoids
-			// interpreting sequel numbers such as "Highlander 3" as a year.
+			// interpreting sequel numbers such as "Highlander 3" as a year. Anime
+			// sequence labels such as "Filme 15" are protected above and are not years.
 			if yy <= 29 {
 				out.Year = 2000 + yy
 			} else {
