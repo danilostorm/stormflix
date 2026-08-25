@@ -9,18 +9,30 @@ import (
 )
 
 type Item struct {
-	ID           int64  `json:"id"`
-	LibraryID    int64  `json:"library_id"`
-	Title        string `json:"title"`
-	Extension    string `json:"extension"`
-	SizeBytes    int64  `json:"size_bytes"`
-	ModifiedUnix int64  `json:"modified_unix"`
-	Available    bool   `json:"available"`
+	ID             int64   `json:"id"`
+	LibraryID      int64   `json:"library_id"`
+	Title          string  `json:"title"`
+	Extension      string  `json:"extension"`
+	SizeBytes      int64   `json:"size_bytes"`
+	ModifiedUnix   int64   `json:"modified_unix"`
+	Available      bool    `json:"available"`
+	MediaType      string  `json:"media_type"`
+	Year           int     `json:"year"`
+	SeasonNumber   int     `json:"season_number"`
+	EpisodeNumber  int     `json:"episode_number"`
+	Overview       string  `json:"overview"`
+	Rating         float64 `json:"rating"`
+	MetadataStatus string  `json:"metadata_status"`
+	PosterURL      string  `json:"poster_url"`
+	BackdropURL    string  `json:"backdrop_url"`
+	LogoURL        string  `json:"logo_url"`
 }
+
 type StreamItem struct {
 	Item
 	Path string
 }
+
 type Service struct{ db *sql.DB }
 
 func NewService(db *sql.DB) *Service { return &Service{db: db} }
@@ -37,9 +49,14 @@ func (s *Service) List(ctx context.Context, libraryID int64, query string, limit
 		return []Item{}, nil
 	}
 	args := []any{}
-	sqlText := `SELECT id,library_id,title,extension,size_bytes,modified_unix,available FROM media WHERE available=1`
+	sqlText := `SELECT m.id,m.library_id,m.title,m.extension,m.size_bytes,m.modified_unix,m.available,
+COALESCE(mm.media_type,''),COALESCE(mm.year,0),COALESCE(mm.season_number,0),COALESCE(mm.episode_number,0),COALESCE(mm.overview,''),COALESCE(mm.rating,0),COALESCE(mm.status,'pending'),
+COALESCE((SELECT a.public_url FROM media_artwork a WHERE a.media_id=m.id AND a.kind='poster' AND a.selected=1 ORDER BY a.score DESC LIMIT 1),''),
+COALESCE((SELECT a.public_url FROM media_artwork a WHERE a.media_id=m.id AND a.kind='backdrop' AND a.selected=1 ORDER BY a.score DESC LIMIT 1),''),
+COALESCE((SELECT a.public_url FROM media_artwork a WHERE a.media_id=m.id AND a.kind='logo' AND a.selected=1 ORDER BY a.score DESC LIMIT 1),'')
+FROM media m LEFT JOIN media_metadata mm ON mm.media_id=m.id WHERE m.available=1`
 	if libraryID > 0 {
-		sqlText += ` AND library_id=?`
+		sqlText += ` AND m.library_id=?`
 		args = append(args, libraryID)
 	}
 	if allowedLibraryIDs != nil {
@@ -48,13 +65,13 @@ func (s *Service) List(ctx context.Context, libraryID int64, query string, limit
 			marks[i] = "?"
 			args = append(args, id)
 		}
-		sqlText += ` AND library_id IN (` + strings.Join(marks, ",") + `)`
+		sqlText += ` AND m.library_id IN (` + strings.Join(marks, ",") + `)`
 	}
 	if query != "" {
-		sqlText += ` AND title LIKE ?`
+		sqlText += ` AND m.title LIKE ?`
 		args = append(args, "%"+query+"%")
 	}
-	sqlText += ` ORDER BY title COLLATE NOCASE LIMIT ? OFFSET ?`
+	sqlText += ` ORDER BY m.title COLLATE NOCASE LIMIT ? OFFSET ?`
 	args = append(args, limit, offset)
 	rows, err := s.db.QueryContext(ctx, sqlText, args...)
 	if err != nil {
@@ -64,13 +81,15 @@ func (s *Service) List(ctx context.Context, libraryID int64, query string, limit
 	var out []Item
 	for rows.Next() {
 		var v Item
-		if err := rows.Scan(&v.ID, &v.LibraryID, &v.Title, &v.Extension, &v.SizeBytes, &v.ModifiedUnix, &v.Available); err != nil {
+		if err := rows.Scan(&v.ID, &v.LibraryID, &v.Title, &v.Extension, &v.SizeBytes, &v.ModifiedUnix, &v.Available,
+			&v.MediaType, &v.Year, &v.SeasonNumber, &v.EpisodeNumber, &v.Overview, &v.Rating, &v.MetadataStatus, &v.PosterURL, &v.BackdropURL, &v.LogoURL); err != nil {
 			return nil, err
 		}
 		out = append(out, v)
 	}
 	return out, rows.Err()
 }
+
 func (s *Service) GetStreamItem(ctx context.Context, id int64) (StreamItem, error) {
 	var v StreamItem
 	err := s.db.QueryRowContext(ctx, `SELECT id,library_id,title,path,extension,size_bytes,modified_unix,available FROM media WHERE id=?`, id).Scan(&v.ID, &v.LibraryID, &v.Title, &v.Path, &v.Extension, &v.SizeBytes, &v.ModifiedUnix, &v.Available)
@@ -79,6 +98,7 @@ func (s *Service) GetStreamItem(ctx context.Context, id int64) (StreamItem, erro
 	}
 	return v, err
 }
+
 func ContainsLibrary(ids []int64, id int64) bool {
 	if ids == nil {
 		return true
@@ -90,11 +110,13 @@ func ContainsLibrary(ids []int64, id int64) bool {
 	}
 	return false
 }
+
 func (s *Service) Count(ctx context.Context) (int64, error) {
 	var n int64
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM media WHERE available=1`).Scan(&n)
 	return n, err
 }
+
 func (s *Service) DeleteCatalogItem(ctx context.Context, id int64) error {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM media WHERE id=?`, id)
 	if err != nil {
