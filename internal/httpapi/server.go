@@ -20,7 +20,7 @@ import (
 )
 
 const sessionCookie = "stormflix_session"
-const version = "0.6.0-series-monitoring"
+const version = "0.6.1-detail-scanner"
 
 type contextKey string
 
@@ -80,6 +80,7 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("PUT /api/v1/libraries/{id}", s.requireRole("manager", s.updateLibrary))
 	mux.HandleFunc("DELETE /api/v1/libraries/{id}", s.requireRole("manager", s.deleteLibrary))
 	mux.HandleFunc("POST /api/v1/libraries/{id}/scan", s.requireRole("operator", s.scanLibrary))
+	mux.HandleFunc("POST /api/v1/libraries/{id}/scan/cancel", s.requireRole("operator", s.cancelLibraryScan))
 	mux.HandleFunc("GET /api/v1/home", s.requireAuth(s.homeFeed))
 	mux.HandleFunc("GET /api/v1/series", s.requireAuth(s.listSeries))
 	mux.HandleFunc("GET /api/v1/series/{id}", s.requireAuth(s.seriesDetails))
