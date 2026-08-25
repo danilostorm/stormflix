@@ -40,20 +40,26 @@ func (s *Service) RecoverStaleJobs(maxAge time.Duration) (int64, error) {
 	return res.RowsAffected()
 }
 
-func (s *Service) WatchJob(id int64, maxAge time.Duration) {
-	if maxAge <= 0 {
-		maxAge = 35 * time.Minute
+func (s *Service) WatchJob(id int64, checkAfter time.Duration) {
+	if checkAfter <= 0 {
+		checkAfter = 35 * time.Minute
 	}
-	timer := time.NewTimer(maxAge)
+	timer := time.NewTimer(checkAfter)
 	defer timer.Stop()
 	<-timer.C
+
 	var status string
-	if err := s.db.QueryRow(`SELECT status FROM metadata_jobs WHERE id=?`, id).Scan(&status); err != nil {
+	var staleSeconds int64
+	err := s.db.QueryRow(`SELECT status,MAX(0,strftime('%s','now')-strftime('%s',updated_at)) FROM metadata_jobs WHERE id=?`, id).Scan(&status, &staleSeconds)
+	if err != nil || (status != "queued" && status != "running") {
 		return
 	}
-	if status != "queued" && status != "running" {
+
+	// A large library may legitimately run for a long time. Only fail it if it
+	// also stopped reporting progress for ten minutes.
+	if staleSeconds < int64((10 * time.Minute).Seconds()) {
 		return
 	}
-	message := fmt.Sprintf("metadata job exceeded %s and was stopped by watchdog", maxAge.Round(time.Minute))
+	message := fmt.Sprintf("metadata job stopped reporting progress for %s and was recovered by watchdog", (time.Duration(staleSeconds)*time.Second).Round(time.Minute))
 	_, _ = s.db.Exec(`UPDATE metadata_jobs SET status='failed',message=?,finished_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status IN ('queued','running')`, message, id)
 }
