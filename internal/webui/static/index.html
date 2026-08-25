@@ -1,17 +1,116 @@
 <!doctype html>
 <html lang="pt-BR">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#090b10">
-  <title>StormFlix</title><link rel="stylesheet" href="/styles.css">
-  <style>.hidden{display:none!important}.top-actions,.catalog-tools{display:flex;gap:10px;align-items:center}.login-overlay{position:fixed;z-index:100;inset:0;background:rgba(5,7,10,.94);display:grid;place-items:center}.login-card{width:min(410px,92vw);display:grid;gap:11px;background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:30px}.login-card h2{margin:4px 0}.login-card a{color:var(--muted);text-align:center}.catalog-tools select{min-width:190px}@media(max-width:850px){.catalog-tools{width:100%;flex-direction:column}}</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#050609">
+  <title>StormFlix</title>
+  <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-<div id="login" class="login-overlay hidden"><form id="login-form" class="login-card"><div class="brand">STORM<span>FLIX</span></div><h2>Entrar</h2><input id="login-user" placeholder="Usuário" required><input id="login-pass" type="password" placeholder="Senha" required><button>Entrar</button><p id="login-error" class="message error"></p><a href="/admin/">Administração</a></form></div>
-<header class="topbar"><div><div class="brand">STORM<span>FLIX</span></div><div class="tagline">Direct Play Only</div></div><div class="top-actions"><a id="admin-link" class="secondary hidden" href="/admin/">Admin</a><span id="user-label" class="status"></span><button id="logout" class="secondary hidden">Sair</button></div></header>
-<main>
-  <section class="hero"><div><p class="eyebrow">StormFlix Server</p><h1>Sua biblioteca. Seu armazenamento. Sem transcodificação.</h1><p>Catálogo leve com reprodução direta dos arquivos do seu servidor.</p></div><div class="direct-card"><strong>DIRECT PLAY</strong><span>Transcoding permanentemente desativado</span></div></section>
-  <section class="panel"><div class="panel-head"><div><p class="eyebrow">Catálogo</p><h2>Mídias</h2></div><div class="catalog-tools"><select id="library-filter"><option value="">Todas as bibliotecas</option></select><input id="search" class="search" placeholder="Buscar título..."></div></div><div id="message" class="message"></div><div id="media" class="media-grid"></div></section>
-</main>
-<template id="media-template"><article class="media-card"><div class="poster"><img class="poster-image hidden" alt=""><span class="poster-fallback">▶</span></div><div class="media-body"><strong class="media-title"></strong><small class="media-meta"></small><a class="play" target="_blank">Reproduzir direto</a></div></article></template>
+<div id="login" class="login-overlay hidden">
+  <div class="login-backdrop"></div>
+  <form id="login-form" class="login-card">
+    <div class="brand brand-large">STORM<span>FLIX</span></div>
+    <p class="login-kicker">Direct Play Only</p>
+    <h1>Entrar</h1>
+    <input id="login-user" placeholder="Usuário" autocomplete="username" required>
+    <input id="login-pass" type="password" placeholder="Senha" autocomplete="current-password" required>
+    <button class="primary big" type="submit">Entrar</button>
+    <p id="login-error" class="message error"></p>
+    <a href="/admin/" class="login-admin">Administração</a>
+  </form>
+</div>
+
+<div id="shell" class="hidden">
+  <header id="topbar" class="topbar">
+    <a href="#" class="brand" id="brand-home">STORM<span>FLIX</span></a>
+    <nav class="main-nav">
+      <button data-nav="home" class="active">Início</button>
+      <button data-nav="movie">Filmes</button>
+      <button data-nav="series">Séries</button>
+      <button data-nav="anime">Animes</button>
+    </nav>
+    <div class="header-actions">
+      <button id="search-toggle" class="icon-btn" aria-label="Buscar">⌕</button>
+      <a id="admin-link" class="admin-link hidden" href="/admin/">Admin</a>
+      <button id="profile-btn" class="profile-btn"><span id="profile-initial">S</span><span id="user-label"></span></button>
+      <button id="logout" class="logout-btn">Sair</button>
+    </div>
+  </header>
+
+  <main id="main">
+    <section id="hero" class="hero hidden">
+      <div id="hero-backdrop" class="hero-backdrop"></div>
+      <div class="hero-shade"></div>
+      <div class="hero-content">
+        <img id="hero-logo" class="hero-logo hidden" alt="">
+        <p id="hero-eyebrow" class="hero-eyebrow">Destaque StormFlix</p>
+        <h1 id="hero-title"></h1>
+        <div id="hero-meta" class="hero-meta"></div>
+        <p id="hero-overview" class="hero-overview"></p>
+        <div class="hero-actions">
+          <button id="hero-play" class="primary play-button">▶ Assistir</button>
+          <button id="hero-more" class="secondary more-button">ⓘ Mais informações</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="search-view" class="search-view hidden">
+      <div class="search-head"><input id="search" placeholder="Buscar filmes, séries e animes..." autocomplete="off"><button id="search-close">Fechar</button></div>
+      <h2>Resultados</h2>
+      <div id="search-results" class="poster-grid"></div>
+    </section>
+
+    <section id="catalog-view" class="catalog-view">
+      <div id="rows" class="rows"></div>
+    </section>
+  </main>
+</div>
+
+<div id="detail-modal" class="modal hidden" aria-hidden="true">
+  <div class="modal-scrim" data-close-detail></div>
+  <article class="detail-card">
+    <button class="modal-close" data-close-detail aria-label="Fechar">✕</button>
+    <div id="detail-backdrop" class="detail-backdrop"></div>
+    <div class="detail-gradient"></div>
+    <div class="detail-content">
+      <div class="detail-title-zone">
+        <img id="detail-logo" class="detail-logo hidden" alt="">
+        <h1 id="detail-title"></h1>
+        <p id="detail-tagline" class="detail-tagline"></p>
+        <div id="detail-meta" class="detail-meta"></div>
+        <div class="detail-actions">
+          <button id="detail-play" class="primary play-button">▶ Assistir</button>
+          <a id="detail-trailer" class="secondary hidden" target="_blank" rel="noopener">▷ Trailer</a>
+          <button id="theme-toggle" class="secondary hidden">♫ Prévia da trilha</button>
+        </div>
+      </div>
+      <div class="detail-grid">
+        <div class="detail-main">
+          <p id="detail-overview" class="detail-overview"></p>
+          <section id="cast-section" class="detail-section hidden"><h2>Elenco</h2><div id="cast-row" class="cast-row"></div></section>
+          <section id="related-section" class="detail-section hidden"><h2>Você também pode gostar</h2><div id="related-row" class="related-row"></div></section>
+        </div>
+        <aside class="detail-side">
+          <div><span>Direção</span><b id="detail-directors">—</b></div>
+          <div><span>Gêneros</span><b id="detail-genres">—</b></div>
+          <div><span>Biblioteca</span><b id="detail-library">—</b></div>
+          <div><span>Formato</span><b id="detail-format">Direct Play</b></div>
+          <div id="theme-info-wrap" class="hidden"><span>Trilha</span><b id="theme-info"></b></div>
+        </aside>
+      </div>
+    </div>
+  </article>
+</div>
+
+<div id="player-modal" class="player-modal hidden">
+  <div class="player-bar"><strong id="player-title"></strong><div><span class="direct-badge">DIRECT PLAY</span><button id="player-close">✕</button></div></div>
+  <video id="player" controls playsinline preload="metadata"></video>
+  <div id="player-help" class="player-help hidden">Este navegador não reproduziu o formato diretamente. O arquivo não será transcodificado; use um cliente StormFlix compatível ou um formato suportado pelo navegador.</div>
+</div>
+
+<audio id="theme-audio" preload="none"></audio>
 <script src="/app.js" defer></script>
-</body></html>
+</body>
+</html>
