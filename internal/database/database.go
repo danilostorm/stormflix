@@ -18,7 +18,12 @@ func Open(path string) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(1)
+
+	// Keep the pool deliberately small, but allow nested/read queries used by
+	// the administration UI. A single connection can deadlock when a rows
+	// iterator is still open and the same request needs a second query.
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(2)
 
 	for _, pragma := range []string{
 		"PRAGMA journal_mode=WAL;",
