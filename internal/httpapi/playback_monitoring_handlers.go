@@ -57,7 +57,7 @@ func (s *server) playbackStop(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) monitoringOverview(w http.ResponseWriter, r *http.Request) {
-	data, err := s.admin.Monitoring(r.Context())
+	data, err := s.admin.MonitoringSafe(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
