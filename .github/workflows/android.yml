@@ -11,12 +11,6 @@ on:
       - 'apps/android/**'
       - '.github/workflows/android.yml'
   workflow_dispatch:
-  schedule:
-    - cron: '*/5 * * * *'
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
-    branches: [main]
 
 permissions:
   contents: read
