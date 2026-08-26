@@ -83,9 +83,23 @@ func (s *server) mediaDetails(w http.ResponseWriter, r *http.Request) {
 	_ = s.db.QueryRowContext(r.Context(), `SELECT COALESCE(content_rating,''),COALESCE(content_rating_age,-1),COALESCE(release_date,'') FROM media_metadata WHERE media_id=?`, id).Scan(&contentRating, &contentRatingAge, &releaseDate)
 	response := struct {
 		media.Detail
-		ContentRating    string `json:"content_rating"`
-		ContentRatingAge int    `json:"content_rating_age"`
-		ReleaseDate      string `json:"release_date"`
+		ContentRating    string  `json:"content_rating"`
+		ContentRatingAge int     `json:"content_rating_age"`
+		ReleaseDate      string  `json:"release_date"`
+		PositionSeconds  float64 `json:"position_seconds"`
+		DurationSeconds  float64 `json:"duration_seconds"`
+		ProgressPercent  float64 `json:"progress_percent"`
+		Completed        bool    `json:"completed"`
 	}{Detail: detail, ContentRating: contentRating, ContentRatingAge: contentRatingAge, ReleaseDate: releaseDate}
+
+	if profileID := s.selectedProfileID(r, u.ID); profileID > 0 {
+		err = s.db.QueryRowContext(r.Context(), `SELECT position_seconds,duration_seconds,completed FROM profile_progress WHERE profile_id=? AND media_id=?`, profileID, id).
+			Scan(&response.PositionSeconds, &response.DurationSeconds, &response.Completed)
+		if err == nil && response.DurationSeconds > 0 {
+			response.ProgressPercent = response.PositionSeconds / response.DurationSeconds * 100
+		} else if errors.Is(err, sql.ErrNoRows) {
+			err = nil
+		}
+	}
 	writeJSON(w, http.StatusOK, response)
 }
