@@ -39,16 +39,23 @@ jobs:
           node --check internal/webui/static/admin/admin-monitoring.js
           node --check internal/webui/static/admin/admin-v3.js
           node --check internal/webui/static/admin/admin-v4.js
+          node --check internal/webui/static/admin/admin-catalog.js
+          node --check internal/webui/static/admin/admin-music.js
           node --check internal/webui/static/app.js
           node --check internal/webui/static/series-ui.js
           node --check internal/webui/static/series-rules.js
           node --check internal/webui/static/profiles.js
+          node --check internal/webui/static/profile-hub.js
+          node --check internal/webui/static/ratings-ui.js
           node --check internal/webui/static/category-nav.js
+          node --check internal/webui/static/music-ui.js
           node --check internal/webui/static/ux-v2.js
           node --check internal/webui/static/ux-v3.js
           node --check internal/webui/static/source-selector.js
+          node --check internal/webui/static/person-ui.js
           node --check internal/webui/static/webcompat.js
           node --check internal/webui/static/player-monitor.js
+          node --check internal/webui/static/continue-watching.js
 
       - name: Test
         run: go test ./...
