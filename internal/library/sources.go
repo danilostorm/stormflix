@@ -40,7 +40,26 @@ func (s *Service) Sources(ctx context.Context, libraryID int64) ([]LibrarySource
 		if err := rows.Scan(&source.ID, &source.LibraryID, &source.Path, &source.Label, &source.Enabled, &source.SortOrder); err != nil {
 			return nil, err
 		}
+		// ONLINE is informational only. A FUSE/rclone stat may time out even
+		// when directory listing itself still works, so scans never gate on it.
 		source.Online = source.Enabled && dirOnline(source.Path)
+		out = append(out, source)
+	}
+	return out, rows.Err()
+}
+
+func (s *Service) scanSources(ctx context.Context, libraryID int64) ([]LibrarySource, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id,library_id,path,label,enabled,sort_order FROM library_sources WHERE library_id=? ORDER BY sort_order,id`, libraryID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []LibrarySource{}
+	for rows.Next() {
+		var source LibrarySource
+		if err := rows.Scan(&source.ID, &source.LibraryID, &source.Path, &source.Label, &source.Enabled, &source.SortOrder); err != nil {
+			return nil, err
+		}
 		out = append(out, source)
 	}
 	return out, rows.Err()
@@ -105,9 +124,6 @@ func (s *Service) CreateMulti(ctx context.Context, name, kind string, paths []st
 	if err := s.ValidateLibraryPaths(ctx, 0, cleanPaths); err != nil {
 		return ManagedLibrary{}, err
 	}
-	if enabled && onlineSourceCount(cleanPaths) == 0 {
-		return ManagedLibrary{}, errors.New("at least one library source must be available")
-	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -146,9 +162,6 @@ func (s *Service) AdminUpdateMulti(ctx context.Context, id int64, name, kind str
 	}
 	if err := s.ValidateLibraryPaths(ctx, id, cleanPaths); err != nil {
 		return ManagedLibrary{}, err
-	}
-	if enabled && onlineSourceCount(cleanPaths) == 0 {
-		return ManagedLibrary{}, errors.New("at least one library source must be available")
 	}
 	oldSources, err := s.Sources(ctx, id)
 	if err != nil {
@@ -246,29 +259,41 @@ func (s *Service) ScanMulti(ctx context.Context, libraryID int64) (MultiScanResu
 	if err != nil {
 		return MultiScanResult{}, err
 	}
-	sources, err := s.Sources(ctx, libraryID)
+	sources, err := s.scanSources(ctx, libraryID)
 	if err != nil {
 		return MultiScanResult{}, err
 	}
 	if len(sources) == 0 && strings.TrimSpace(lib.Path) != "" {
-		sources = []LibrarySource{{LibraryID: libraryID, Path: lib.Path, Label: "Origem 1", Enabled: true, Online: dirOnline(lib.Path)}}
+		sources = []LibrarySource{{LibraryID: libraryID, Path: lib.Path, Label: "Origem 1", Enabled: true}}
 	}
 
 	filesByPath := map[string]discoveredFile{}
 	configuredRoots := []string{}
 	scannedRoots := []string{}
 	offline := 0
-	for i, source := range sources {
+	enabledSources := 0
+	for _, source := range sources {
+		if source.Enabled {
+			enabledSources++
+		}
+	}
+	if enabledSources == 0 {
+		return MultiScanResult{}, errors.New("library has no enabled sources")
+	}
+
+	position := 0
+	for _, source := range sources {
 		if !source.Enabled {
 			continue
 		}
+		position++
 		root := filepath.Clean(source.Path)
 		configuredRoots = append(configuredRoots, root)
-		if !dirOnline(root) {
-			offline++
-			continue
-		}
-		_, _ = s.db.ExecContext(ctx, `UPDATE libraries SET last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, fmt.Sprintf("scanning source %d/%d · %s", i+1, len(sources), root), libraryID)
+		_, _ = s.db.ExecContext(ctx, `UPDATE libraries SET last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, fmt.Sprintf("origem %d/%d · abrindo %s", position, enabledSources, root), libraryID)
+
+		// Do not gate scans on os.Stat. On rclone/FUSE it is possible for stat to
+		// be slow while directory listing is healthy. discover() performs the real
+		// bounded read and becomes the source-of-truth for scan health.
 		sourceLibrary := lib
 		sourceLibrary.Path = root
 		discovered, discoverErr := s.discover(ctx, sourceLibrary, libraryID)
@@ -277,13 +302,14 @@ func (s *Service) ScanMulti(ctx context.Context, libraryID int64) (MultiScanResu
 				return MultiScanResult{}, ctx.Err()
 			}
 			offline++
+			_, _ = s.db.ExecContext(ctx, `UPDATE libraries SET last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, fmt.Sprintf("origem %d/%d indisponível: %v · catálogo preservado", position, enabledSources, discoverErr), libraryID)
 			continue
 		}
 		if len(discovered) == 0 {
 			previous, countErr := s.existingAvailableUnderRoot(ctx, libraryID, root)
 			if countErr == nil && previous > 0 {
 				offline++
-				_, _ = s.db.ExecContext(ctx, `UPDATE libraries SET last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, fmt.Sprintf("source %d/%d returned 0 files but previously had %d; preserving catalog", i+1, len(sources), previous), libraryID)
+				_, _ = s.db.ExecContext(ctx, `UPDATE libraries SET last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, fmt.Sprintf("origem %d/%d retornou 0 arquivos, mas antes tinha %d; catálogo preservado", position, enabledSources, previous), libraryID)
 				continue
 			}
 		}
@@ -291,11 +317,13 @@ func (s *Service) ScanMulti(ctx context.Context, libraryID int64) (MultiScanResu
 		for _, file := range discovered {
 			filesByPath[filepath.Clean(file.path)] = file
 		}
+		_, _ = s.db.ExecContext(ctx, `UPDATE libraries SET last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, fmt.Sprintf("origem %d/%d concluída · %d arquivos encontrados", position, enabledSources, len(discovered)), libraryID)
 	}
 	if len(scannedRoots) == 0 {
-		return MultiScanResult{}, errors.New("all library sources are offline, timed out or returned suspicious empty results; previous catalog preserved")
+		return MultiScanResult{}, errors.New("nenhuma origem respondeu ao scan; catálogo anterior preservado")
 	}
 
+	_, _ = s.db.ExecContext(ctx, `UPDATE libraries SET last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, fmt.Sprintf("salvando catálogo · %d arquivos encontrados", len(filesByPath)), libraryID)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return MultiScanResult{}, err
