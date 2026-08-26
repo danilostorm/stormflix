@@ -25,6 +25,7 @@ func (s *server) agentStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]any{
 		"metadata":  s.metadata.Agents(),
+		"music":     s.music.Agents(),
 		"subtitles": s.subtitles.Agents(),
 		"assets": map[string]any{
 			"mode":            mode,
@@ -60,6 +61,16 @@ func (s *server) startMetadataJob(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r.PathValue("id"))
 	if err != nil {
 		writeError(w, 400, err)
+		return
+	}
+	var kind string
+	if err := s.db.QueryRowContext(r.Context(), `SELECT kind FROM libraries WHERE id=?`, id).Scan(&kind); err != nil {
+		writeError(w, 404, err)
+		return
+	}
+	if strings.EqualFold(kind, "music") {
+		started := s.music.StartIndexing()
+		writeJSON(w, http.StatusAccepted, map[string]any{"started": started, "indexing": true, "message": "biblioteca de música usa FFprobe + MusicBrainz, não TMDB"})
 		return
 	}
 	if err := s.metadata.ValidateLibraryJob(r.Context(), id); err != nil {
@@ -104,6 +115,16 @@ func (s *server) refreshMediaMetadata(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r.PathValue("id"))
 	if err != nil {
 		writeError(w, 400, err)
+		return
+	}
+	var kind string
+	if err := s.db.QueryRowContext(r.Context(), `SELECT l.kind FROM media m JOIN libraries l ON l.id=m.library_id WHERE m.id=?`, id).Scan(&kind); err != nil {
+		writeError(w, 404, err)
+		return
+	}
+	if strings.EqualFold(kind, "music") {
+		s.music.StartIndexing()
+		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "indexing": true})
 		return
 	}
 	if err := s.metadata.RefreshMediaSmart(r.Context(), id); err != nil {
@@ -161,6 +182,15 @@ func (s *server) startSubtitleJob(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r.PathValue("id"))
 	if err != nil {
 		writeError(w, 400, err)
+		return
+	}
+	var kind string
+	if err := s.db.QueryRowContext(r.Context(), `SELECT kind FROM libraries WHERE id=?`, id).Scan(&kind); err != nil {
+		writeError(w, 404, err)
+		return
+	}
+	if strings.EqualFold(kind, "music") {
+		writeError(w, http.StatusBadRequest, errors.New("bibliotecas de música usam letras, não legendas"))
 		return
 	}
 	var in struct {
