@@ -14,17 +14,18 @@ import (
 const profileCookie = "stormflix_profile"
 
 type profileInput struct {
-	Name              string `json:"name"`
-	AvatarKey         string `json:"avatar_key"`
-	AvatarURL         string `json:"avatar_url"`
-	IsKids            bool   `json:"is_kids"`
-	Active            *bool  `json:"active,omitempty"`
-	PIN               string `json:"pin,omitempty"`
-	ClearPIN          bool   `json:"clear_pin,omitempty"`
-	AutoplayNext      *bool  `json:"autoplay_next,omitempty"`
-	AutoplayPreviews  *bool  `json:"autoplay_previews,omitempty"`
-	PreferredAudio    string `json:"preferred_audio,omitempty"`
-	PreferredSubtitle string `json:"preferred_subtitle,omitempty"`
+	Name               string `json:"name"`
+	AvatarKey          string `json:"avatar_key"`
+	AvatarURL          string `json:"avatar_url"`
+	IsKids             bool   `json:"is_kids"`
+	ContentRatingLimit *int   `json:"content_rating_limit,omitempty"`
+	Active             *bool  `json:"active,omitempty"`
+	PIN                string `json:"pin,omitempty"`
+	ClearPIN           bool   `json:"clear_pin,omitempty"`
+	AutoplayNext       *bool  `json:"autoplay_next,omitempty"`
+	AutoplayPreviews   *bool  `json:"autoplay_previews,omitempty"`
+	PreferredAudio     string `json:"preferred_audio,omitempty"`
+	PreferredSubtitle  string `json:"preferred_subtitle,omitempty"`
 }
 
 func (s *server) listProfiles(w http.ResponseWriter, r *http.Request) {
@@ -187,6 +188,12 @@ func (s *server) decodeCreateProfile(r *http.Request, userID int64) (auth.Profil
 	if err != nil {
 		return auth.Profile{}, err
 	}
+	if in.ContentRatingLimit != nil {
+		p, err = s.auth.SetProfileRatingLimit(r.Context(), userID, p.ID, *in.ContentRatingLimit)
+		if err != nil {
+			return auth.Profile{}, err
+		}
+	}
 	if in.PIN != "" || in.ClearPIN || in.AutoplayNext != nil || in.AutoplayPreviews != nil || in.PreferredAudio != "" || in.PreferredSubtitle != "" {
 		next := p.AutoplayNext
 		previews := p.AutoplayPreviews
@@ -222,7 +229,20 @@ func (s *server) decodeUpdateProfile(r *http.Request, userID, profileID int64) (
 	if in.Active != nil {
 		active = *in.Active
 	}
-	if _, err := s.auth.UpdateProfile(r.Context(), userID, profileID, in.Name, in.AvatarKey, in.AvatarURL, in.IsKids, active); err != nil {
+	p, err := s.auth.UpdateProfile(r.Context(), userID, profileID, in.Name, in.AvatarKey, in.AvatarURL, in.IsKids, active)
+	if err != nil {
+		return auth.Profile{}, err
+	}
+	limit := current.ContentRatingLimit
+	if in.ContentRatingLimit != nil {
+		limit = *in.ContentRatingLimit
+	} else if in.IsKids && !current.IsKids && current.ContentRatingLimit >= 18 {
+		limit = 10
+	} else if !in.IsKids && current.IsKids && current.ContentRatingLimit <= 10 {
+		limit = 18
+	}
+	p, err = s.auth.SetProfileRatingLimit(r.Context(), userID, profileID, limit)
+	if err != nil {
 		return auth.Profile{}, err
 	}
 	next := current.AutoplayNext
