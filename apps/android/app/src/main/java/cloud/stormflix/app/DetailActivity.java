@@ -77,6 +77,7 @@ public class DetailActivity extends Activity {
         JSONArray cast = o.optJSONArray("cast");
         if (cast != null && cast.length()>0) {
             body.addView(Ui.title(this, "Elenco", 22), Ui.margin(this, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,0,24,0,10));
+            body.addView(Ui.muted(this, "Selecione um ator para ver os títulos dele disponíveis no StormFlix.", 11));
             HorizontalScrollView hs = new HorizontalScrollView(this); hs.setHorizontalScrollBarEnabled(false); LinearLayout rail = Ui.horizontal(this,0);
             for (int i=0;i<cast.length();i++) { JSONObject p=cast.optJSONObject(i); if(p==null)continue; rail.addView(personCard(p)); }
             hs.addView(rail); body.addView(hs);
@@ -93,12 +94,19 @@ public class DetailActivity extends Activity {
     }
 
     private LinearLayout personCard(JSONObject p) {
-        LinearLayout card = Ui.vertical(this,0); card.setGravity(Gravity.CENTER_HORIZONTAL); card.setFocusable(true); card.setBackground(Ui.round(Color.TRANSPARENT,10));
+        LinearLayout card = Ui.vertical(this,0); card.setGravity(Gravity.CENTER_HORIZONTAL); card.setFocusable(true); card.setClickable(true); card.setBackground(Ui.round(Color.TRANSPARENT,10));
         card.setOnFocusChangeListener((v,f)->{v.setBackground(Ui.round(f?Color.rgb(31,35,45):Color.TRANSPARENT,10));v.setScaleX(f?1.06f:1);v.setScaleY(f?1.06f:1);});
         ImageView image=new ImageView(this); image.setScaleType(ImageView.ScaleType.CENTER_CROP); image.setBackground(Ui.round(Color.rgb(35,40,50),60)); card.addView(image,new LinearLayout.LayoutParams(Ui.dp(this,92),Ui.dp(this,92)));
         String url=p.optString("profile_url",""); if(!url.isEmpty())images.load(image,url);
-        TextView n=Ui.title(this,p.optString("name",""),11);n.setMaxLines(1);n.setGravity(Gravity.CENTER);card.addView(n,Ui.margin(this,Ui.dp(this,110),ViewGroup.LayoutParams.WRAP_CONTENT,0,6,0,0));
+        String name=p.optString("name","");
+        TextView n=Ui.title(this,name,11);n.setMaxLines(1);n.setGravity(Gravity.CENTER);card.addView(n,Ui.margin(this,Ui.dp(this,110),ViewGroup.LayoutParams.WRAP_CONTENT,0,6,0,0));
         TextView c=Ui.muted(this,p.optString("character",""),9);c.setMaxLines(1);c.setGravity(Gravity.CENTER);card.addView(c);
+        card.setOnClickListener(v->{
+            if(name.trim().isEmpty())return;
+            Intent intent=new Intent(this,PersonActivity.class);
+            intent.putExtra("person_name",name);
+            startActivity(intent);
+        });
         LinearLayout holder=Ui.horizontal(this,0);holder.addView(card,Ui.margin(this,ViewGroup.LayoutParams.WRAP_CONTENT,ViewGroup.LayoutParams.WRAP_CONTENT,0,0,12,0));return holder;
     }
 
@@ -112,6 +120,6 @@ public class DetailActivity extends Activity {
 
     private LinearLayout labelValue(String label,String value){LinearLayout row=Ui.horizontal(this,0);TextView l=Ui.muted(this,label+":",11);TextView v=Ui.title(this,value,11);row.addView(l);row.addView(v,Ui.margin(this,ViewGroup.LayoutParams.WRAP_CONTENT,ViewGroup.LayoutParams.WRAP_CONTENT,8,0,0,0));return row;}
     private String join(JSONArray a){List<String> out=new ArrayList<>();for(int i=0;i<a.length();i++)out.add(a.optString(i));return String.join(", ",out);}
-    private String meta(Models.Media m){List<String>s=new ArrayList<>();if(m.year>0)s.add(String.valueOf(m.year));if(m.rating>0)s.add("★ "+String.format(Locale.US,"%.1f",m.rating));if(m.runtimeMinutes>0)s.add(m.runtimeMinutes+" min");if(!m.extension.isEmpty())s.add(m.extension.replace(".","").toUpperCase(Locale.ROOT)+" · DIRECT PLAY");return String.join("  ·  ",s);}
+    private String meta(Models.Media m){List<String>s=new ArrayList<>();if(m.year>0)s.add(String.valueOf(m.year));if(m.rating>0)s.add("★ "+String.format(Locale.US,"%.1f",m.rating));if(m.runtimeMinutes>0)s.add(m.runtimeMinutes+" min");if(!m.extension.isEmpty())s.add(m.extension.replace(".","").toUpperCase(Locale.ROOT));return String.join("  ·  ",s);}
     private void play(Models.Media m){Intent i=new Intent(this,PlayerActivity.class);i.putExtra("media_id",m.id);i.putExtra("title",m.title);startActivity(i);}
 }
