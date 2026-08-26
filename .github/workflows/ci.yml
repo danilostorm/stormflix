@@ -46,6 +46,7 @@ jobs:
           node --check internal/webui/static/category-nav.js
           node --check internal/webui/static/ux-v2.js
           node --check internal/webui/static/ux-v3.js
+          node --check internal/webui/static/source-selector.js
           node --check internal/webui/static/webcompat.js
           node --check internal/webui/static/player-monitor.js
 
