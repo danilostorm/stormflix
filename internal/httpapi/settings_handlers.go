@@ -7,6 +7,7 @@ import (
 
 	"github.com/danilostorm/stormflix/internal/assets"
 	"github.com/danilostorm/stormflix/internal/config"
+	"github.com/danilostorm/stormflix/internal/music"
 	appsettings "github.com/danilostorm/stormflix/internal/settings"
 )
 
@@ -62,6 +63,7 @@ func (s *server) updateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	s.metadata.Configure(effective)
 	s.subtitles.Configure(effective)
+	music.ConfigureProviders(effective.LastFMAPIKey)
 	s.config = effective
 	uid := currentUser(r).ID
 	s.admin.Log(r.Context(), "info", "settings", "Runtime settings updated", &uid, "agents and asset storage reloaded without restart")
