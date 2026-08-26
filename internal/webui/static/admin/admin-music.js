@@ -35,8 +35,6 @@
     panel.querySelector('#music-index-now').onclick=async()=>{try{const r=await req('/admin/music/index',{method:'POST',body:'{}'});notice(r.started?'Organização da biblioteca de música iniciada.':'A biblioteca de música já está sendo organizada.',true)}catch(err){notice(err.message)}};
   }
 
-  const observer=new MutationObserver(()=>decorateMusicLibraries());
-  const libraries=document.querySelector('#libraries');if(libraries)observer.observe(libraries,{childList:true});
-  document.addEventListener('click',e=>{const button=e.target.closest('button[data-page="libraries"]');if(button)setTimeout(decorateMusicLibraries,100)});
-  setTimeout(decorateMusicLibraries,800);
+  document.addEventListener('click',e=>{const button=e.target.closest('button[data-page="libraries"]');if(button)setTimeout(decorateMusicLibraries,150)});
+  setTimeout(decorateMusicLibraries,900);
 })();
