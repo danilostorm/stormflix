@@ -24,9 +24,10 @@ func (s *server) agentStatus(w http.ResponseWriter, r *http.Request) {
 		mode = "local"
 	}
 	writeJSON(w, 200, map[string]any{
-		"metadata":  s.metadata.Agents(),
-		"music":     s.music.Agents(),
-		"subtitles": s.subtitles.Agents(),
+		"metadata":     s.metadata.Agents(),
+		"music":        s.music.Agents(),
+		"music_status": s.music.Status(r.Context()),
+		"subtitles":    s.subtitles.Agents(),
 		"assets": map[string]any{
 			"mode":            mode,
 			"directory":       s.assets.Root,
