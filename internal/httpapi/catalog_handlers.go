@@ -78,5 +78,14 @@ func (s *server) mediaDetails(w http.ResponseWriter, r *http.Request) {
 	if detail.Related == nil {
 		detail.Related = []media.Item{}
 	}
-	writeJSON(w, http.StatusOK, detail)
+	var contentRating, releaseDate string
+	contentRatingAge := -1
+	_ = s.db.QueryRowContext(r.Context(), `SELECT COALESCE(content_rating,''),COALESCE(content_rating_age,-1),COALESCE(release_date,'') FROM media_metadata WHERE media_id=?`, id).Scan(&contentRating, &contentRatingAge, &releaseDate)
+	response := struct {
+		media.Detail
+		ContentRating    string `json:"content_rating"`
+		ContentRatingAge int    `json:"content_rating_age"`
+		ReleaseDate      string `json:"release_date"`
+	}{Detail: detail, ContentRating: contentRating, ContentRatingAge: contentRatingAge, ReleaseDate: releaseDate}
+	writeJSON(w, http.StatusOK, response)
 }
