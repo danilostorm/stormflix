@@ -21,7 +21,7 @@ import (
 )
 
 const sessionCookie = "stormflix_session"
-const version = "0.16.0-tv-jellyfin"
+const version = "0.16.1-player-state-jellyfin"
 
 type contextKey string
 const userKey contextKey = "user"
@@ -91,11 +91,13 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("GET /api/v1/media/{id}/neighbors",s.requireAuth(s.mediaEpisodeNeighbors))
 	mux.HandleFunc("GET /api/v1/media/{id}/stream",s.requireAuth(s.streamMedia))
 	mux.HandleFunc("GET /api/v1/media/{id}/compatibility",s.requireAuth(s.mediaCompatibility))
+	mux.HandleFunc("POST /api/v1/media/{id}/remux/prepare",s.requireAuth(s.prepareRemuxMedia))
 	mux.HandleFunc("GET /api/v1/media/{id}/remux",s.requireAuth(s.remuxMedia))
 	mux.HandleFunc("GET /api/v1/media/{id}/versions",s.requireAuth(s.mediaVersions))
 	mux.HandleFunc("GET /api/v1/media/{id}/subtitles",s.requireAuth(s.mediaSubtitles))
 	mux.HandleFunc("GET /api/v1/media/{id}/subtitles/{subtitle_id}/vtt",s.requireAuth(s.subtitleVTT))
 	mux.HandleFunc("POST /api/v1/media/{id}/playback",s.requireAuth(s.playbackHeartbeat))
+	mux.HandleFunc("POST /api/v1/media/{id}/playback/event",s.requireAuth(s.playbackEvent))
 	mux.HandleFunc("DELETE /api/v1/media/{id}/playback",s.requireAuth(s.playbackStop))
 
 	mux.HandleFunc("GET /api/v1/music/home",s.requireAuth(s.musicHome))
@@ -106,29 +108,10 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("POST /api/v1/music/tracks/{id}/favorite",s.requireAuth(s.musicFavorite))
 	mux.HandleFunc("GET /api/v1/music/tracks/{id}/lyrics",s.requireAuth(s.musicLyrics))
 
-	// Jellyfin-compatible TV gateway. All routes stay isolated from the native API.
-	mux.HandleFunc("GET /jellyfin-api/System/Info/Public",s.jellyfinPublicInfo)
-	mux.HandleFunc("GET /jellyfin-api/Users/Public",s.jellyfinPublicUsers)
-	mux.HandleFunc("POST /jellyfin-api/Users/AuthenticateByName",s.jellyfinAuthenticate)
-	mux.HandleFunc("GET /jellyfin-api/System/Info",s.jellyfinRequireAuth(s.jellyfinSystemInfo))
-	mux.HandleFunc("POST /jellyfin-api/Sessions/Logout",s.jellyfinRequireAuth(s.jellyfinLogout))
-	mux.HandleFunc("GET /jellyfin-api/Users/{id}",s.jellyfinRequireAuth(s.jellyfinCurrentUser))
-	mux.HandleFunc("GET /jellyfin-api/Users/{id}/Views",s.jellyfinRequireAuth(s.jellyfinViews))
-	mux.HandleFunc("GET /jellyfin-api/Library/MediaFolders",s.jellyfinRequireAuth(s.jellyfinViews))
-	mux.HandleFunc("GET /jellyfin-api/Users/{id}/Items",s.jellyfinRequireAuth(s.jellyfinItems))
-	mux.HandleFunc("GET /jellyfin-api/Users/{id}/Items/Resume",s.jellyfinRequireAuth(s.jellyfinResume))
-	mux.HandleFunc("GET /jellyfin-api/Items/{id}",s.jellyfinRequireAuth(s.jellyfinItem))
-	mux.HandleFunc("GET /jellyfin-api/Items/{id}/Images/{kind}",s.jellyfinRequireAuth(s.jellyfinImage))
-	mux.HandleFunc("GET /jellyfin-api/Items/{id}/PlaybackInfo",s.jellyfinRequireAuth(s.jellyfinPlaybackInfo))
-	mux.HandleFunc("POST /jellyfin-api/Items/{id}/PlaybackInfo",s.jellyfinRequireAuth(s.jellyfinPlaybackInfo))
-	mux.HandleFunc("GET /jellyfin-api/Shows/{id}/Seasons",s.jellyfinRequireAuth(s.jellyfinSeasons))
-	mux.HandleFunc("GET /jellyfin-api/Shows/{id}/Episodes",s.jellyfinRequireAuth(s.jellyfinEpisodes))
-	mux.HandleFunc("GET /jellyfin-api/Videos/{id}/stream",s.jellyfinRequireAuth(s.jellyfinStream))
-	mux.HandleFunc("GET /jellyfin-api/Audio/{id}/stream",s.jellyfinRequireAuth(s.jellyfinStream))
-	mux.HandleFunc("GET /jellyfin-api/Videos/{id}/{subtitle_id}/Subtitles/{index}/Stream.vtt",s.jellyfinRequireAuth(s.jellyfinSubtitle))
-	mux.HandleFunc("POST /jellyfin-api/Sessions/Playing",s.jellyfinRequireAuth(s.jellyfinProgress))
-	mux.HandleFunc("POST /jellyfin-api/Sessions/Playing/Progress",s.jellyfinRequireAuth(s.jellyfinProgress))
-	mux.HandleFunc("POST /jellyfin-api/Sessions/Playing/Stopped",s.jellyfinRequireAuth(s.jellyfinStopped))
+	// The compatibility gateway is available both at /jellyfin-api and at the
+	// root paths expected when an official client is given https://host directly.
+	s.registerJellyfinRoutes(mux,"/jellyfin-api")
+	s.registerJellyfinRoutes(mux,"")
 
 	mux.HandleFunc("GET /api/v1/admin/dashboard",s.requireRole("operator",s.adminDashboard))
 	mux.HandleFunc("GET /api/v1/admin/users",s.requireRole("admin",s.listUsers))
@@ -177,5 +160,5 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("GET /assets/",s.requireAuth(s.serveAsset))
 	staticFS,err:=fs.Sub(webui.Static,"static");if err!=nil{panic(err)}
 	mux.Handle("/",http.FileServer(http.FS(staticFS)))
-	return requestLogger(recoverer(securityHeaders(mux)))
+	return requestLogger(recoverer(securityHeaders(s.jellyfinTrace(mux))))
 }
