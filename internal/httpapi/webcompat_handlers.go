@@ -18,9 +18,13 @@ func preferAACForPlayback(r *http.Request, plan *webcompat.Plan) {
 	if plan == nil || !plan.Available || plan.AudioStream < 0 {
 		return
 	}
+	// AAC forcing is an explicit compatibility fallback only. Do not infer it
+	// merely from an Android User-Agent: the native player must first receive
+	// the original multi-audio source and choose the profile-preferred track.
+	// If Media3 later reports that preferred track as unsupported it asks for
+	// audio=aac and only then do we encode that selected audio track.
 	forceByQuery := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("audio")), "aac")
-	forceByAndroid := strings.Contains(strings.ToLower(r.UserAgent()), "stormflix-android")
-	if !forceByQuery && !forceByAndroid {
+	if !forceByQuery {
 		return
 	}
 
