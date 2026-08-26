@@ -14,10 +14,11 @@ import (
 )
 
 type StreamInfo struct {
-	Index     int               `json:"index"`
-	CodecName string            `json:"codec_name"`
-	CodecType string            `json:"codec_type"`
-	Tags      map[string]string `json:"tags"`
+	Index       int               `json:"index"`
+	CodecName   string            `json:"codec_name"`
+	CodecType   string            `json:"codec_type"`
+	Tags        map[string]string `json:"tags"`
+	Disposition map[string]int    `json:"disposition"`
 }
 
 type Plan struct {
@@ -28,6 +29,8 @@ type Plan struct {
 	VideoCodec       string `json:"video_codec"`
 	AudioCodec       string `json:"audio_codec"`
 	SourceAudioCodec string `json:"source_audio_codec,omitempty"`
+	AudioLanguage    string `json:"audio_language,omitempty"`
+	AudioTitle       string `json:"audio_title,omitempty"`
 	VideoStream      int    `json:"video_stream"`
 	AudioStream      int    `json:"audio_stream"`
 	AudioTranscode   bool   `json:"audio_transcode"`
@@ -52,7 +55,7 @@ func Probe(ctx context.Context, path string) (Plan, error) {
 	defer cancel()
 	cmd := exec.CommandContext(probeCtx, ffprobe,
 		"-v", "error",
-		"-show_entries", "stream=index,codec_name,codec_type:stream_tags=language,title",
+		"-show_entries", "stream=index,codec_name,codec_type:stream_tags=language,title:stream_disposition=default",
 		"-of", "json",
 		path,
 	)
@@ -98,23 +101,10 @@ func Probe(ctx context.Context, path string) (Plan, error) {
 	}
 
 	if len(audios) > 0 {
-		copyAudio := pickAudio(audios)
-		preferredAny := pickAnyAudio(audios)
-		preferred := copyAudio
-		needsAudioTranscode := false
-
-		if preferred.Index < 0 {
-			preferred = preferredAny
-			needsAudioTranscode = preferred.Index >= 0
-		} else if preferredAny.Index >= 0 && preferredAny.Index != preferred.Index &&
-			audioLanguageScore(preferredAny) > audioLanguageScore(preferred) &&
-			!isCopyCompatibleAudio(preferredAny.CodecName) {
-			// Prefer the clearly better Portuguese/dubbed track even when it needs
-			// a lightweight audio-only conversion. The video remains untouched.
-			preferred = preferredAny
-			needsAudioTranscode = true
-		}
-
+		// Language/default-track preference comes before codec convenience. This
+		// prevents an English AAC track from replacing the preferred/default
+		// Portuguese track merely because the latter needs audio-only conversion.
+		preferred := pickAnyAudio(audios)
 		if preferred.Index < 0 {
 			plan.Reason = "no usable audio track was found"
 			return plan, nil
@@ -122,7 +112,9 @@ func Probe(ctx context.Context, path string) (Plan, error) {
 
 		plan.AudioStream = preferred.Index
 		plan.SourceAudioCodec = strings.ToLower(preferred.CodecName)
-		if needsAudioTranscode {
+		plan.AudioLanguage = strings.TrimSpace(preferred.Tags["language"])
+		plan.AudioTitle = strings.TrimSpace(preferred.Tags["title"])
+		if !isCopyCompatibleAudio(preferred.CodecName) {
 			plan.AudioTranscode = true
 			plan.AudioCodec = "aac"
 		} else {
@@ -134,17 +126,17 @@ func Probe(ctx context.Context, path string) (Plan, error) {
 	plan.Mode = "remux"
 	plan.Confidence = videoConfidence
 	if plan.AudioTranscode {
-		plan.Reason = "video will be copied without re-encoding; only the selected audio track will be converted to AAC for device compatibility"
+		plan.Reason = "video will be copied without re-encoding; the preferred audio track will be converted to AAC for device compatibility"
 	} else if videoConfidence == "safe" {
-		plan.Reason = "container can be repackaged to fragmented MP4 without transcoding"
+		plan.Reason = "container can be repackaged to MP4 without video transcoding"
 	} else {
 		plan.Reason = "remux can be attempted, but this video codec still depends on browser/OS hardware support"
 	}
 	return plan, nil
 }
 
-// pickAudio keeps the previous copy-only behavior because it is useful whenever
-// a compatible track already exists and is also covered by existing tests.
+// Kept for unit tests and callers that explicitly need a copy-compatible audio
+// choice. Playback planning itself is preference-first via pickAnyAudio.
 func pickAudio(streams []StreamInfo) StreamInfo {
 	best := StreamInfo{Index: -1}
 	bestScore := -1
@@ -210,16 +202,20 @@ func audioCodecPreference(codecName string) int {
 func audioLanguageScore(stream StreamInfo) int {
 	language := strings.ToLower(strings.TrimSpace(stream.Tags["language"]))
 	title := strings.ToLower(strings.TrimSpace(stream.Tags["title"]))
+	score := 0
+	if stream.Disposition != nil && stream.Disposition["default"] > 0 {
+		score += 80
+	}
 	if language == "pt-br" || language == "pt_br" || language == "pob" {
-		return 140
+		return score + 160
 	}
-	if language == "pt" || language == "por" {
-		return 130
+	if language == "pt" || language == "por" || language == "por-br" {
+		return score + 150
 	}
-	if strings.Contains(title, "portugu") || strings.Contains(title, "pt-br") || strings.Contains(title, "dublado") || strings.Contains(title, "brasil") {
-		return 120
+	if strings.Contains(title, "portugu") || strings.Contains(title, "pt-br") || strings.Contains(title, "pt br") || strings.Contains(title, "dublado") || strings.Contains(title, "brasil") || strings.Contains(title, "brazil") {
+		return score + 140
 	}
-	return 0
+	return score
 }
 
 func Stream(ctx context.Context, path string, plan Plan, dst io.Writer) error {
