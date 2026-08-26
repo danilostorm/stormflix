@@ -201,7 +201,7 @@ func (s *Service) discover(ctx context.Context, lib Library, libraryID int64) ([
 				touchProgress(dir, false)
 				continue
 			}
-			if !isVideo(path) {
+			if !isLibraryMedia(path, lib.Kind) {
 				touchProgress(dir, false)
 				continue
 			}
@@ -268,8 +268,11 @@ func entryInfoContext(parent context.Context, entry os.DirEntry) (os.FileInfo, e
 }
 
 func SupportedExtensions() []string {
-	exts := make([]string, 0, len(videoExtensions))
+	exts := make([]string, 0, len(videoExtensions)+len(audioExtensions))
 	for ext := range videoExtensions {
+		exts = append(exts, ext)
+	}
+	for ext := range audioExtensions {
 		exts = append(exts, ext)
 	}
 	sort.Strings(exts)
@@ -281,9 +284,27 @@ var videoExtensions = map[string]struct{}{
 	".avi": {}, ".ts": {}, ".m2ts": {}, ".mpg": {}, ".mpeg": {},
 }
 
+var audioExtensions = map[string]struct{}{
+	".mp3": {}, ".flac": {}, ".m4a": {}, ".aac": {}, ".ogg": {},
+	".opus": {}, ".wav": {}, ".wma": {}, ".aiff": {}, ".aif": {},
+	".ape": {}, ".mka": {},
+}
+
 func isVideo(path string) bool {
 	_, ok := videoExtensions[strings.ToLower(filepath.Ext(path))]
 	return ok
+}
+
+func isAudio(path string) bool {
+	_, ok := audioExtensions[strings.ToLower(filepath.Ext(path))]
+	return ok
+}
+
+func isLibraryMedia(path, kind string) bool {
+	if strings.EqualFold(strings.TrimSpace(kind), "music") {
+		return isAudio(path)
+	}
+	return isVideo(path)
 }
 
 func titleFromFilename(path string) string {
