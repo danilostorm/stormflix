@@ -1,0 +1,62 @@
+name: Jellyfin Live Probe
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/jellyfin-live-probe.yml'
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: TLS certificate
+        shell: bash
+        run: |
+          set -o pipefail
+          echo | openssl s_client -connect stormflix.cloud:443 -servername stormflix.cloud 2>/tmp/tls.err | openssl x509 -noout -subject -issuer -dates -ext subjectAltName
+          cat /tmp/tls.err || true
+
+      - name: HTTPS public system info
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -sS -D /tmp/info.headers --max-time 10 https://stormflix.cloud/System/Info/Public -o /tmp/info.json
+          cat /tmp/info.headers
+          cat /tmp/info.json
+          python3 - <<'PY'
+          import json
+          p=json.load(open('/tmp/info.json'))
+          print('parsed=', p)
+          assert p.get('ProductName') == 'Jellyfin Server', p
+          assert p.get('Version'), p
+          assert p.get('Id'), p
+          assert p.get('StartupWizardCompleted') is True, p
+          PY
+
+      - name: HTTP redirect behavior
+        shell: bash
+        run: |
+          set +e
+          curl -sS -D - --max-time 10 -o /dev/null http://stormflix.cloud/System/Info/Public
+          exit 0
+
+      - name: Ping
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -sS -D - --max-time 10 https://stormflix.cloud/System/Ping
+
+      - name: Authentication endpoint contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          code=$(curl -sS -D /tmp/auth.headers --max-time 10 -o /tmp/auth.json -w '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            -H 'X-Emby-Authorization: MediaBrowser Client="Jellyfin Android TV", Device="GitHub Probe", DeviceId="stormflix-probe", Version="0.19.10"' \
+            --data '{"Username":"__stormflix_probe_invalid__","Pw":"__invalid__"}' \
+            https://stormflix.cloud/Users/AuthenticateByName)
+          cat /tmp/auth.headers
+          cat /tmp/auth.json
+          echo "HTTP=$code"
+          test "$code" = "401"
