@@ -194,18 +194,13 @@ func (s *server) streamMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Android/Fire TV should not silently abandon the preferred Portuguese or
-	// source-default track just because another English track happens to be
-	// easier for the hardware decoder. For multi-audio files, or whenever the
-	// preferred track needs AAC, transparently enter the same seekable
-	// compatibility path used by the explicit fallback. Video remains copy-only.
-	if strings.Contains(strings.ToLower(r.UserAgent()), "stormflix-android") {
-		if _, plan, planErr := s.compatibilityPlan(r, id); planErr == nil && plan.Available && plan.AudioStream >= 0 && (plan.AudioTranscode || plan.AudioTrackCount > 1) {
-			http.Redirect(w, r, "/api/v1/media/"+strconv.FormatInt(id, 10)+"/remux?audio=aac", http.StatusTemporaryRedirect)
-			return
-		}
-	}
-
+	// Keep Direct Play truly native. In particular, do not collapse a
+	// multi-audio file into a server-selected track merely because the caller is
+	// Android/Fire TV. Media3 must first see every source audio track so it can
+	// apply the selected StormFlix profile language preference (pt-BR -> pt ->
+	// por and Portuguese/Dublado/Brasil labels). The client explicitly requests
+	// the compatibility/remux endpoint only when its decoder cannot play the
+	// preferred track.
 	file, err := os.Open(item.Path)
 	if err != nil {
 		writeError(w, 404, errors.New("media file is unavailable"))
