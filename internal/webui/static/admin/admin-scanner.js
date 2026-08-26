@@ -108,7 +108,7 @@
     pollers.set(id,token);
     const started=Date.now();
     try{
-      while(pollers.get(id)===token&&Date.now()-started<21*60*1000){
+      while(pollers.get(id)===token&&Date.now()-started<46*60*1000){
         await wait(1800);
         if(pollers.get(id)!==token)return;
         try{await loadLibraries()}catch{continue}
@@ -119,7 +119,7 @@
         else notice(lib.last_error||`Scan finalizado: ${lib.last_scan_status}`);
         return;
       }
-      if(pollers.get(id)===token)notice('O acompanhamento do scan foi encerrado. Atualize Bibliotecas para consultar o estado atual.');
+      if(pollers.get(id)===token)notice('O acompanhamento do scan chegou ao limite de 46 minutos. Atualize Bibliotecas para consultar o estado atual.');
     }finally{
       if(pollers.get(id)===token)pollers.delete(id);
     }
