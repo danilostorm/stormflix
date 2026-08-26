@@ -2,37 +2,106 @@
 (function(){
   let attemptedMediaID=0;
   let remuxActive=false;
+  let audioFallbackActive=false;
   let triedVersions=new Set();
+
+  function currentItem(){
+    if(typeof sfCurrentMedia!=='undefined'&&sfCurrentMedia)return sfCurrentMedia;
+    return typeof currentDetail!=='undefined'?currentDetail:null;
+  }
+
+  function setPlaybackMode(mode,plan){
+    window.sfPlaybackMode=mode||'direct_play';
+    if(plan)window.sfLastCompatibilityPlan=plan;
+  }
+
+  function setHelp(message,visible=true){
+    const help=document.querySelector('#player-help');
+    if(!help)return;
+    if(message)help.textContent=message;
+    help.classList.toggle('hidden',!visible);
+  }
 
   const basePlayMedia=playMedia;
   playMedia=function(item){
     attemptedMediaID=0;
     remuxActive=false;
+    audioFallbackActive=false;
     triedVersions=new Set([Number(item.id)]);
-    setPlaybackBadge('DIRECT PLAY');
+    window.sfLastCompatibilityPlan=null;
+    setPlaybackMode('direct_play');
     basePlayMedia(item);
   };
 
-  function setPlaybackBadge(text){
-    const badge=document.querySelector('#player-modal .direct-badge');
-    if(badge)badge.textContent=text;
+  async function useCompatibility(item,manual=false){
+    if(!item?.id)throw new Error('Mídia não disponível');
+    const id=Number(item.id);
+    const plan=await request(`/media/${id}/compatibility?audio=aac`);
+    window.sfLastCompatibilityPlan=plan;
+    if(!plan.available)throw new Error(plan.reason||'Modo compatibilidade não disponível para este arquivo.');
+
+    const oldTime=Number.isFinite(player.currentTime)?player.currentTime:0;
+    const wasPlaying=!player.paused;
+    remuxActive=true;
+    audioFallbackActive=Boolean(plan.audio_transcode);
+    setPlaybackMode(audioFallbackActive?'direct_stream_audio_aac':'web_remux',plan);
+
+    if(audioFallbackActive){
+      setHelp('Modo compatibilidade: vídeo original sem reencode; somente o áudio é convertido para AAC.',manual);
+      if(typeof sfToast==='function')sfToast('Áudio compatível AAC · vídeo original');
+    }else{
+      setHelp(plan.confidence==='conditional'
+        ?`Modo Compatibilidade Web: remux. Codec ${String(plan.video_codec||'').toUpperCase()} ainda depende do navegador/OS.`
+        :'Modo Compatibilidade Web: apenas reempacotando o arquivo para MP4, sem recodificar.',manual);
+      if(typeof sfToast==='function')sfToast('Web Remux · vídeo original');
+    }
+
+    player.src=`${api}/media/${id}/remux?audio=aac`;
+    player.load();
+    player.addEventListener('loadedmetadata',function restore(){
+      if(oldTime>0&&Number.isFinite(player.duration)&&oldTime<player.duration)player.currentTime=oldTime;
+      if(wasPlaying||manual)player.play().catch(()=>{});
+    },{once:true});
+    if(!oldTime&&(wasPlaying||manual))player.play().catch(()=>{});
+    return plan;
   }
 
+  window.sfUseAACCompatibility=async function(){
+    const item=currentItem();
+    return useCompatibility(item,true);
+  };
+
+  window.sfUseOriginalStream=function(){
+    const item=currentItem();
+    if(!item?.id)return;
+    const oldTime=Number.isFinite(player.currentTime)?player.currentTime:0;
+    const wasPlaying=!player.paused;
+    remuxActive=false;
+    audioFallbackActive=false;
+    attemptedMediaID=0;
+    setPlaybackMode('direct_play');
+    setHelp('',false);
+    player.src=`${api}/media/${item.id}/stream`;
+    player.load();
+    player.addEventListener('loadedmetadata',function restore(){
+      if(oldTime>0&&Number.isFinite(player.duration)&&oldTime<player.duration)player.currentTime=oldTime;
+      if(wasPlaying)player.play().catch(()=>{});
+    },{once:true});
+  };
+
   player.addEventListener('playing',()=>{
-    if(remuxActive){
-      const help=document.querySelector('#player-help');
-      if(help)help.classList.add('hidden');
-      setPlaybackBadge('WEB REMUX · NO TRANSCODING');
-    }
+    if(remuxActive)setHelp('',false);
   });
 
   player.addEventListener('error',async()=>{
-    const item=typeof sfCurrentMedia!=='undefined'?sfCurrentMedia:currentDetail;
+    const item=currentItem();
     if(!item?.id)return;
 
     const currentSrc=String(player.currentSrc||player.src||'');
     if(remuxActive||currentSrc.includes('/remux')){
-      showCompatibilityError('O remux foi tentado, mas este codec ainda não é suportado pelo navegador. Use o StormFlix Desktop, Android ou Android TV para tocar o arquivo original.');
+      showCompatibilityError(audioFallbackActive
+        ?'O vídeo foi mantido e o áudio já foi convertido para AAC, mas este navegador ainda não conseguiu reproduzir o arquivo. O problema restante provavelmente é o codec de vídeo.'
+        :'O remux foi tentado, mas o codec de vídeo ainda não é suportado pelo navegador.');
       return;
     }
 
@@ -42,7 +111,7 @@
         triedVersions.add(Number(webVersion.id));
         attemptedMediaID=0;
         if(typeof sfCurrentMedia!=='undefined')sfCurrentMedia={...item,...webVersion,id:Number(webVersion.id)};
-        setPlaybackBadge(`${webVersion.label||'WEB'} · DIRECT PLAY`);
+        setPlaybackMode('direct_play');
         if(typeof sfToast==='function')sfToast(`${webVersion.label||'Versão Web'} · Direct Play`);
         player.src=`${api}/media/${webVersion.id}/stream`;
         player.load();
@@ -52,28 +121,10 @@
 
       if(attemptedMediaID===Number(item.id))return;
       attemptedMediaID=Number(item.id);
-      if(typeof sfToast==='function')sfToast('Verificando compatibilidade Web…');
-      const plan=await request(`/media/${item.id}/compatibility`);
-      if(!plan.available){
-        showCompatibilityError(`Direct Play não suportado neste navegador. ${plan.reason||'Remux sem transcodificação não é possível para este arquivo.'}`);
-        return;
-      }
-
-      remuxActive=true;
-      const help=document.querySelector('#player-help');
-      if(help){
-        help.textContent=plan.confidence==='conditional'
-          ?`Modo Compatibilidade Web: remux sem transcodificação. Codec ${String(plan.video_codec||'').toUpperCase()} ainda depende do suporte do navegador/OS.`
-          :'Modo Compatibilidade Web ativo: o arquivo está sendo apenas reempacotado para MP4, sem recodificar vídeo ou áudio.';
-        help.classList.remove('hidden');
-      }
-      setPlaybackBadge('WEB REMUX · NO TRANSCODING');
-      if(typeof sfToast==='function')sfToast('Web Remux · sem transcodificação');
-      player.src=`${api}/media/${item.id}/remux`;
-      player.load();
-      player.play().catch(()=>{});
+      if(typeof sfToast==='function')sfToast('Tentando áudio compatível AAC…');
+      await useCompatibility(item,false);
     }catch(err){
-      showCompatibilityError(`Não foi possível verificar o modo compatibilidade: ${err.message}`);
+      showCompatibilityError(`Não foi possível abrir o modo compatibilidade: ${err.message}`);
     }
   });
 
@@ -103,11 +154,7 @@
   }
 
   function showCompatibilityError(message){
-    const help=document.querySelector('#player-help');
-    if(help){
-      help.textContent=message;
-      help.classList.remove('hidden');
-    }
-    setPlaybackBadge('FORMATO NÃO SUPORTADO');
+    setPlaybackMode('unsupported',window.sfLastCompatibilityPlan||null);
+    setHelp(message,true);
   }
 })();
