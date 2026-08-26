@@ -4,10 +4,37 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/danilostorm/stormflix/internal/media"
 	"github.com/danilostorm/stormflix/internal/webcompat"
 )
+
+func preferAACForPlayback(r *http.Request, plan *webcompat.Plan) {
+	if plan == nil || !plan.Available || plan.AudioStream < 0 {
+		return
+	}
+	forceByQuery := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("audio")), "aac")
+	forceByAndroid := strings.Contains(strings.ToLower(r.UserAgent()), "stormflix-android")
+	if !forceByQuery && !forceByAndroid {
+		return
+	}
+
+	sourceCodec := strings.ToLower(strings.TrimSpace(plan.SourceAudioCodec))
+	if sourceCodec == "" {
+		sourceCodec = strings.ToLower(strings.TrimSpace(plan.AudioCodec))
+		plan.SourceAudioCodec = sourceCodec
+	}
+	if sourceCodec == "aac" {
+		plan.AudioCodec = "aac"
+		plan.AudioTranscode = false
+		return
+	}
+
+	plan.AudioCodec = "aac"
+	plan.AudioTranscode = true
+	plan.Reason = "video will be copied without re-encoding; audio is forced to AAC for device compatibility"
+}
 
 func (s *server) mediaCompatibility(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r.PathValue("id"))
@@ -41,6 +68,7 @@ func (s *server) mediaCompatibility(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	preferAACForPlayback(r, &plan)
 	writeJSON(w, http.StatusOK, plan)
 }
 
@@ -72,6 +100,7 @@ func (s *server) remuxMedia(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, err)
 		return
 	}
+	preferAACForPlayback(r, &plan)
 	if !plan.Available {
 		writeError(w, http.StatusUnprocessableEntity, errors.New(plan.Reason))
 		return
@@ -84,8 +113,10 @@ func (s *server) remuxMedia(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-StormFlix-Playback", "direct-stream-remux")
 	if plan.AudioTranscode {
 		w.Header().Set("X-StormFlix-Transcoding", "audio-only")
+		w.Header().Set("X-StormFlix-Audio-Policy", "aac-compatibility")
 	} else {
 		w.Header().Set("X-StormFlix-Transcoding", "false")
+		w.Header().Set("X-StormFlix-Audio-Policy", "original")
 	}
 	w.Header().Set("X-StormFlix-Video-Codec", plan.VideoCodec)
 	w.Header().Set("X-StormFlix-Audio-Codec", plan.AudioCodec)
