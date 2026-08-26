@@ -79,7 +79,7 @@ public final class ApiClient {
         // Keep connect failures fast, but do not abort a healthy long response.
         c.setReadTimeout(1200000);
         c.setInstanceFollowRedirects(true);
-        c.setRequestProperty("User-Agent", "StormFlix-Android/0.2.1");
+        c.setRequestProperty("User-Agent", "StormFlix-Android/0.2.2");
         String cookies = store.cookieHeader();
         if (!cookies.isEmpty()) c.setRequestProperty("Cookie", cookies);
         return c;
