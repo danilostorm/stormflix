@@ -32,7 +32,7 @@ type ManagedLibrary struct {
 }
 
 func (s *Service) ManagedList(ctx context.Context) ([]ManagedLibrary, error) {
-	_, _ = s.RecoverStaleScans(ctx, 5*time.Minute)
+	_, _ = s.RecoverStaleScans(ctx, 6*time.Minute)
 	rows, err := s.db.QueryContext(ctx, `SELECT l.id,l.name,l.kind,l.path,l.enabled,l.last_scan_at,l.last_scan_status,l.last_error,l.created_at,l.updated_at,(SELECT COUNT(*) FROM media m WHERE m.library_id=l.id AND m.available=1) FROM libraries l ORDER BY l.name`)
 	if err != nil {
 		return nil, err
@@ -117,8 +117,8 @@ func (s *Service) AdminDelete(ctx context.Context, id int64) error {
 	return nil
 }
 
-// StartAdminScan validates at least one source and starts a bounded background scan.
-// Offline sources are preserved instead of being interpreted as deleted media.
+// StartAdminScan starts a bounded background scan. Source ONLINE state shown in
+// the admin is advisory only: rclone/FUSE may make stat fail while listing works.
 func (s *Service) StartAdminScan(ctx context.Context, id int64) (ManagedLibrary, error) {
 	v, err := s.ManagedGet(ctx, id)
 	if err != nil {
@@ -127,10 +127,8 @@ func (s *Service) StartAdminScan(ctx context.Context, id int64) (ManagedLibrary,
 	if !v.Enabled {
 		return ManagedLibrary{}, errors.New("library is disabled")
 	}
-	if v.OnlineSources == 0 {
-		msg := "all library sources are offline; catalog preserved"
-		_, _ = s.db.ExecContext(ctx, `UPDATE libraries SET last_scan_status='offline',last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, msg, id)
-		return ManagedLibrary{}, errors.New(msg)
+	if v.SourceCount == 0 {
+		return ManagedLibrary{}, errors.New("library has no configured sources")
 	}
 
 	s.scanMu.Lock()
@@ -138,12 +136,12 @@ func (s *Service) StartAdminScan(ctx context.Context, id int64) (ManagedLibrary,
 		s.scanMu.Unlock()
 		return ManagedLibrary{}, errors.New("a library scan is already running")
 	}
-	scanCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	scanCtx, cancel := context.WithTimeout(context.Background(), 45*time.Minute)
 	s.running[id] = true
 	s.scanCancel[id] = cancel
 	s.scanMu.Unlock()
 
-	queued := fmt.Sprintf("queued · %d/%d sources online", v.OnlineSources, v.SourceCount)
+	queued := fmt.Sprintf("na fila · %d origem(ns) configurada(s) · iniciando leitura", v.SourceCount)
 	if _, err := s.db.ExecContext(ctx, `UPDATE libraries SET last_scan_status='running',last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, queued, id); err != nil {
 		cancel()
 		s.clearScan(id)
@@ -159,7 +157,7 @@ func (s *Service) StartAdminScan(ctx context.Context, id int64) (ManagedLibrary,
 func (s *Service) runAdminScan(id int64, ctx context.Context, cancel context.CancelFunc) {
 	defer cancel()
 	defer s.clearScan(id)
-	go s.watchScanProgress(id, ctx, cancel, 3*time.Minute)
+	go s.watchScanProgress(id, ctx, cancel, 6*time.Minute)
 
 	result, err := s.ScanMulti(ctx, id)
 	if err != nil {
@@ -173,21 +171,21 @@ func (s *Service) runAdminScan(id int64, ctx context.Context, cancel context.Can
 			status = "timeout"
 		} else if errors.Is(ctx.Err(), context.Canceled) || errors.Is(err, context.Canceled) {
 			status = "cancelled"
-		} else if strings.Contains(strings.ToLower(err.Error()), "offline") {
+		} else if strings.Contains(strings.ToLower(err.Error()), "offline") || strings.Contains(strings.ToLower(err.Error()), "origem") {
 			status = "offline"
 		}
 		message := err.Error()
 		if status == "cancelled" {
-			message = "scan cancelled by administrator; previous catalog preserved"
+			message = "scan cancelado pelo administrador; catálogo anterior preservado"
 		}
 		_, _ = s.db.Exec(`UPDATE libraries SET last_scan_status=?,last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, status, message, id)
 		return
 	}
 	status := "ok"
-	message := fmt.Sprintf("%d files · %d/%d sources scanned · %d ms", result.Files, result.SourcesScanned, result.SourcesScanned+result.SourcesOffline, result.DurationMS)
+	message := fmt.Sprintf("%d arquivos · %d/%d origens lidas · %d ms", result.Files, result.SourcesScanned, result.SourcesScanned+result.SourcesOffline, result.DurationMS)
 	if result.SourcesOffline > 0 {
 		status = "partial"
-		message += fmt.Sprintf(" · %d source(s) offline/suspicious preserved", result.SourcesOffline)
+		message += fmt.Sprintf(" · %d origem(ns) indisponível(is)/suspeita(s) preservada(s)", result.SourcesOffline)
 	}
 	_, _ = s.db.Exec(`UPDATE libraries SET last_scan_at=CURRENT_TIMESTAMP,last_scan_status=?,last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, status, message, id)
 }
@@ -206,18 +204,16 @@ func (s *Service) CancelAdminScan(ctx context.Context, id int64) error {
 			return errors.New("no library scan is running")
 		}
 	}
-	_, _ = s.db.ExecContext(ctx, `UPDATE libraries SET last_scan_status='cancelling',last_error='cancel requested; stopping scan safely',updated_at=CURRENT_TIMESTAMP WHERE id=?`, id)
+	_, _ = s.db.ExecContext(ctx, `UPDATE libraries SET last_scan_status='cancelling',last_error='cancelamento solicitado; parando o scan com segurança',updated_at=CURRENT_TIMESTAMP WHERE id=?`, id)
 	if cancel != nil {
 		cancel()
 	}
 	return nil
 }
 
-// RecoverStaleScans prevents a scan status from living forever if a remote
-// filesystem stops making progress. Active scans refresh libraries.updated_at.
 func (s *Service) RecoverStaleScans(ctx context.Context, maxIdle time.Duration) (int64, error) {
 	if maxIdle <= 0 {
-		maxIdle = 5 * time.Minute
+		maxIdle = 6 * time.Minute
 	}
 	seconds := int64(maxIdle.Seconds())
 	rows, err := s.db.QueryContext(ctx, `SELECT id FROM libraries WHERE last_scan_status IN ('running','cancelling') AND (strftime('%s','now')-strftime('%s',updated_at))>?`, seconds)
@@ -243,12 +239,11 @@ func (s *Service) RecoverStaleScans(ctx context.Context, maxIdle time.Duration) 
 		if cancel != nil {
 			cancel()
 		}
-		_, _ = s.db.ExecContext(ctx, `UPDATE libraries SET last_scan_status='timeout',last_error='scan stopped reporting progress and was recovered automatically',updated_at=CURRENT_TIMESTAMP WHERE id=? AND last_scan_status IN ('running','cancelling')`, id)
+		_, _ = s.db.ExecContext(ctx, `UPDATE libraries SET last_scan_status='timeout',last_error='scan ficou mais de 6 minutos sem progresso e foi recuperado automaticamente; catálogo anterior preservado',updated_at=CURRENT_TIMESTAMP WHERE id=? AND last_scan_status IN ('running','cancelling')`, id)
 	}
 	return int64(len(ids)), nil
 }
 
-// AdminScan remains available for internal/tests that need a synchronous scan.
 func (s *Service) AdminScan(ctx context.Context, id int64) (ScanResult, error) {
 	v, err := s.ManagedGet(ctx, id)
 	if err != nil {
@@ -257,12 +252,10 @@ func (s *Service) AdminScan(ctx context.Context, id int64) (ScanResult, error) {
 	if !v.Enabled {
 		return ScanResult{}, errors.New("library is disabled")
 	}
-	if v.OnlineSources == 0 {
-		msg := "all library sources are offline; catalog preserved"
-		_, _ = s.db.ExecContext(ctx, `UPDATE libraries SET last_scan_status='offline',last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, msg, id)
-		return ScanResult{}, errors.New(msg)
+	if v.SourceCount == 0 {
+		return ScanResult{}, errors.New("library has no configured sources")
 	}
-	_, _ = s.db.ExecContext(ctx, `UPDATE libraries SET last_scan_status='running',last_error='',updated_at=CURRENT_TIMESTAMP WHERE id=?`, id)
+	_, _ = s.db.ExecContext(ctx, `UPDATE libraries SET last_scan_status='running',last_error='iniciando scan',updated_at=CURRENT_TIMESTAMP WHERE id=?`, id)
 	result, err := s.ScanMulti(ctx, id)
 	if err != nil {
 		_, _ = s.db.ExecContext(context.Background(), `UPDATE libraries SET last_scan_status='error',last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, err.Error(), id)
@@ -272,7 +265,7 @@ func (s *Service) AdminScan(ctx context.Context, id int64) (ScanResult, error) {
 	message := ""
 	if result.SourcesOffline > 0 {
 		status = "partial"
-		message = fmt.Sprintf("%d source(s) offline preserved", result.SourcesOffline)
+		message = fmt.Sprintf("%d origem(ns) indisponível(is) preservada(s)", result.SourcesOffline)
 	}
 	_, _ = s.db.ExecContext(context.Background(), `UPDATE libraries SET last_scan_at=CURRENT_TIMESTAMP,last_scan_status=?,last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, status, message, id)
 	return ScanResult{LibraryID: result.LibraryID, Files: result.Files, DurationMS: result.DurationMS}, nil
