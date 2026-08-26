@@ -52,6 +52,9 @@ CREATE TABLE IF NOT EXISTS profile_progress (
     position_seconds REAL NOT NULL DEFAULT 0,
     duration_seconds REAL NOT NULL DEFAULT 0,
     completed INTEGER NOT NULL DEFAULT 0,
+    progress_session TEXT NOT NULL DEFAULT '',
+    progress_sequence INTEGER NOT NULL DEFAULT 0,
+    progress_event_ms INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY(profile_id, media_id),
     FOREIGN KEY(profile_id) REFERENCES profiles(id) ON DELETE CASCADE,
@@ -118,6 +121,9 @@ END;
 		{"profiles", "autoplay_previews", "INTEGER NOT NULL DEFAULT 1"},
 		{"profiles", "preferred_audio", "TEXT NOT NULL DEFAULT 'pt-BR'"},
 		{"profiles", "preferred_subtitle", "TEXT NOT NULL DEFAULT 'pt-BR'"},
+		{"profile_progress", "progress_session", "TEXT NOT NULL DEFAULT ''"},
+		{"profile_progress", "progress_sequence", "INTEGER NOT NULL DEFAULT 0"},
+		{"profile_progress", "progress_event_ms", "INTEGER NOT NULL DEFAULT 0"},
 	}
 	for _, c := range columns {
 		if err := ensureColumn(db, c.table, c.name, c.definition); err != nil {
