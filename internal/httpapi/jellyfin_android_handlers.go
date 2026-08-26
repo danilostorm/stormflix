@@ -61,14 +61,9 @@ func (s *server) jellyfinTVAuthenticateMinimal(w http.ResponseWriter, r *http.Re
 	})
 }
 
-// Jellyfin's System/Ping response is a JSON string, not raw text. The Kotlin
-// SDK deserializes it as String, so returning unquoted text can become an
-// InvalidContentException even though the HTTP status is 200.
+// Keep the route helper while preserving Jellyfin's official raw text Ping
+// surface. ASP.NET's string result is served as text/plain and existing
+// Android compatibility tests intentionally lock that behavior.
 func (s *server) jellyfinPingJSON(w http.ResponseWriter, r *http.Request) {
-	name := strings.TrimSpace(s.config.ServerName)
-	if name == "" {
-		name = "StormFlix"
-	}
-	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, name)
+	s.jellyfinPing(w, r)
 }
