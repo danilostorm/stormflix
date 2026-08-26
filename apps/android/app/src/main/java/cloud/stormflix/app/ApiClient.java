@@ -22,10 +22,7 @@ public final class ApiClient {
 
     private final SessionStore store;
 
-    public ApiClient(Context context) {
-        store = new SessionStore(context.getApplicationContext());
-    }
-
+    public ApiClient(Context context) { store = new SessionStore(context.getApplicationContext()); }
     public SessionStore store() { return store; }
 
     public String apiUrl(String path) {
@@ -50,9 +47,7 @@ public final class ApiClient {
         if (body != null) {
             c.setDoOutput(true);
             c.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-            try (OutputStream out = c.getOutputStream()) {
-                out.write(body.getBytes(StandardCharsets.UTF_8));
-            }
+            try (OutputStream out = c.getOutputStream()) { out.write(body.getBytes(StandardCharsets.UTF_8)); }
         }
         int status = c.getResponseCode();
         captureCookies(c);
@@ -82,7 +77,7 @@ public final class ApiClient {
         c.setConnectTimeout(15000);
         c.setReadTimeout(45000);
         c.setInstanceFollowRedirects(true);
-        c.setRequestProperty("User-Agent", "StormFlix-Android/0.1.6");
+        c.setRequestProperty("User-Agent", "StormFlix-Android/0.2.0");
         String cookies = store.cookieHeader();
         if (!cookies.isEmpty()) c.setRequestProperty("Cookie", cookies);
         return c;
@@ -101,35 +96,15 @@ public final class ApiClient {
     }
 
     private void captureCookie(String raw, String name, boolean session) {
-        String marker = name + "=";
-        int start = raw.indexOf(marker);
-        if (start < 0) return;
-        start += marker.length();
-        int end = raw.indexOf(';', start);
-        String value = (end < 0 ? raw.substring(start) : raw.substring(start, end)).trim();
+        String marker = name + "="; int start = raw.indexOf(marker); if (start < 0) return; start += marker.length();
+        int end = raw.indexOf(';', start); String value = (end < 0 ? raw.substring(start) : raw.substring(start, end)).trim();
         if (session) store.setSessionCookie(value); else store.setProfileCookie(value);
     }
 
     private static String errorMessage(String text, int status) {
-        try {
-            JSONObject obj = new JSONObject(text == null ? "{}" : text);
-            String msg = obj.optString("error", obj.optString("message", ""));
-            if (!msg.isEmpty()) return msg;
-        } catch (Exception ignored) {}
+        try { JSONObject obj = new JSONObject(text == null ? "{}" : text); String msg = obj.optString("error", obj.optString("message", "")); if (!msg.isEmpty()) return msg; } catch (Exception ignored) {}
         return text == null || text.trim().isEmpty() ? "HTTP " + status : text.trim();
     }
-
-    private static String readText(InputStream in) throws IOException {
-        if (in == null) return "";
-        return new String(readBytes(in), StandardCharsets.UTF_8);
-    }
-
-    private static byte[] readBytes(InputStream in) throws IOException {
-        try (InputStream input = in; ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            byte[] buffer = new byte[16384];
-            int n;
-            while ((n = input.read(buffer)) >= 0) out.write(buffer, 0, n);
-            return out.toByteArray();
-        }
-    }
+    private static String readText(InputStream in) throws IOException { if (in == null) return ""; return new String(readBytes(in), StandardCharsets.UTF_8); }
+    private static byte[] readBytes(InputStream in) throws IOException { try (InputStream input = in; ByteArrayOutputStream out = new ByteArrayOutputStream()) { byte[] buffer = new byte[16384]; int n; while ((n = input.read(buffer)) >= 0) out.write(buffer, 0, n); return out.toByteArray(); } }
 }
