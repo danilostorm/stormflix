@@ -22,7 +22,7 @@
       const syncMusicUI=()=>{
         const music=select.value==='music';
         if(firstPath)firstPath.placeholder=music?'/media/Musicas':'/media/Filmes';
-        if(music&&hint)hint.innerHTML='<b>Estratégia:</b> FFprobe lê tags locais; MusicBrainz e Cover Art Archive organizam artista, álbum e capa; LRCLIB fornece letras sob demanda.';
+        if(music&&hint)hint.innerHTML='<b>Estratégia:</b> FFprobe lê tags locais; o nome do arquivo corrige Artista - Título; Last.fm e MusicBrainz enriquecem identidade; Cover Art Archive fornece capas; LRCLIB fornece letras sob demanda.';
       };
       select.addEventListener('change',syncMusicUI);
       select.dispatchEvent(new Event('change'));
@@ -49,7 +49,7 @@
     organizeChain=true;
     try{
       const r=await req('/admin/music/index',{method:'POST',body:'{}'});
-      notice(r.started?'Organização da biblioteca de música iniciada. O StormFlix continuará os lotes automaticamente até terminar.':'A biblioteca de música já está sendo organizada; o acompanhamento continuará até terminar.',true);
+      notice(r.started?'Organização inteligente da biblioteca de música iniciada. O StormFlix continuará os lotes automaticamente até terminar.':'A biblioteca de música já está sendo organizada; o acompanhamento continuará até terminar.',true);
       await refreshMusicStatus(true);
     }catch(err){organizeChain=false;notice(err.message)}finally{if(button)button.disabled=false}
   };
@@ -78,7 +78,7 @@
       const agents=await req('/admin/agents');
       lastStatus=agents.music_status||lastStatus;
       const panel=document.createElement('div');panel.className='panel';panel.dataset.musicAgents='1';
-      panel.innerHTML=`<div class="panel-head"><div><h2>Agentes de Música</h2><small>Separados dos agentes de filmes e séries para não misturar TMDB com sua discoteca.</small></div><button class="primary" data-music-index-now>Organizar música</button></div><div class="agent-grid">${(agents.music||[]).map(renderAgent).join('')}</div><div class="music-index-panel metadata" data-music-status>${musicStatusHTML(lastStatus)}</div>`;
+      panel.innerHTML=`<div class="panel-head"><div><h2>Agentes de Música</h2><small>Separados dos agentes de filmes e séries: tags locais, nome do arquivo, Last.fm, MusicBrainz, capas e letras.</small></div><button class="primary" data-music-index-now>Organizar música</button></div><div class="agent-grid">${(agents.music||[]).map(renderAgent).join('')}</div><div class="music-index-panel metadata" data-music-status>${musicStatusHTML(lastStatus)}</div>`;
       const first=page.querySelector('.panel');if(first)first.after(panel);else page.prepend(panel);bindIndexButtons(panel);
       scheduleProgressPoll(lastStatus);
     }catch{}
@@ -115,12 +115,12 @@
 
   async function continueOrganizerIfNeeded(status){
     if(!organizeChain||chaining||status?.indexing)return;
-    const pending=Number(status?.pending_tracks||0)+Number(status?.pending_albums||0);
+    const pending=Number(status?.pending_tracks||0)+Number(status?.pending_matches||0)+Number(status?.pending_albums||0);
     if(pending<=0){organizeChain=false;notice('Organização de música concluída.',true);return}
     chaining=true;
     try{
       const r=await req('/admin/music/index',{method:'POST',body:'{}'});
-      if(r.started)notice(`Continuando organização · ${Number(status.pending_tracks||0).toLocaleString('pt-BR')} faixa(s) e ${Number(status.pending_albums||0).toLocaleString('pt-BR')} álbum(ns) pendentes.`,true);
+      if(r.started)notice(`Continuando organização · ${Number(status.pending_tracks||0).toLocaleString('pt-BR')} tag(s), ${Number(status.pending_matches||0).toLocaleString('pt-BR')} identificação(ões) e ${Number(status.pending_albums||0).toLocaleString('pt-BR')} álbum(ns) pendentes.`,true);
     }catch(err){organizeChain=false;notice(`A continuação automática parou: ${err.message}`)}finally{chaining=false}
   }
 
@@ -141,11 +141,21 @@
     const pct=Math.max(0,Math.min(100,Number(s.progress||0)));
     const tags=`${Number(s.indexed_tracks||0).toLocaleString('pt-BR')} / ${Number(s.total_tracks||0).toLocaleString('pt-BR')}`;
     const albums=`${Number(s.enriched_albums||0).toLocaleString('pt-BR')} / ${Number(s.total_albums||0).toLocaleString('pt-BR')}`;
-    const state=s.indexing?'running':s.phase==='completed'?'done':s.phase==='waiting'||s.phase==='waiting_albums'?'waiting':'idle';
-    const stateLabel=s.indexing?'EM ANDAMENTO':s.phase==='completed'?'CONCLUÍDO':s.phase==='waiting'||s.phase==='waiting_albums'?'PENDENTE':'PARADO';
-    const activity=s.phase==='tags'?`Faixas processadas: <b>${tags}</b>`:s.phase==='albums'||s.phase==='waiting_albums'?`Álbuns enriquecidos: <b>${albums}</b>`:`Faixas organizadas: <b>${tags}</b>`;
-    const secondary=s.phase==='tags'?`Depois: MusicBrainz + capas · ${Number(s.pending_albums||0).toLocaleString('pt-BR')} álbum(ns) pendentes`:`Capas encontradas: <b>${Number(s.albums_with_cover||0).toLocaleString('pt-BR')}</b> · faixas com fallback: <b>${Number(s.fallback_tracks||0).toLocaleString('pt-BR')}</b>`;
-    const updated=s.phase==='tags'?s.last_track_update_at:s.last_album_update_at;
+    const matches=`${Math.max(0,Number(s.total_tracks||0)-Number(s.pending_matches||0)).toLocaleString('pt-BR')} / ${Number(s.total_tracks||0).toLocaleString('pt-BR')}`;
+    const state=s.indexing?'running':s.phase==='completed'?'done':String(s.phase||'').startsWith('waiting')?'waiting':'idle';
+    const stateLabel=s.indexing?'EM ANDAMENTO':s.phase==='completed'?'CONCLUÍDO':String(s.phase||'').startsWith('waiting')?'PENDENTE':'PARADO';
+    let activity=`Faixas organizadas: <b>${tags}</b>`;
+    let secondary=`Capas encontradas: <b>${Number(s.albums_with_cover||0).toLocaleString('pt-BR')}</b> · faixas com fallback: <b>${Number(s.fallback_tracks||0).toLocaleString('pt-BR')}</b>`;
+    if(s.phase==='tags'){
+      activity=`Faixas processadas: <b>${tags}</b>`;
+      secondary=`Depois: identificação inteligente + capas · ${Number(s.pending_matches||0).toLocaleString('pt-BR')} identificação(ões) pendentes`;
+    }else if(s.phase==='matching'||s.phase==='waiting_matches'){
+      activity=`Identificações processadas: <b>${matches}</b>`;
+      secondary=`Agentes: nome do arquivo + Last.fm + MusicBrainz · sem correspondência: <b>${Number(s.unmatched_tracks||0).toLocaleString('pt-BR')}</b>`;
+    }else if(s.phase==='albums'||s.phase==='waiting_albums'){
+      activity=`Álbuns enriquecidos: <b>${albums}</b>`;
+    }
+    const updated=s.phase==='tags'||s.phase==='matching'?s.last_track_update_at:s.last_album_update_at;
     return `<div class="music-index-status ${state}">
       <div class="music-index-status-head"><div><span class="music-index-live"><i></i>${stateLabel}</span><h3>${esc(s.phase_label||'Organização de música')}</h3><p>${esc(s.message||'')}</p></div><strong>${Math.round(pct)}%</strong></div>
       <div class="music-index-progress"><span style="width:${pct}%"></span></div>
@@ -153,7 +163,7 @@
     </div>`;
   }
 
-  function statusLoadingHTML(){return '<div class="music-index-status idle"><div class="music-index-status-head"><div><span class="music-index-live"><i></i>CONSULTANDO</span><h3>Progresso da organização</h3><p>Carregando estado do FFprobe, MusicBrainz e capas…</p></div></div></div>'}
+  function statusLoadingHTML(){return '<div class="music-index-status idle"><div class="music-index-status-head"><div><span class="music-index-live"><i></i>CONSULTANDO</span><h3>Progresso da organização</h3><p>Carregando estado do FFprobe, parser, Last.fm, MusicBrainz e capas…</p></div></div></div>'}
 
   document.addEventListener('click',e=>{
     const button=e.target.closest('button[data-page]');if(!button)return;
