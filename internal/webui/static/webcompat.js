@@ -23,6 +23,10 @@
     help.classList.toggle('hidden',!visible);
   }
 
+  function selectedAudioLabel(plan){
+    return String(plan?.audio_title||plan?.audio_language||'').trim();
+  }
+
   const basePlayMedia=playMedia;
   playMedia=function(item){
     attemptedMediaID=0;
@@ -45,8 +49,13 @@
       if(!active||Number(active.id)!==Number(item.id))return plan;
       if(document.querySelector('#player-modal')?.classList.contains('hidden'))return plan;
       window.sfLastCompatibilityPlan=plan;
-      if(plan.available&&plan.audio_transcode){
-        if(typeof sfToast==='function')sfToast('Áudio não-AAC detectado · preparando compatibilidade');
+      const mustPinAudio=Number(plan.audio_track_count||0)>1;
+      if(plan.available&&(plan.audio_transcode||mustPinAudio)){
+        const chosen=selectedAudioLabel(plan);
+        if(typeof sfToast==='function'){
+          if(plan.audio_transcode)sfToast(`Preparando áudio AAC${chosen?` · ${chosen}`:''}`);
+          else sfToast(`Selecionando áudio preferido${chosen?` · ${chosen}`:''}`);
+        }
         await useCompatibility(item,false,plan);
       }
       return plan;
@@ -60,9 +69,10 @@
   };
 
   async function prepareCompatibility(id,plan,manual){
+    const chosen=selectedAudioLabel(plan);
     setHelp(plan.audio_transcode
-      ?'Preparando áudio AAC compatível. O vídeo original será mantido sem reencode…'
-      :'Preparando MP4 compatível sem reencode…',true);
+      ?`Preparando áudio AAC compatível${chosen?` (${chosen})`:''}. O vídeo original será mantido sem reencode…`
+      :`Preparando MP4 com a faixa de áudio preferida${chosen?` (${chosen})`:''}, sem reencode…`,true);
     const prepared=await request(`/media/${id}/remux/prepare?audio=aac`,{method:'POST',body:'{}'});
     if(!prepared?.ready)throw new Error('O arquivo de compatibilidade não ficou pronto.');
     if(prepared.audio_transcode&&String(prepared.audio_codec||'').toLowerCase()!=='aac')throw new Error('O servidor não confirmou áudio AAC no arquivo preparado.');
@@ -85,14 +95,15 @@
     setPlaybackMode(audioFallbackActive?'direct_stream_audio_aac':'web_remux',plan);
 
     const prepared=await prepareCompatibility(id,plan,manual);
+    const chosen=selectedAudioLabel(plan);
     if(audioFallbackActive){
-      setHelp('Modo compatibilidade: vídeo original sem reencode; somente o áudio foi convertido para AAC.',manual);
-      if(typeof sfToast==='function')sfToast('Áudio compatível AAC · vídeo original');
+      setHelp(`Modo compatibilidade: vídeo original sem reencode; áudio${chosen?` ${chosen}`:''} convertido para AAC.`,manual);
+      if(typeof sfToast==='function')sfToast(`Áudio AAC${chosen?` · ${chosen}`:''}`);
     }else{
       setHelp(plan.confidence==='conditional'
-        ?`Modo Compatibilidade Web: remux. Codec ${String(plan.video_codec||'').toUpperCase()} ainda depende do navegador/OS.`
-        :'Modo Compatibilidade Web: apenas reempacotando o arquivo para MP4, sem recodificar.',manual);
-      if(typeof sfToast==='function')sfToast('Web Remux · vídeo original');
+        ?`Modo Compatibilidade Web: remux. Áudio${chosen?` ${chosen}`:' preferido'} fixado; codec ${String(plan.video_codec||'').toUpperCase()} ainda depende do navegador/OS.`
+        :`Modo Compatibilidade Web: áudio${chosen?` ${chosen}`:' preferido'} fixado em MP4, sem recodificar.`,manual);
+      if(typeof sfToast==='function')sfToast(`Áudio preferido${chosen?` · ${chosen}`:''}`);
     }
 
     const compatibilityURL=prepared.url||`/api/v1/media/${id}/remux?audio=aac`;
