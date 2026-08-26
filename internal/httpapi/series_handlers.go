@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+
+	"github.com/danilostorm/stormflix/internal/media"
 )
 
 func (s *server) listSeries(w http.ResponseWriter, r *http.Request) {
