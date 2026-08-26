@@ -20,7 +20,7 @@ import (
 )
 
 const sessionCookie = "stormflix_session"
-const version = "0.8.0-multi-source-admin"
+const version = "0.9.0-logical-media-admin"
 
 type contextKey string
 
@@ -119,6 +119,7 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("POST /api/v1/admin/categories", s.requireRole("manager", s.createCategory))
 	mux.HandleFunc("PUT /api/v1/admin/categories/{id}", s.requireRole("manager", s.updateCategory))
 	mux.HandleFunc("DELETE /api/v1/admin/categories/{id}", s.requireRole("manager", s.deleteCategory))
+	mux.HandleFunc("POST /api/v1/admin/libraries/{id}/consolidate", s.requireRole("manager", s.consolidateLibraryCopies))
 
 	mux.HandleFunc("GET /api/v1/admin/cleanup", s.requireRole("admin", s.cleanupStatus))
 	mux.HandleFunc("POST /api/v1/admin/cleanup", s.requireRole("admin", s.runCleanup))
