@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="/profiles.css">
   <link rel="stylesheet" href="/profile-hub.css">
   <link rel="stylesheet" href="/ratings-ui.css">
+  <link rel="stylesheet" href="/music.css">
   <link rel="stylesheet" href="/source-selector.css">
   <link rel="stylesheet" href="/person-ui.css">
   <link rel="stylesheet" href="/continue-watching.css">
@@ -50,10 +51,11 @@
       <button data-nav="movie">Filmes</button>
       <button data-nav="series">Séries</button>
       <button data-nav="anime">Animes</button>
+      <button id="music-nav" type="button">Música</button>
     </nav>
     <div class="header-actions">
       <button id="search-toggle" class="icon-btn" aria-label="Buscar">⌕</button>
-      <button id="profile-hub-btn" class="admin-link" type="button">Meu espaço</button>
+      <button id="profile-hub-btn" class="profile-space-link" type="button" aria-label="Abrir Meu espaço"><span class="profile-space-icon">◎</span><span>Meu espaço</span></button>
       <a id="admin-link" class="admin-link hidden" href="/admin/">Admin</a>
       <button id="profile-btn" class="profile-btn"><span id="profile-initial">S</span><span id="user-label"></span></button>
       <button id="logout" class="logout-btn">Sair</button>
@@ -82,6 +84,8 @@
       <h2>Resultados</h2>
       <div id="search-results" class="poster-grid"></div>
     </section>
+
+    <section id="music-view" class="music-view hidden" aria-label="StormFlix Música"></section>
 
     <section id="detail-modal" class="detail-page hidden" aria-hidden="true">
       <article class="detail-card">
@@ -138,6 +142,7 @@
 <script src="/profiles.js" defer></script>
 <script src="/profile-hub.js" defer></script>
 <script src="/category-nav.js" defer></script>
+<script src="/music-ui.js" defer></script>
 <script src="/ux-v2.js" defer></script>
 <script src="/ux-v3.js" defer></script>
 <script src="/source-selector.js" defer></script>
