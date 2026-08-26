@@ -24,8 +24,7 @@ func verifyMaterialized(path string, plan Plan) error {
 	}
 	cmd := exec.Command(ffprobe,
 		"-v", "error",
-		"-count_frames",
-		"-show_entries", "stream=codec_type,codec_name,duration,nb_read_frames",
+		"-show_entries", "stream=codec_type,codec_name,duration,nb_frames",
 		"-of", "json",
 		path,
 	)
@@ -35,10 +34,10 @@ func verifyMaterialized(path string, plan Plan) error {
 	}
 	var payload struct {
 		Streams []struct {
-			CodecType   string `json:"codec_type"`
-			CodecName   string `json:"codec_name"`
-			Duration    string `json:"duration"`
-			ReadFrames  string `json:"nb_read_frames"`
+			CodecType string `json:"codec_type"`
+			CodecName string `json:"codec_name"`
+			Duration  string `json:"duration"`
+			Frames    string `json:"nb_frames"`
 		} `json:"streams"`
 	}
 	if err := json.Unmarshal(out, &payload); err != nil {
@@ -58,8 +57,9 @@ func verifyMaterialized(path string, plan Plan) error {
 				hasAAC = true
 			}
 			duration, _ := strconv.ParseFloat(strings.TrimSpace(stream.Duration), 64)
-			frames, _ := strconv.ParseInt(strings.TrimSpace(stream.ReadFrames), 10, 64)
-			if duration > 0.5 && frames > 0 {
+			framesText := strings.TrimSpace(stream.Frames)
+			frames, framesErr := strconv.ParseInt(framesText, 10, 64)
+			if duration > 0.5 && (framesErr != nil || frames > 0) {
 				audioHasTimeline = true
 			}
 		}
@@ -74,7 +74,7 @@ func verifyMaterialized(path string, plan Plan) error {
 		return errors.New("compatibility file audio was not encoded as AAC")
 	}
 	if plan.AudioStream >= 0 && !audioHasTimeline {
-		return errors.New("compatibility file audio has no readable timeline/frames")
+		return errors.New("compatibility file audio has no readable timeline")
 	}
 	return nil
 }
