@@ -120,6 +120,10 @@ func (s *server) browseCategory(w http.ResponseWriter, r *http.Request) {
 			response.Media = append(response.Media, item)
 		}
 	}
+	if s.selectedProfileIsKids(r, u.ID) {
+		response.Media = filterKidsItems(response.Media)
+		response.Series = filterKidsSeries(response.Series)
+	}
 	writeJSON(w, http.StatusOK, response)
 }
 
