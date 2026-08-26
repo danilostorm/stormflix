@@ -20,14 +20,14 @@ func (s *server) jellyfinCompatInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]any{
-		"LocalAddress":              "",
-		"ServerName":                name,
-		"Version":                   jellyfinCompatibilityVersion,
-		"ProductName":               "Jellyfin Server",
-		"OperatingSystem":           "Linux",
+		"LocalAddress":               "",
+		"ServerName":                 name,
+		"Version":                    jellyfinCompatibilityVersion,
+		"ProductName":                "Jellyfin Server",
+		"OperatingSystem":            "Linux",
 		"OperatingSystemDisplayName": "StormFlix",
-		"Id":                        s.jellyfinServerID(),
-		"StartupWizardCompleted":    true,
+		"Id":                         s.jellyfinServerID(),
+		"StartupWizardCompleted":     true,
 	})
 }
 
@@ -38,17 +38,17 @@ func (s *server) jellyfinCompatSystemInfo(w http.ResponseWriter, r *http.Request
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]any{
-		"LocalAddress":              "",
-		"ServerName":                name,
-		"Version":                   jellyfinCompatibilityVersion,
-		"ProductName":               "Jellyfin Server",
-		"OperatingSystem":           "Linux",
+		"LocalAddress":               "",
+		"ServerName":                 name,
+		"Version":                    jellyfinCompatibilityVersion,
+		"ProductName":                "Jellyfin Server",
+		"OperatingSystem":            "Linux",
 		"OperatingSystemDisplayName": "StormFlix",
-		"Id":                        s.jellyfinServerID(),
-		"StartupWizardCompleted":    true,
-		"WanAddress":                "",
-		"WebSocketPortNumber":       0,
-		"SupportsHttps":             true,
+		"Id":                         s.jellyfinServerID(),
+		"StartupWizardCompleted":     true,
+		"WanAddress":                 "",
+		"WebSocketPortNumber":        0,
+		"SupportsHttps":              true,
 	})
 }
 
@@ -74,13 +74,22 @@ func (s *server) registerJellyfinRoutes(mux *http.ServeMux, prefix string) {
 	mux.HandleFunc("GET "+route("/Users/Public"), compat(s.jellyfinPublicUsers))
 	mux.HandleFunc("GET "+route("/Branding/Configuration"), compat(s.jellyfinBranding))
 	mux.HandleFunc("POST "+route("/Users/AuthenticateByName"), compat(s.jellyfinTVAuthenticate))
+
+	// Critical Android TV post-login startup sequence.
 	mux.HandleFunc("GET "+route("/System/Info"), authed(s.jellyfinCompatSystemInfo))
+	mux.HandleFunc("GET "+route("/Users/Me"), authed(s.jellyfinMe))
+	mux.HandleFunc("GET "+route("/DisplayPreferences/{id}"), authed(s.jellyfinDisplayPreferences))
+	mux.HandleFunc("POST "+route("/Sessions/Capabilities"), authed(s.jellyfinCapabilities))
+	mux.HandleFunc("POST "+route("/Sessions/Capabilities/Full"), authed(s.jellyfinCapabilities))
 	mux.HandleFunc("POST "+route("/Sessions/Logout"), authed(s.jellyfinLogout))
+
 	mux.HandleFunc("GET "+route("/Users/{id}"), authed(s.jellyfinCurrentUser))
 	mux.HandleFunc("GET "+route("/Users/{id}/Views"), authed(s.jellyfinViews))
 	mux.HandleFunc("GET "+route("/Library/MediaFolders"), authed(s.jellyfinViews))
 	mux.HandleFunc("GET "+route("/Users/{id}/Items"), authed(s.jellyfinItems))
 	mux.HandleFunc("GET "+route("/Users/{id}/Items/Resume"), authed(s.jellyfinResume))
+	mux.HandleFunc("GET "+route("/Users/{id}/Items/Latest"), authed(s.jellyfinLatest))
+	mux.HandleFunc("GET "+route("/Shows/NextUp"), authed(s.jellyfinNextUp))
 	mux.HandleFunc("GET "+route("/Items/{id}"), authed(s.jellyfinItem))
 	mux.HandleFunc("GET "+route("/Items/{id}/Images/{kind}"), authed(s.jellyfinImage))
 	mux.HandleFunc("GET "+route("/Items/{id}/PlaybackInfo"), authed(s.jellyfinPlaybackInfo))
@@ -118,7 +127,7 @@ func isJellyfinRequestPath(path string) bool {
 	if strings.HasPrefix(path, "/jellyfin-api/") {
 		return true
 	}
-	for _, prefix := range []string{"/System/", "/Users/", "/Branding/", "/Library/", "/Items/", "/Shows/", "/Videos/", "/Audio/", "/Sessions/"} {
+	for _, prefix := range []string{"/System/", "/Users/", "/Branding/", "/DisplayPreferences/", "/Library/", "/Items/", "/Shows/", "/Videos/", "/Audio/", "/Sessions/"} {
 		if strings.HasPrefix(path, prefix) {
 			return true
 		}
