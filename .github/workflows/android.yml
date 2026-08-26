@@ -39,6 +39,7 @@ jobs:
         with:
           gradle-version: '9.5.0'
 
+      # Keep the APK reproducible from the repository without Android Studio.
       - name: Build debug APK
         run: gradle -p apps/android :app:assembleDebug --no-daemon
 
