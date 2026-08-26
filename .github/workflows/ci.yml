@@ -56,6 +56,7 @@ jobs:
           node --check internal/webui/static/source-selector.js
           node --check internal/webui/static/person-ui.js
           node --check internal/webui/static/webcompat.js
+          node --check internal/webui/static/player-v3.js
           node --check internal/webui/static/player-monitor.js
           node --check internal/webui/static/continue-watching.js
           node --check internal/webui/static/rail-nav-v2.js
