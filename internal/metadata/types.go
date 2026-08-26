@@ -30,6 +30,9 @@ type Result struct {
 	Tagline           string
 	MediaType         string
 	Year              int
+	ReleaseDate       string
+	ContentRating     string
+	ContentRatingAge  int
 	Season            int
 	Episode           int
 	Overview          string
