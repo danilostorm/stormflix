@@ -1,0 +1,1 @@
+.watch-progress{position:absolute;left:8px;right:8px;bottom:8px;height:4px;border-radius:999px;background:#ffffff35;overflow:hidden;z-index:4;box-shadow:0 1px 5px #0008}.watch-progress span{display:block;height:100%;border-radius:inherit;background:#ff4d5f}.content-row:has(.watch-progress) .tile-poster{position:relative}
