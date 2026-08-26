@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -21,15 +22,23 @@ func verifyMaterialized(path string, plan Plan) error {
 	if err != nil {
 		return errors.New("ffprobe is not installed")
 	}
-	cmd := exec.Command(ffprobe, "-v", "error", "-show_entries", "stream=codec_type,codec_name", "-of", "json", path)
+	cmd := exec.Command(ffprobe,
+		"-v", "error",
+		"-count_frames",
+		"-show_entries", "stream=codec_type,codec_name,duration,nb_read_frames",
+		"-of", "json",
+		path,
+	)
 	out, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("verify compatibility file: %w", err)
 	}
 	var payload struct {
 		Streams []struct {
-			CodecType string `json:"codec_type"`
-			CodecName string `json:"codec_name"`
+			CodecType   string `json:"codec_type"`
+			CodecName   string `json:"codec_name"`
+			Duration    string `json:"duration"`
+			ReadFrames  string `json:"nb_read_frames"`
 		} `json:"streams"`
 	}
 	if err := json.Unmarshal(out, &payload); err != nil {
@@ -38,6 +47,7 @@ func verifyMaterialized(path string, plan Plan) error {
 	hasVideo := false
 	hasAudio := false
 	hasAAC := false
+	audioHasTimeline := false
 	for _, stream := range payload.Streams {
 		switch strings.ToLower(stream.CodecType) {
 		case "video":
@@ -46,6 +56,11 @@ func verifyMaterialized(path string, plan Plan) error {
 			hasAudio = true
 			if strings.EqualFold(stream.CodecName, "aac") {
 				hasAAC = true
+			}
+			duration, _ := strconv.ParseFloat(strings.TrimSpace(stream.Duration), 64)
+			frames, _ := strconv.ParseInt(strings.TrimSpace(stream.ReadFrames), 10, 64)
+			if duration > 0.5 && frames > 0 {
+				audioHasTimeline = true
 			}
 		}
 	}
@@ -57,6 +72,9 @@ func verifyMaterialized(path string, plan Plan) error {
 	}
 	if plan.AudioTranscode && !hasAAC {
 		return errors.New("compatibility file audio was not encoded as AAC")
+	}
+	if plan.AudioStream >= 0 && !audioHasTimeline {
+		return errors.New("compatibility file audio has no readable timeline/frames")
 	}
 	return nil
 }
@@ -77,9 +95,10 @@ func MaterializeSeekable(ctx context.Context, source string, plan Plan, cacheDir
 		return "", fmt.Errorf("create compatibility cache: %w", err)
 	}
 
-	// Bump this namespace whenever mux/audio generation semantics change. It
-	// prevents a previously generated silent/broken file from being reused.
-	sum := sha256.Sum256([]byte("seekable-aac-v2|" + cacheKey))
+	// v3 deliberately invalidates v2 files produced with
+	// aresample=async=1:first_pts=0. On sources with shifted timestamps that
+	// filter can pad a very long silent prefix even though the AAC track exists.
+	sum := sha256.Sum256([]byte("seekable-aac-v3|" + cacheKey))
 	name := hex.EncodeToString(sum[:16]) + ".mp4"
 	finalPath := filepath.Join(cacheDir, name)
 	lockValue, _ := materializeLocks.LoadOrStore(finalPath, &sync.Mutex{})
@@ -120,7 +139,6 @@ func MaterializeSeekable(ctx context.Context, source string, plan Plan, cacheDir
 			"-b:a", "256k",
 			"-ac", "2",
 			"-ar", "48000",
-			"-af", "aresample=async=1:first_pts=0",
 		)
 	} else {
 		args = append(args, "-c", "copy")
