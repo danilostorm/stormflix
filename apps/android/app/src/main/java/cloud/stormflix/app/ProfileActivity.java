@@ -85,7 +85,6 @@ public class ProfileActivity extends Activity {
         grid.setUseDefaultMargins(false);
         for (Models.Profile profile : profiles) grid.addView(profileCard(profile));
         content.addView(grid);
-        profiles.get(0);
     }
 
     private View profileCard(Models.Profile profile) {
@@ -140,6 +139,7 @@ public class ProfileActivity extends Activity {
         io.submit(() -> {
             try {
                 api.post("/profiles/" + profile.id + "/select", new JSONObject().put("pin", pin));
+                api.store().setProfilePreferences(profile.preferredAudio, profile.preferredSubtitle);
                 main.post(() -> { startActivity(new Intent(this, MainActivity.class)); finish(); });
             } catch (Exception e) {
                 main.post(() -> new AlertDialog.Builder(this).setTitle("Não foi possível abrir o perfil").setMessage(e.getMessage()).setPositiveButton("OK", null).show());
