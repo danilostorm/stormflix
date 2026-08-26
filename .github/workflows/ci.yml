@@ -45,6 +45,7 @@ jobs:
           node --check internal/webui/static/series-ui.js
           node --check internal/webui/static/series-rules.js
           node --check internal/webui/static/profiles.js
+          node --check internal/webui/static/mobile-shell.js
           node --check internal/webui/static/profile-hub.js
           node --check internal/webui/static/ratings-ui.js
           node --check internal/webui/static/category-nav.js
