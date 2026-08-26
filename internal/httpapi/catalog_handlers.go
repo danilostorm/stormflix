@@ -26,6 +26,9 @@ func (s *server) homeFeed(w http.ResponseWriter, r *http.Request) {
 			feed.Rows = append([]media.HomeRow{{ID: "continue-watching", Title: "Continuar assistindo", Items: items}}, feed.Rows...)
 		}
 	}
+	if s.selectedProfileIsKids(r, u.ID) {
+		filterKidsHome(&feed)
+	}
 	writeJSON(w, http.StatusOK, feed)
 }
 
@@ -36,6 +39,9 @@ func (s *server) mediaDetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u := currentUser(r)
+	if !s.requireKidsMediaAccess(w, r, u.ID, id) {
+		return
+	}
 	var allowed []int64
 	if roleLevel(u.Role) < 2 {
 		allowed = u.LibraryIDs
@@ -52,6 +58,9 @@ func (s *server) mediaDetails(w http.ResponseWriter, r *http.Request) {
 		}
 		writeError(w, http.StatusInternalServerError, err)
 		return
+	}
+	if s.selectedProfileIsKids(r, u.ID) {
+		detail.Related = filterKidsItems(detail.Related)
 	}
 	if detail.Related == nil {
 		detail.Related = []media.Item{}
