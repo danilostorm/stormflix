@@ -30,12 +30,25 @@ jobs:
           echo "curl_ipv6_rc=$rc"
           exit 0
 
-      - name: TLS certificate
+      - name: TLS certificate chain
         shell: bash
         run: |
-          set -o pipefail
-          echo | openssl s_client -connect stormflix.cloud:443 -servername stormflix.cloud 2>/tmp/tls.err | openssl x509 -noout -subject -issuer -dates -ext subjectAltName
-          cat /tmp/tls.err || true
+          set -euo pipefail
+          openssl s_client -connect stormflix.cloud:443 -servername stormflix.cloud -showcerts </dev/null > /tmp/chain.txt 2>/tmp/tls.err || true
+          python3 - <<'PY'
+          import re, subprocess
+          text=open('/tmp/chain.txt', errors='replace').read()
+          certs=re.findall(r'-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----', text, re.S)
+          print('presented_certificates=', len(certs))
+          for i, cert in enumerate(certs):
+              path=f'/tmp/cert-{i}.pem'
+              open(path,'w').write(cert+'\n')
+              out=subprocess.check_output(['openssl','x509','-in',path,'-noout','-subject','-issuer'], text=True)
+              print(f'certificate[{i}]')
+              print(out.strip())
+          PY
+          echo '--- verify path ---'
+          grep -E '^(depth=|Verify return code:)' /tmp/tls.err /tmp/chain.txt || true
 
       - name: HTTPS public system info
         shell: bash
