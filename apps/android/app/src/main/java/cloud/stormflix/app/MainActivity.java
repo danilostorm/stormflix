@@ -65,14 +65,15 @@ public class MainActivity extends Activity {
 
         HorizontalScrollView topScroll = new HorizontalScrollView(this);
         topScroll.setHorizontalScrollBarEnabled(false);
+        topScroll.setFocusable(false);
         LinearLayout top = Ui.horizontal(this, 12);
         top.setBackgroundColor(Color.rgb(7, 8, 12));
         TextView brand = Ui.title(this, "STORMFLIX", 22);
         top.addView(brand, Ui.margin(this, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 8, 0, 26, 0));
         addNav(top, "Início", this::loadHome);
         addNav(top, "Filmes", () -> loadCategory("Filmes", "movie"));
-        addNav(top, "Séries", () -> loadCategory("Séries", "series"));
-        addNav(top, "Animes", () -> loadCategory("Animes", "anime"));
+        addNav(top, "Séries", () -> openSeries("series"));
+        addNav(top, "Animes", () -> openSeries("anime"));
         addNav(top, "Música", () -> startActivity(new Intent(this, MusicActivity.class)));
         addNav(top, "Buscar", this::searchDialog);
         addNav(top, "Perfis", () -> startActivity(new Intent(this, ProfileActivity.class)));
@@ -82,16 +83,23 @@ public class MainActivity extends Activity {
 
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        content = Ui.vertical(this, 18);
+        content = Ui.vertical(this, RemoteUi.isTelevision(this) ? 24 : 18);
         scroll.addView(content, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         page.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
         setContentView(page);
+        RemoteUi.focusFirst(top);
     }
 
     private void addNav(LinearLayout top, String title, Runnable action) {
         Button b = Ui.button(this, title, false);
         b.setOnClickListener(v -> action.run());
         top.addView(b, Ui.margin(this, ViewGroup.LayoutParams.WRAP_CONTENT, Ui.dp(this, 42), 0, 0, 8, 0));
+    }
+
+    private void openSeries(String kind) {
+        Intent intent = new Intent(this, SeriesBrowseActivity.class);
+        intent.putExtra("filter_kind", kind);
+        startActivity(intent);
     }
 
     private void loading(String label) {
@@ -227,10 +235,7 @@ public class MainActivity extends Activity {
         LinearLayout card = Ui.vertical(this, 0);
         card.setFocusable(true); card.setClickable(true);
         card.setBackground(Ui.round(Color.TRANSPARENT, 10));
-        card.setOnFocusChangeListener((v, focused) -> {
-            v.setBackground(Ui.round(focused ? Color.rgb(31,35,45) : Color.TRANSPARENT, 10));
-            v.setScaleX(focused ? 1.055f : 1f); v.setScaleY(focused ? 1.055f : 1f);
-        });
+        card.setOnFocusChangeListener((v, focused) -> RemoteUi.cardFocus(v, focused));
         ImageView poster = new ImageView(this);
         poster.setScaleType(ImageView.ScaleType.CENTER_CROP);
         poster.setBackground(Ui.round(Color.rgb(25,29,38), 8));
