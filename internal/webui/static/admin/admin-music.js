@@ -2,24 +2,28 @@
 (function(){
   const baseEdit=window.editLibrary;
   if(typeof baseEdit==='function'){
-    window.editLibrary=function(id){
-      const kind=id?(libs.find(x=>Number(x.id)===Number(id))?.kind||'movies'):'movies';
+    window.editLibrary=function(id,preferredKind){
+      const kind=id?(libs.find(x=>Number(x.id)===Number(id))?.kind||'movies'):(preferredKind||'movies');
       baseEdit(id);
       const form=document.querySelector('#library-editor');
-      const select=form?.querySelector('select');
+      const select=form?.querySelector('#lib-kind');
       if(!select)return;
       if(![...select.options].some(o=>o.value==='music')){
         const option=document.createElement('option');option.value='music';option.textContent='Música';select.appendChild(option);
       }
       select.value=kind;
-      const path=form.querySelector('input.wide');
-      if(path&&kind==='music')path.placeholder='/media/Musicas';
-      select.addEventListener('change',()=>{if(path)path.placeholder=select.value==='music'?'/media/Musicas':'/media/Filmes'});
+      const firstPath=form.querySelector('[data-source-path]');
+      const hint=form.querySelector('#library-kind-hint');
+      const syncMusicUI=()=>{
+        const music=select.value==='music';
+        if(firstPath)firstPath.placeholder=music?'/media/Musicas':'/media/Filmes';
+        if(music&&hint)hint.innerHTML='<b>Estratégia:</b> FFprobe lê tags locais; MusicBrainz e Cover Art Archive organizam artista, álbum e capa; LRCLIB fornece letras sob demanda.';
+      };
+      select.addEventListener('change',syncMusicUI);
+      select.dispatchEvent(new Event('change'));
+      syncMusicUI();
     };
   }
-
-  const baseLoadLibraries=window.loadLibraries;
-  if(typeof baseLoadLibraries==='function')window.loadLibraries=async function(){await baseLoadLibraries();decorateMusicLibraries()};
 
   const baseMetadata=window.loadMetadataPhase2;
   if(typeof baseMetadata==='function')window.loadMetadataPhase2=async function(){await baseMetadata();await decorateMusicMetadata()};
@@ -29,16 +33,13 @@
 
   function musicLibraries(){return (libs||[]).filter(l=>l.kind==='music')}
 
-  function decorateMusicLibraries(){
-    const page=document.querySelector('#libraries');
-    if(!page)return;
-    page.querySelectorAll('[data-music-admin]').forEach(x=>x.remove());
-    const music=musicLibraries();
-    if(!music.length)return;
-    const panel=document.createElement('div');panel.className='panel';panel.dataset.musicAdmin='1';
-    panel.innerHTML=`<div class="panel-head"><div><h2>StormFlix Música</h2><p style="color:#8791a1;margin:5px 0 0">${music.length} biblioteca(s) de música · tags locais + MusicBrainz + Cover Art Archive + LRCLIB</p></div><button class="primary" data-music-index-now>Organizar metadados</button></div><p style="color:#8d97a6;line-height:1.6">O scan encontra os arquivos no Drive. Depois, a organização lê artista, álbum, faixa, gênero, ano, duração, codec e qualidade sem alterar os arquivos originais. Capas externas são associadas ao catálogo; letras são buscadas somente quando o usuário abre a letra.</p>`;
-    page.appendChild(panel);bindIndexButtons(panel);
-  }
+  window.organizeMusicNow=async function(button){
+    if(button)button.disabled=true;
+    try{
+      const r=await req('/admin/music/index',{method:'POST',body:'{}'});
+      notice(r.started?'Organização da biblioteca de música iniciada.':'A biblioteca de música já está sendo organizada.',true);
+    }catch(err){notice(err.message)}finally{if(button)button.disabled=false}
+  };
 
   async function decorateMusicMetadata(){
     const page=document.querySelector('#metadata');if(!page)return;
@@ -65,13 +66,11 @@
     }
   }
 
-  function bindIndexButtons(scope){scope.querySelectorAll('[data-music-index-now]').forEach(button=>button.onclick=async()=>{button.disabled=true;try{const r=await req('/admin/music/index',{method:'POST',body:'{}'});notice(r.started?'Organização da biblioteca de música iniciada.':'A biblioteca de música já está sendo organizada.',true)}catch(err){notice(err.message)}finally{button.disabled=false}})}
+  function bindIndexButtons(scope){scope.querySelectorAll('[data-music-index-now]').forEach(button=>button.onclick=()=>organizeMusicNow(button))}
 
   document.addEventListener('click',e=>{
     const button=e.target.closest('button[data-page]');if(!button)return;
-    if(button.dataset.page==='libraries')setTimeout(decorateMusicLibraries,180);
     if(button.dataset.page==='metadata')setTimeout(decorateMusicMetadata,350);
     if(button.dataset.page==='subtitles')setTimeout(decorateMusicSubtitleRows,350);
   });
-  setTimeout(decorateMusicLibraries,900);
 })();
