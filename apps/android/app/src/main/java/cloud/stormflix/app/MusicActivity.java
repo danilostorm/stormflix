@@ -10,7 +10,6 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
-import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -47,6 +46,7 @@ public class MusicActivity extends Activity {
     private SeekBar progress;
     private JSONObject currentTrack;
     private long lastReportedPosition;
+    private long lastMonitoringAt;
 
     private final Runnable progressTick = new Runnable() {
         @Override public void run() {
@@ -59,6 +59,11 @@ public class MusicActivity extends Activity {
                 if (currentTrack != null && player.isPlaying() && pos - lastReportedPosition >= 15000) {
                     reportListening((pos - lastReportedPosition) / 1000.0, false, false);
                     lastReportedPosition = pos;
+                }
+                long now = System.currentTimeMillis();
+                if (currentTrack != null && now - lastMonitoringAt >= 10000) {
+                    reportPlayback();
+                    lastMonitoringAt = now;
                 }
             }
             main.postDelayed(this, 1000);
@@ -79,14 +84,25 @@ public class MusicActivity extends Activity {
         String cookie = api.store().cookieHeader();
         if (!cookie.isEmpty()) headers.put("Cookie", cookie);
         DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory()
-            .setUserAgent("StormFlix-Android/0.1.4")
+            .setUserAgent("StormFlix-Android/0.1.6")
             .setAllowCrossProtocolRedirects(true)
             .setDefaultRequestProperties(headers);
         DefaultDataSource.Factory data = new DefaultDataSource.Factory(this, http);
         player = new ExoPlayer.Builder(this).setMediaSourceFactory(new DefaultMediaSourceFactory(data)).build();
         player.addListener(new Player.Listener() {
             @Override public void onPlaybackStateChanged(int state) {
-                if (state == Player.STATE_ENDED && currentTrack != null) reportListening(0, false, true);
+                if (state == Player.STATE_READY && currentTrack != null) {
+                    reportPlayback();
+                    lastMonitoringAt = System.currentTimeMillis();
+                }
+                if (state == Player.STATE_ENDED && currentTrack != null) {
+                    long id = currentTrack.optLong("id");
+                    reportListening(0, false, true);
+                    finishPlayback(id);
+                }
+            }
+            @Override public void onIsPlayingChanged(boolean isPlaying) {
+                if (currentTrack != null) reportPlayback();
             }
         });
     }
@@ -117,7 +133,7 @@ public class MusicActivity extends Activity {
         progress.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             public void onProgressChanged(SeekBar s, int p, boolean fromUser) {}
             public void onStartTrackingTouch(SeekBar s) {}
-            public void onStopTrackingTouch(SeekBar s) { player.seekTo(s.getProgress()); lastReportedPosition = s.getProgress(); }
+            public void onStopTrackingTouch(SeekBar s) { player.seekTo(s.getProgress()); lastReportedPosition = s.getProgress(); reportPlayback(); }
         });
         mini.addView(progress, new LinearLayout.LayoutParams(Ui.dp(this,220), ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(mini, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this,72)));
@@ -210,13 +226,17 @@ public class MusicActivity extends Activity {
 
     private void playTrack(JSONObject track) {
         long id = track.optLong("id"); if (id <= 0) return;
+        long previous = currentTrack == null ? 0 : currentTrack.optLong("id");
+        if (previous > 0 && previous != id) finishPlayback(previous);
         currentTrack = track;
         nowTitle.setText(track.optString("title","Faixa"));
         nowArtist.setText(track.optString("artist", track.optString("album_artist","")));
         player.setMediaItem(new MediaItem.Builder().setUri(Uri.parse(api.apiUrl("/music/tracks/"+id+"/stream"))).setMediaId(String.valueOf(id)).build());
         player.prepare(); player.play();
         lastReportedPosition = 0;
+        lastMonitoringAt = 0;
         reportListening(0, true, false);
+        reportPlayback();
     }
 
     private void reportListening(double delta, boolean started, boolean completed) {
@@ -227,10 +247,45 @@ public class MusicActivity extends Activity {
         });
     }
 
+    private void reportPlayback() {
+        JSONObject track=currentTrack; if(track==null||player==null)return;
+        long id=track.optLong("id"); if(id<=0)return;
+        long position=Math.max(0,player.getCurrentPosition());
+        long duration=Math.max(0,player.getDuration());
+        String state=player.isPlaying()?"playing":"paused";
+        String codec=track.optString("codec","");
+        int bitrate=Math.max(0,track.optInt("bitrate",0)/1000);
+        io.submit(() -> {
+            try {
+                JSONObject body=new JSONObject()
+                    .put("position_seconds",position/1000.0)
+                    .put("duration_seconds",duration>0?duration/1000.0:track.optDouble("duration_seconds",0))
+                    .put("state",state)
+                    .put("mode","music")
+                    .put("audio_codec",codec)
+                    .put("source_audio_codec",codec)
+                    .put("bitrate_kbps",bitrate);
+                api.post("/media/"+id+"/playback",body);
+            } catch(Exception ignored){}
+        });
+    }
+
+    private void finishPlayback(long id) {
+        if(id<=0)return;
+        io.submit(() -> { try { api.delete("/media/"+id+"/playback"); } catch(Exception ignored){} });
+    }
+
+    @Override protected void onStop() {
+        reportPlayback();
+        super.onStop();
+    }
+
     @Override protected void onDestroy() {
         main.removeCallbacks(progressTick);
+        long id=currentTrack==null?0:currentTrack.optLong("id");
+        if(id>0)finishPlayback(id);
         if (player != null) { player.release(); player = null; }
-        io.shutdownNow();
+        io.shutdown();
         super.onDestroy();
     }
 }
