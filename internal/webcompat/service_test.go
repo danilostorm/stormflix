@@ -2,7 +2,7 @@ package webcompat
 
 import "testing"
 
-func TestPickAudioPrefersAAC(t *testing.T) {
+func TestPickAudioPrefersAACWhenLanguageIsEqual(t *testing.T) {
 	streams := []StreamInfo{
 		{Index: 1, CodecName: "dts", CodecType: "audio"},
 		{Index: 2, CodecName: "aac", CodecType: "audio"},
@@ -11,6 +11,28 @@ func TestPickAudioPrefersAAC(t *testing.T) {
 	got := pickAudio(streams)
 	if got.Index != 2 {
 		t.Fatalf("expected AAC stream 2, got %+v", got)
+	}
+}
+
+func TestPickAudioPrefersPortugueseOverEnglishCodecPriority(t *testing.T) {
+	streams := []StreamInfo{
+		{Index: 1, CodecName: "aac", CodecType: "audio", Tags: map[string]string{"language": "eng", "title": "English"}},
+		{Index: 2, CodecName: "ac3", CodecType: "audio", Tags: map[string]string{"language": "por", "title": "Português 5.1"}},
+	}
+	got := pickAudio(streams)
+	if got.Index != 2 {
+		t.Fatalf("expected Portuguese AC3 stream 2, got %+v", got)
+	}
+}
+
+func TestPickAudioRecognizesDubbedPortugueseTitle(t *testing.T) {
+	streams := []StreamInfo{
+		{Index: 1, CodecName: "aac", CodecType: "audio", Tags: map[string]string{"language": "eng"}},
+		{Index: 2, CodecName: "eac3", CodecType: "audio", Tags: map[string]string{"title": "Dublado Português Brasil"}},
+	}
+	got := pickAudio(streams)
+	if got.Index != 2 {
+		t.Fatalf("expected dubbed Portuguese EAC3 stream 2, got %+v", got)
 	}
 }
 
