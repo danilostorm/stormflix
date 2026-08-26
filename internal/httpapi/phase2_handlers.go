@@ -25,8 +25,8 @@ func (s *server) agentStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]any{
 		"metadata":     s.metadata.Agents(),
-		"music":        s.music.Agents(),
-		"music_status": s.music.Status(r.Context()),
+		"music":        s.music.AgentsConfigured(),
+		"music_status": s.music.SmartStatus(r.Context()),
 		"subtitles":    s.subtitles.Agents(),
 		"assets": map[string]any{
 			"mode":            mode,
@@ -70,8 +70,8 @@ func (s *server) startMetadataJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if strings.EqualFold(kind, "music") {
-		started := s.music.StartIndexing()
-		writeJSON(w, http.StatusAccepted, map[string]any{"started": started, "indexing": true, "message": "biblioteca de música usa FFprobe + MusicBrainz, não TMDB"})
+		started := s.music.StartSmartIndexing()
+		writeJSON(w, http.StatusAccepted, map[string]any{"started": started, "indexing": true, "message": "biblioteca de música usa FFprobe + parser do arquivo + Last.fm/MusicBrainz, não TMDB"})
 		return
 	}
 	if err := s.metadata.ValidateLibraryJob(r.Context(), id); err != nil {
@@ -124,7 +124,7 @@ func (s *server) refreshMediaMetadata(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if strings.EqualFold(kind, "music") {
-		s.music.StartIndexing()
+		s.music.StartSmartIndexing()
 		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "indexing": true})
 		return
 	}
