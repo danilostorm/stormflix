@@ -19,6 +19,9 @@ func Open(path string) (*sql.DB, error) {
 		return nil, err
 	}
 
+	// StormFlix is a single-server workload. A small pool avoids excessive
+	// competing SQLite writers while WAL still lets readers continue during
+	// scans, progress heartbeats and metadata updates.
 	db.SetMaxOpenConns(4)
 	db.SetMaxIdleConns(2)
 
@@ -27,6 +30,7 @@ func Open(path string) (*sql.DB, error) {
 		"PRAGMA synchronous=NORMAL;",
 		"PRAGMA foreign_keys=ON;",
 		"PRAGMA busy_timeout=5000;",
+		"PRAGMA wal_autocheckpoint=1000;",
 	} {
 		if _, err := db.Exec(pragma); err != nil {
 			db.Close()
@@ -50,6 +54,12 @@ func Open(path string) (*sql.DB, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := migratePhase5(db); err != nil {
+		db.Close()
+		return nil, err
+	}
+	// Refresh planner statistics opportunistically after schema/index changes.
+	_, _ = db.Exec("PRAGMA optimize;")
 	return db, nil
 }
 
