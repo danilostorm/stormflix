@@ -15,6 +15,10 @@ func (s *server) mediaCompatibility(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	u := currentUser(r)
+	if !s.requireKidsMediaAccess(w, r, u.ID, id) {
+		return
+	}
 	item, err := s.media.GetStreamItem(r.Context(), id)
 	if errors.Is(err, sql.ErrNoRows) || !item.Available {
 		writeError(w, http.StatusNotFound, errors.New("media not found"))
@@ -24,7 +28,6 @@ func (s *server) mediaCompatibility(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	u := currentUser(r)
 	if roleLevel(u.Role) < 2 && !media.ContainsLibrary(u.LibraryIDs, item.LibraryID) {
 		writeError(w, http.StatusForbidden, errors.New("library access denied"))
 		return
@@ -47,6 +50,10 @@ func (s *server) remuxMedia(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	u := currentUser(r)
+	if !s.requireKidsMediaAccess(w, r, u.ID, id) {
+		return
+	}
 	item, err := s.media.GetStreamItem(r.Context(), id)
 	if errors.Is(err, sql.ErrNoRows) || !item.Available {
 		writeError(w, http.StatusNotFound, errors.New("media not found"))
@@ -56,7 +63,6 @@ func (s *server) remuxMedia(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	u := currentUser(r)
 	if roleLevel(u.Role) < 2 && !media.ContainsLibrary(u.LibraryIDs, item.LibraryID) {
 		writeError(w, http.StatusForbidden, errors.New("library access denied"))
 		return
