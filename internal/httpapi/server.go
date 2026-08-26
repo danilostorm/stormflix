@@ -20,7 +20,7 @@ import (
 )
 
 const sessionCookie = "stormflix_session"
-const version = "0.11.0-rclone-kids-avatar"
+const version = "0.12.0-discovery-catalog"
 
 type contextKey string
 
@@ -78,6 +78,9 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 
 	mux.HandleFunc("GET /api/v1/profiles", s.requireAuth(s.listProfiles))
 	mux.HandleFunc("GET /api/v1/profiles/continue", s.requireAuth(s.continueWatching))
+	mux.HandleFunc("GET /api/v1/profiles/history", s.requireAuth(s.profileHistory))
+	mux.HandleFunc("GET /api/v1/profiles/stats", s.requireAuth(s.profileStats))
+	mux.HandleFunc("GET /api/v1/community/ranking", s.requireAuth(s.communityRanking))
 	mux.HandleFunc("POST /api/v1/profiles", s.requireAuth(s.createOwnProfile))
 	mux.HandleFunc("PUT /api/v1/profiles/{id}", s.requireAuth(s.updateOwnProfile))
 	mux.HandleFunc("DELETE /api/v1/profiles/{id}", s.requireAuth(s.deleteOwnProfile))
@@ -118,6 +121,10 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("PUT /api/v1/admin/profiles/{id}", s.requireRole("admin", s.adminUpdateProfile))
 	mux.HandleFunc("DELETE /api/v1/admin/profiles/{id}", s.requireRole("admin", s.adminDeleteProfile))
 
+	mux.HandleFunc("GET /api/v1/admin/catalog", s.requireRole("operator", s.adminCatalog))
+	mux.HandleFunc("GET /api/v1/admin/catalog/{id}/matches", s.requireRole("manager", s.adminCatalogMatches))
+	mux.HandleFunc("POST /api/v1/admin/catalog/{id}/match", s.requireRole("manager", s.adminCatalogMatch))
+	mux.HandleFunc("POST /api/v1/admin/catalog/{id}/auto", s.requireRole("manager", s.adminCatalogAuto))
 	mux.HandleFunc("GET /api/v1/admin/categories", s.requireRole("manager", s.adminCategories))
 	mux.HandleFunc("POST /api/v1/admin/categories", s.requireRole("manager", s.createCategory))
 	mux.HandleFunc("PUT /api/v1/admin/categories/{id}", s.requireRole("manager", s.updateCategory))
