@@ -187,10 +187,10 @@ func (s *server) musicLyrics(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) adminMusicIndex(w http.ResponseWriter, r *http.Request) {
-	started := s.music.StartIndexing()
+	started := s.music.StartSmartIndexing()
 	uid := currentUser(r).ID
 	if started {
-		s.admin.Log(r.Context(), "info", "music", "Music metadata indexing started", &uid, "FFprobe + MusicBrainz + Cover Art Archive")
+		s.admin.Log(r.Context(), "info", "music", "Smart music metadata indexing started", &uid, "FFprobe + filename parser + Last.fm + MusicBrainz + Cover Art Archive")
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"started": started, "indexing": true})
 }
