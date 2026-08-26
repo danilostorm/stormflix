@@ -271,6 +271,9 @@ ON CONFLICT(media_id) DO UPDATE SET
 	if err := tx.Commit(); err != nil {
 		return err
 	}
+	if err := s.assets.RemoveTree(fmt.Sprintf("artwork/%d", mediaID)); err != nil {
+		return fmt.Errorf("clean old artwork: %w", err)
+	}
 	return s.saveArtwork(ctx, mediaID, result.Artwork)
 }
 
