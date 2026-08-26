@@ -22,6 +22,8 @@
             android:exported="false" />
 
         <activity android:name=".MusicActivity" android:exported="false" />
+        <activity android:name=".SeriesBrowseActivity" android:exported="false" />
+        <activity android:name=".SeriesDetailActivity" android:exported="false" />
         <activity android:name=".PersonActivity" android:exported="false" />
         <activity android:name=".DetailActivity" android:exported="false" />
         <activity android:name=".ProfileActivity" android:exported="false" />
