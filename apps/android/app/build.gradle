@@ -1,4 +1,4 @@
-// StormFlix Android 0.2.1 - seekable AAC fallback, ordered resume and Fire TV seek feedback
+// StormFlix Android 0.2.2 - Jellyfin protocol fixes, verified AAC and Fire TV rails
 plugins {
     id 'com.android.application'
 }
@@ -11,8 +11,8 @@ android {
         applicationId 'cloud.stormflix.app'
         minSdk 23
         targetSdk 36
-        versionCode 8
-        versionName '0.2.1'
+        versionCode 9
+        versionName '0.2.2'
     }
 
     buildTypes {
