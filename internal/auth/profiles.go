@@ -13,23 +13,24 @@ import (
 )
 
 type Profile struct {
-	ID                int64  `json:"id"`
-	UserID            int64  `json:"user_id"`
-	Name              string `json:"name"`
-	AvatarKey         string `json:"avatar_key"`
-	AvatarURL         string `json:"avatar_url"`
-	IsKids            bool   `json:"is_kids"`
-	Active            bool   `json:"active"`
-	PINEnabled        bool   `json:"pin_enabled"`
-	AutoplayNext      bool   `json:"autoplay_next"`
-	AutoplayPreviews  bool   `json:"autoplay_previews"`
-	PreferredAudio    string `json:"preferred_audio"`
-	PreferredSubtitle string `json:"preferred_subtitle"`
-	CreatedAt         string `json:"created_at"`
-	UpdatedAt         string `json:"updated_at"`
+	ID                 int64  `json:"id"`
+	UserID             int64  `json:"user_id"`
+	Name               string `json:"name"`
+	AvatarKey          string `json:"avatar_key"`
+	AvatarURL          string `json:"avatar_url"`
+	IsKids             bool   `json:"is_kids"`
+	ContentRatingLimit int    `json:"content_rating_limit"`
+	Active             bool   `json:"active"`
+	PINEnabled         bool   `json:"pin_enabled"`
+	AutoplayNext       bool   `json:"autoplay_next"`
+	AutoplayPreviews   bool   `json:"autoplay_previews"`
+	PreferredAudio     string `json:"preferred_audio"`
+	PreferredSubtitle  string `json:"preferred_subtitle"`
+	CreatedAt          string `json:"created_at"`
+	UpdatedAt          string `json:"updated_at"`
 }
 
-const profileSelect = `SELECT id,user_id,name,avatar_key,avatar_url,is_kids,active,(pin_hash<>''),autoplay_next,autoplay_previews,preferred_audio,preferred_subtitle,created_at,updated_at FROM profiles`
+const profileSelect = `SELECT id,user_id,name,avatar_key,avatar_url,is_kids,content_rating_limit,active,(pin_hash<>''),autoplay_next,autoplay_previews,preferred_audio,preferred_subtitle,created_at,updated_at FROM profiles`
 
 func (s *Service) Profiles(ctx context.Context, userID int64) ([]Profile, error) {
 	rows, err := s.db.QueryContext(ctx, profileSelect+` WHERE user_id=? ORDER BY id`, userID)
@@ -51,14 +52,14 @@ func (s *Service) Profiles(ctx context.Context, userID int64) ([]Profile, error)
 func (s *Service) Profile(ctx context.Context, userID, profileID int64) (Profile, error) {
 	var p Profile
 	row := s.db.QueryRowContext(ctx, profileSelect+` WHERE id=? AND user_id=?`, profileID, userID)
-	err := row.Scan(&p.ID, &p.UserID, &p.Name, &p.AvatarKey, &p.AvatarURL, &p.IsKids, &p.Active, &p.PINEnabled, &p.AutoplayNext, &p.AutoplayPreviews, &p.PreferredAudio, &p.PreferredSubtitle, &p.CreatedAt, &p.UpdatedAt)
+	err := scanProfile(row, &p)
 	return p, err
 }
 
 type profileScanner interface{ Scan(...any) error }
 
 func scanProfile(scanner profileScanner, p *Profile) error {
-	return scanner.Scan(&p.ID, &p.UserID, &p.Name, &p.AvatarKey, &p.AvatarURL, &p.IsKids, &p.Active, &p.PINEnabled, &p.AutoplayNext, &p.AutoplayPreviews, &p.PreferredAudio, &p.PreferredSubtitle, &p.CreatedAt, &p.UpdatedAt)
+	return scanner.Scan(&p.ID, &p.UserID, &p.Name, &p.AvatarKey, &p.AvatarURL, &p.IsKids, &p.ContentRatingLimit, &p.Active, &p.PINEnabled, &p.AutoplayNext, &p.AutoplayPreviews, &p.PreferredAudio, &p.PreferredSubtitle, &p.CreatedAt, &p.UpdatedAt)
 }
 
 func (s *Service) CreateProfile(ctx context.Context, userID int64, name, avatarKey, avatarURL string, isKids bool) (Profile, error) {
@@ -78,7 +79,11 @@ func (s *Service) CreateProfile(ctx context.Context, userID int64, name, avatarK
 	if err != nil {
 		return Profile{}, err
 	}
-	res, err := s.db.ExecContext(ctx, `INSERT INTO profiles(user_id,name,avatar_key,avatar_url,is_kids) VALUES(?,?,?,?,?)`, userID, name, avatarKey, avatarURL, isKids)
+	limit := 18
+	if isKids {
+		limit = 10
+	}
+	res, err := s.db.ExecContext(ctx, `INSERT INTO profiles(user_id,name,avatar_key,avatar_url,is_kids,content_rating_limit) VALUES(?,?,?,?,?,?)`, userID, name, avatarKey, avatarURL, isKids, limit)
 	if err != nil {
 		return Profile{}, err
 	}
@@ -119,6 +124,27 @@ func (s *Service) SetProfileAvatarURL(ctx context.Context, userID, profileID int
 		return Profile{}, sql.ErrNoRows
 	}
 	return s.Profile(ctx, userID, profileID)
+}
+
+func (s *Service) SetProfileRatingLimit(ctx context.Context, userID, profileID int64, limit int) (Profile, error) {
+	limit = normalizeRatingLimit(limit)
+	res, err := s.db.ExecContext(ctx, `UPDATE profiles SET content_rating_limit=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?`, limit, profileID, userID)
+	if err != nil {
+		return Profile{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return Profile{}, sql.ErrNoRows
+	}
+	return s.Profile(ctx, userID, profileID)
+}
+
+func normalizeRatingLimit(value int) int {
+	switch value {
+	case 0, 10, 12, 14, 16, 18:
+		return value
+	default:
+		return 18
+	}
 }
 
 func (s *Service) UpdateProfilePreferences(ctx context.Context, userID, profileID int64, pin string, clearPIN, autoplayNext, autoplayPreviews bool, preferredAudio, preferredSubtitle string) (Profile, error) {
