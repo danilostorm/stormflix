@@ -6,6 +6,11 @@ import (
 	"strings"
 )
 
+type profileEpisodeState struct {
+	Position  float64
+	Completed bool
+}
+
 func (s *Service) ContinueWatching(ctx context.Context, profileID int64, allowedLibraryIDs []int64, limit int) ([]Item, error) {
 	if profileID <= 0 {
 		return []Item{}, nil
@@ -45,7 +50,6 @@ WHERE pp.profile_id=? AND pp.completed=0 AND m.available=1
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	items := []Item{}
 	for rows.Next() {
 		var item Item
@@ -53,6 +57,7 @@ WHERE pp.profile_id=? AND pp.completed=0 AND m.available=1
 		if err := rows.Scan(&item.ID, &item.LibraryID, &item.LibraryName, &item.Title, &item.Extension, &item.SizeBytes, &item.ModifiedUnix, &item.Available,
 			&item.MediaType, &item.Year, &item.SeasonNumber, &item.EpisodeNumber, &item.Overview, &genres, &item.Rating, &item.RuntimeMinutes, &item.MetadataStatus, &item.TMDBID,
 			&item.PosterURL, &item.BackdropURL, &item.LogoURL, &item.PositionSeconds, &item.DurationSeconds); err != nil {
+			_ = rows.Close()
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(genres), &item.Genres)
@@ -61,12 +66,94 @@ WHERE pp.profile_id=? AND pp.completed=0 AND m.available=1
 		}
 		items = append(items, item)
 	}
-	if err := rows.Err(); err != nil {
+	if err := rows.Close(); err != nil {
 		return nil, err
 	}
 	items = DedupeItems(items)
+
+	// When an episode was completed, surface the next unplayed episode even
+	// though its position is still zero. This keeps TV/mobile Continue Watching
+	// moving naturally through a series instead of making it disappear.
+	if len(items) < limit {
+		next, nextErr := s.nextEpisodesAfterCompleted(ctx, profileID, allowedLibraryIDs, limit-len(items), items)
+		if nextErr == nil {
+			items = append(items, next...)
+			items = DedupeItems(items)
+		}
+	}
 	if len(items) > limit {
 		items = items[:limit]
 	}
 	return items, nil
+}
+
+func (s *Service) nextEpisodesAfterCompleted(ctx context.Context, profileID int64, allowedLibraryIDs []int64, limit int, existing []Item) ([]Item, error) {
+	if limit <= 0 {
+		return []Item{}, nil
+	}
+	states := map[int64]profileEpisodeState{}
+	rows, err := s.db.QueryContext(ctx, `SELECT media_id,position_seconds,completed FROM profile_progress WHERE profile_id=?`, profileID)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var id int64
+		var state profileEpisodeState
+		if err := rows.Scan(&id, &state.Position, &state.Completed); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		states[id] = state
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+
+	groups, err := s.seriesGroups(ctx, allowedLibraryIDs)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[int64]bool{}
+	for _, item := range existing {
+		seen[item.ID] = true
+	}
+	out := []Item{}
+	for _, group := range groups {
+		episodes := []Item{}
+		for _, season := range group.Seasons {
+			episodes = append(episodes, season.Episodes...)
+		}
+		lastCompleted := -1
+		hasActiveEpisode := false
+		for i, episode := range episodes {
+			state, ok := states[episode.ID]
+			if !ok {
+				continue
+			}
+			if state.Completed {
+				lastCompleted = i
+			} else if state.Position >= 30 {
+				hasActiveEpisode = true
+			}
+		}
+		if hasActiveEpisode || lastCompleted < 0 || lastCompleted+1 >= len(episodes) {
+			continue
+		}
+		next := episodes[lastCompleted+1]
+		if seen[next.ID] {
+			continue
+		}
+		if state, ok := states[next.ID]; ok && (state.Completed || state.Position >= 30) {
+			continue
+		}
+		next.PositionSeconds = 0
+		next.DurationSeconds = 0
+		next.ProgressPercent = 0
+		out = append(out, next)
+		seen[next.ID] = true
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
 }
