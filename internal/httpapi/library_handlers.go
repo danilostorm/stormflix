@@ -161,6 +161,9 @@ func (s *server) listMedia(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, err)
 		return
 	}
+	if s.selectedProfileIsKids(r, u.ID) {
+		items = filterKidsItems(items)
+	}
 	if items == nil {
 		items = []media.Item{}
 	}
@@ -173,6 +176,10 @@ func (s *server) streamMedia(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, err)
 		return
 	}
+	u := currentUser(r)
+	if !s.requireKidsMediaAccess(w, r, u.ID, id) {
+		return
+	}
 	item, err := s.media.GetStreamItem(r.Context(), id)
 	if errors.Is(err, sql.ErrNoRows) || !item.Available {
 		writeError(w, 404, errors.New("media not found"))
@@ -182,7 +189,6 @@ func (s *server) streamMedia(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, err)
 		return
 	}
-	u := currentUser(r)
 	if roleLevel(u.Role) < 2 && !media.ContainsLibrary(u.LibraryIDs, item.LibraryID) {
 		writeError(w, 403, errors.New("library access denied"))
 		return
