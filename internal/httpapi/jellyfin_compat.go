@@ -13,6 +13,25 @@ import (
 // StormFlix version remains independent and is still exposed by /healthz.
 const jellyfinCompatibilityVersion = "10.11.6"
 
+func jellyfinRequestBaseURL(r *http.Request) string {
+	host := strings.TrimSpace(r.Header.Get("X-Forwarded-Host"))
+	if host == "" {
+		host = strings.TrimSpace(r.Host)
+	}
+	if host == "" {
+		return ""
+	}
+	proto := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0])
+	if proto == "" {
+		if r.TLS != nil {
+			proto = "https"
+		} else {
+			proto = "http"
+		}
+	}
+	return strings.ToLower(proto) + "://" + host
+}
+
 func (s *server) jellyfinCompatInfo(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(s.config.ServerName)
 	if name == "" {
@@ -20,7 +39,7 @@ func (s *server) jellyfinCompatInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]any{
-		"LocalAddress":               "",
+		"LocalAddress":               jellyfinRequestBaseURL(r),
 		"ServerName":                 name,
 		"Version":                    jellyfinCompatibilityVersion,
 		"ProductName":                "Jellyfin Server",
@@ -36,9 +55,10 @@ func (s *server) jellyfinCompatSystemInfo(w http.ResponseWriter, r *http.Request
 	if name == "" {
 		name = "StormFlix"
 	}
+	baseURL := jellyfinRequestBaseURL(r)
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]any{
-		"LocalAddress":               "",
+		"LocalAddress":               baseURL,
 		"ServerName":                 name,
 		"Version":                    jellyfinCompatibilityVersion,
 		"ProductName":                "Jellyfin Server",
@@ -46,9 +66,9 @@ func (s *server) jellyfinCompatSystemInfo(w http.ResponseWriter, r *http.Request
 		"OperatingSystemDisplayName": "StormFlix",
 		"Id":                         s.jellyfinServerID(),
 		"StartupWizardCompleted":     true,
-		"WanAddress":                 "",
+		"WanAddress":                 baseURL,
 		"WebSocketPortNumber":        0,
-		"SupportsHttps":              true,
+		"SupportsHttps":              isHTTPS(r),
 	})
 }
 
@@ -57,6 +77,26 @@ func (s *server) jellyfinBranding(w http.ResponseWriter, r *http.Request) {
 		"LoginDisclaimer":     nil,
 		"CustomCss":           nil,
 		"SplashscreenEnabled": false,
+	})
+}
+
+// Jellyfin exposes System/Ping publicly and some clients use it while
+// validating or refreshing a saved endpoint.
+func (s *server) jellyfinPing(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimSpace(s.config.ServerName)
+	if name == "" {
+		name = "StormFlix"
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(name))
+}
+
+func (s *server) jellyfinEndpoint(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"IsLocal":     false,
+		"IsInNetwork": false,
 	})
 }
 
@@ -71,12 +111,15 @@ func (s *server) registerJellyfinRoutes(mux *http.ServeMux, prefix string) {
 	authed := func(h http.HandlerFunc) http.HandlerFunc { return s.jellyfinCompatWrap(s.jellyfinRequireAuth(h)) }
 
 	mux.HandleFunc("GET "+route("/System/Info/Public"), compat(s.jellyfinCompatInfo))
+	mux.HandleFunc("GET "+route("/System/Ping"), s.jellyfinPing)
+	mux.HandleFunc("POST "+route("/System/Ping"), s.jellyfinPing)
 	mux.HandleFunc("GET "+route("/Users/Public"), compat(s.jellyfinPublicUsers))
 	mux.HandleFunc("GET "+route("/Branding/Configuration"), compat(s.jellyfinBranding))
 	mux.HandleFunc("POST "+route("/Users/AuthenticateByName"), compat(s.jellyfinTVAuthenticate))
 
-	// Critical Android TV post-login startup sequence.
+	// Critical Android/Android TV post-login startup sequence.
 	mux.HandleFunc("GET "+route("/System/Info"), authed(s.jellyfinCompatSystemInfo))
+	mux.HandleFunc("GET "+route("/System/Endpoint"), authed(s.jellyfinEndpoint))
 	mux.HandleFunc("GET "+route("/Users/Me"), authed(s.jellyfinMe))
 	mux.HandleFunc("GET "+route("/DisplayPreferences/{id}"), authed(s.jellyfinDisplayPreferences))
 	mux.HandleFunc("POST "+route("/Sessions/Capabilities"), authed(s.jellyfinCapabilities))
@@ -164,11 +207,14 @@ func (s *server) jellyfinTrace(next http.Handler) http.Handler {
 			status = http.StatusOK
 		}
 		detail := fmt.Sprintf(
-			"method=%s path=%s query=%q status=%d ua=%q accept=%q content_type=%q auth_present=%t elapsed_ms=%d",
+			"method=%s path=%s query=%q status=%d host=%q forwarded_host=%q forwarded_proto=%q ua=%q accept=%q content_type=%q auth_present=%t elapsed_ms=%d",
 			r.Method,
 			r.URL.Path,
 			safeJellyfinQuery(r.URL.Query()),
 			status,
+			r.Host,
+			r.Header.Get("X-Forwarded-Host"),
+			r.Header.Get("X-Forwarded-Proto"),
 			shortDevice(r.UserAgent()),
 			r.Header.Get("Accept"),
 			r.Header.Get("Content-Type"),
