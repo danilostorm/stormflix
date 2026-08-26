@@ -42,3 +42,21 @@ func TestPickAudioRejectsCopyIncompatibleAudio(t *testing.T) {
 		t.Fatalf("expected no compatible audio stream, got %+v", got)
 	}
 }
+
+func TestPickAnyAudioAllowsTrueHDFallback(t *testing.T) {
+	got := pickAnyAudio([]StreamInfo{{Index: 4, CodecName: "truehd", CodecType: "audio", Tags: map[string]string{"language": "por"}}})
+	if got.Index != 4 {
+		t.Fatalf("expected TrueHD stream 4 as transcode fallback, got %+v", got)
+	}
+}
+
+func TestPickAnyAudioPrefersPortugueseDTSOverEnglishAAC(t *testing.T) {
+	streams := []StreamInfo{
+		{Index: 1, CodecName: "aac", CodecType: "audio", Tags: map[string]string{"language": "eng"}},
+		{Index: 2, CodecName: "dts", CodecType: "audio", Tags: map[string]string{"language": "por", "title": "Português DTS"}},
+	}
+	got := pickAnyAudio(streams)
+	if got.Index != 2 {
+		t.Fatalf("expected Portuguese DTS stream 2, got %+v", got)
+	}
+}

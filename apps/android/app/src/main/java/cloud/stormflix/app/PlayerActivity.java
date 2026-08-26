@@ -8,6 +8,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
@@ -41,6 +42,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class PlayerActivity extends Activity {
+    private static final long SETTINGS_VISIBLE_MS = 15000L;
+
     private final ExecutorService io = Executors.newFixedThreadPool(2);
     private final Handler main = new Handler(Looper.getMainLooper());
     private ApiClient api;
@@ -55,6 +58,7 @@ public class PlayerActivity extends Activity {
     private boolean audioPreferenceApplied;
     private boolean audioRecoveryAttempted;
     private boolean audioFailure;
+    private boolean audioMutedForCompatibility;
     private int audioCheckGeneration;
     private String playbackMode = "Direct Play";
     private List<MediaItem.SubtitleConfiguration> currentSubtitles = new ArrayList<>();
@@ -63,6 +67,12 @@ public class PlayerActivity extends Activity {
         @Override public void run() {
             sendHeartbeat();
             main.postDelayed(this, 10000);
+        }
+    };
+
+    private final Runnable hideSettings = new Runnable() {
+        @Override public void run() {
+            if (settingsButton != null) settingsButton.setVisibility(View.GONE);
         }
     };
 
@@ -82,9 +92,9 @@ public class PlayerActivity extends Activity {
         Map<String,String> headers = new HashMap<>();
         String cookie = api.store().cookieHeader();
         if (!cookie.isEmpty()) headers.put("Cookie", cookie);
-        headers.put("User-Agent", "StormFlix-Android/0.1.4");
+        headers.put("User-Agent", "StormFlix-Android/0.1.5");
         DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory()
-            .setUserAgent("StormFlix-Android/0.1.4")
+            .setUserAgent("StormFlix-Android/0.1.5")
             .setAllowCrossProtocolRedirects(true)
             .setDefaultRequestProperties(headers);
         DefaultDataSource.Factory data = new DefaultDataSource.Factory(this, http);
@@ -101,6 +111,10 @@ public class PlayerActivity extends Activity {
         playerView.setUseController(true);
         playerView.setKeepScreenOn(true);
         playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
+        playerView.setOnTouchListener((v, event) -> {
+            if (event.getAction() == MotionEvent.ACTION_UP) showSettingsTemporarily();
+            return false;
+        });
         root.addView(playerView, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         settingsButton = new Button(this);
@@ -110,11 +124,15 @@ public class PlayerActivity extends Activity {
         settingsButton.setAllCaps(false);
         settingsButton.setFocusable(true);
         settingsButton.setBackground(Ui.round(Color.argb(150, 10, 12, 16), 12));
-        settingsButton.setOnClickListener(v -> showPlayerMenu());
+        settingsButton.setOnClickListener(v -> {
+            showSettingsTemporarily();
+            showPlayerMenu();
+        });
         FrameLayout.LayoutParams gear = new FrameLayout.LayoutParams(Ui.dp(this, 52), Ui.dp(this, 46), Gravity.TOP | Gravity.END);
         gear.setMargins(0, Ui.dp(this, 16), Ui.dp(this, 16), 0);
         root.addView(settingsButton, gear);
         setContentView(root);
+        showSettingsTemporarily();
 
         player.addListener(new Player.Listener() {
             @Override public void onPlayerError(PlaybackException error) { handlePlaybackFailure(error); }
@@ -127,12 +145,20 @@ public class PlayerActivity extends Activity {
         main.postDelayed(heartbeat, 10000);
     }
 
+    private void showSettingsTemporarily() {
+        if (settingsButton == null) return;
+        settingsButton.setVisibility(View.VISIBLE);
+        main.removeCallbacks(hideSettings);
+        main.postDelayed(hideSettings, SETTINGS_VISIBLE_MS);
+    }
+
     private void applyProfileLanguagePreferences() {
         player.setTrackSelectionParameters(
             player.getTrackSelectionParameters()
                 .buildUpon()
                 .setPreferredAudioLanguages(languagePriority(api.store().preferredAudio()))
                 .setPreferredTextLanguages(languagePriority(api.store().preferredSubtitle()))
+                .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
                 .build());
     }
@@ -165,11 +191,28 @@ public class PlayerActivity extends Activity {
     }
 
     private void playUri(String uri, List<MediaItem.SubtitleConfiguration> subtitles, boolean autoPlay) {
+        enableAudioTracks();
         MediaItem.Builder builder = new MediaItem.Builder().setUri(Uri.parse(uri)).setMediaId(String.valueOf(streamMediaId));
         if (subtitles != null && !subtitles.isEmpty()) builder.setSubtitleConfigurations(subtitles);
         player.setMediaItem(builder.build());
         player.prepare();
         player.setPlayWhenReady(autoPlay);
+    }
+
+    private void enableAudioTracks() {
+        if (player == null) return;
+        player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+            .build());
+        audioMutedForCompatibility = false;
+    }
+
+    private void muteUnsupportedAudio() {
+        if (player == null || audioMutedForCompatibility) return;
+        player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, true)
+            .build());
+        audioMutedForCompatibility = true;
     }
 
     private void scheduleAudioInspection() {
@@ -225,9 +268,25 @@ public class PlayerActivity extends Activity {
         }
     }
 
+    private boolean isAudioOnlyCompatibilityProblem(Tracks tracks) {
+        boolean hasAudio = false;
+        boolean hasSupportedAudio = false;
+        boolean hasSupportedVideo = false;
+        for (Tracks.Group group : tracks.getGroups()) {
+            if (group.getType() == C.TRACK_TYPE_AUDIO) {
+                hasAudio = true;
+                for (int i=0; i<group.length; i++) if (group.isTrackSupported(i)) hasSupportedAudio = true;
+            } else if (group.getType() == C.TRACK_TYPE_VIDEO) {
+                for (int i=0; i<group.length; i++) if (group.isTrackSupported(i)) hasSupportedVideo = true;
+            }
+        }
+        return hasSupportedVideo && hasAudio && !hasSupportedAudio;
+    }
+
     private void recoverUnsupportedAudio() {
         if (player == null || isFinishing()) return;
-        Toast.makeText(this, "Faixa de áudio incompatível. Procurando alternativa…", Toast.LENGTH_SHORT).show();
+        muteUnsupportedAudio();
+        Toast.makeText(this, "Áudio incompatível. Mantendo o vídeo e procurando uma faixa compatível…", Toast.LENGTH_SHORT).show();
         if (!versionFallbackAttempted) {
             versionFallbackAttempted = true;
             tryCompatibleVersion(null);
@@ -302,6 +361,12 @@ public class PlayerActivity extends Activity {
     }
 
     private void handlePlaybackFailure(PlaybackException error) {
+        if (player != null && isAudioOnlyCompatibilityProblem(player.getCurrentTracks()) && !audioRecoveryAttempted) {
+            audioRecoveryAttempted = true;
+            audioFailure = true;
+            recoverUnsupportedAudio();
+            return;
+        }
         audioFailure = false;
         if (!versionFallbackAttempted) {
             versionFallbackAttempted = true;
@@ -334,9 +399,10 @@ public class PlayerActivity extends Activity {
                 }
                 long id = selected.optLong("id");
                 String quality = selected.optString("label", "Compatível");
+                boolean recoveringAudio = audioFailure;
                 main.post(() -> {
                     playbackMode = "Direct Play · " + quality;
-                    Toast.makeText(this, audioFailure ? "Tentando outra cópia com áudio compatível." : "Tentando " + quality + " sem transcodificação.", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, recoveringAudio ? "Tentando outra cópia com áudio compatível." : "Tentando " + quality + " sem transcodificação.", Toast.LENGTH_SHORT).show();
                     loadSource(id, true);
                 });
             } catch (Exception e) {
@@ -361,15 +427,19 @@ public class PlayerActivity extends Activity {
             try {
                 JSONObject plan = new JSONObject(api.get("/media/" + targetMediaId + "/compatibility"));
                 if (!plan.optBoolean("available", false)) throw new Exception(plan.optString("reason", "Remux não disponível"));
+                boolean audioOnlyTranscode = plan.optBoolean("audio_transcode", false);
                 main.post(() -> {
-                    playbackMode = audioFailure ? "Remux · áudio compatível" : "Remux · sem transcodificação";
+                    playbackMode = audioOnlyTranscode ? "Direct Stream · vídeo original + áudio AAC" : "Remux · sem transcodificação";
                     streamMediaId = targetMediaId;
                     audioPreferenceApplied = false;
                     audioRecoveryAttempted = false;
+                    audioFailure = false;
                     audioCheckGeneration++;
                     player.stop();
                     playUri(api.apiUrl("/media/" + targetMediaId + "/remux"), currentSubtitles, true);
-                    Toast.makeText(this, audioFailure ? "Tentando Remux com uma faixa de áudio compatível." : "Tentando Remux sem reencode.", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this,
+                        audioOnlyTranscode ? "Vídeo original mantido. Convertendo somente o áudio para AAC." : "Tentando Remux sem reencode.",
+                        Toast.LENGTH_SHORT).show();
                 });
             } catch (Exception e) {
                 main.post(() -> showUnsupported(original));
@@ -380,11 +450,13 @@ public class PlayerActivity extends Activity {
     private void showUnsupported(PlaybackException error) {
         if (isFinishing()) return;
         if (audioFailure) {
-            Toast.makeText(this, "Áudio não suportado neste aparelho. Abra ⚙ → Áudio para conferir as faixas disponíveis.", Toast.LENGTH_LONG).show();
+            muteUnsupportedAudio();
+            playbackMode = "Direct Play · vídeo sem áudio";
+            Toast.makeText(this, "O vídeo pode continuar, mas este aparelho não decodifica o áudio desta cópia. Abra ⚙ → Áudio para conferir as faixas.", Toast.LENGTH_LONG).show();
             return;
         }
         String detail = error == null ? "" : error.getErrorCodeName();
-        String msg = "Este aparelho não conseguiu reproduzir o arquivo por Direct Play, versão alternativa ou Remux.";
+        String msg = "Este aparelho não conseguiu reproduzir o arquivo por Direct Play, versão alternativa ou Direct Stream.";
         if (!detail.isEmpty()) msg += " Erro: " + detail + ".";
         Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
     }
@@ -429,16 +501,19 @@ public class PlayerActivity extends Activity {
                         .clearOverrides()
                         .setPreferredAudioLanguages(languagePriority(api.store().preferredAudio()))
                         .setPreferredTextLanguages(languagePriority(api.store().preferredSubtitle()))
+                        .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
                         .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
                         .build());
+                    audioMutedForCompatibility = false;
                     audioPreferenceApplied = false;
                     scheduleAudioInspection();
                     return;
                 }
                 Tracks.Group group = groups.get(which); int index = indexes.get(which);
                 if (group == null || !group.isTrackSupported(index)) {
-                    Toast.makeText(this, "Este aparelho não possui decoder para esta faixa.", Toast.LENGTH_LONG).show(); return;
+                    Toast.makeText(this, "Este aparelho não possui decoder para esta faixa. O StormFlix tentará o fallback de áudio automaticamente.", Toast.LENGTH_LONG).show(); return;
                 }
+                enableAudioTracks();
                 player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon()
                     .setOverrideForType(new TrackSelectionOverride(group.getMediaTrackGroup(), index)).build());
                 Toast.makeText(this, "Áudio: " + audioLabel(group.getTrackFormat(index)), Toast.LENGTH_SHORT).show();
@@ -503,6 +578,7 @@ public class PlayerActivity extends Activity {
         info.append("\nPreferência de áudio: ").append(api.store().preferredAudio());
         info.append("\nPreferência de legenda: ").append(api.store().preferredSubtitle());
         info.append("\nFonte: ").append(streamMediaId == mediaId ? "principal" : "alternativa");
+        if (audioMutedForCompatibility) info.append("\nÁudio: desativado por incompatibilidade do decoder");
         new AlertDialog.Builder(this).setTitle("Informações de reprodução").setMessage(info.toString()).setPositiveButton("OK", null).show();
     }
 
@@ -539,6 +615,7 @@ public class PlayerActivity extends Activity {
     @Override protected void onDestroy() {
         audioCheckGeneration++;
         main.removeCallbacks(heartbeat);
+        main.removeCallbacks(hideSettings);
         if (player != null) { player.release(); player = null; }
         io.shutdownNow();
         super.onDestroy();

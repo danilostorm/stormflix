@@ -82,9 +82,16 @@ func (s *server) remuxMedia(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "private, no-store")
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.Header().Set("X-StormFlix-Playback", "direct-stream-remux")
-	w.Header().Set("X-StormFlix-Transcoding", "false")
+	if plan.AudioTranscode {
+		w.Header().Set("X-StormFlix-Transcoding", "audio-only")
+	} else {
+		w.Header().Set("X-StormFlix-Transcoding", "false")
+	}
 	w.Header().Set("X-StormFlix-Video-Codec", plan.VideoCodec)
 	w.Header().Set("X-StormFlix-Audio-Codec", plan.AudioCodec)
+	if plan.SourceAudioCodec != "" && plan.SourceAudioCodec != plan.AudioCodec {
+		w.Header().Set("X-StormFlix-Source-Audio-Codec", plan.SourceAudioCodec)
+	}
 	if err := webcompat.Stream(r.Context(), item.Path, plan, w); err != nil {
 		uid := u.ID
 		s.admin.Log(r.Context(), "error", "playback", "Web remux failed", &uid, err.Error())

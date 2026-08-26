@@ -27,8 +27,10 @@ type Plan struct {
 	Container        string `json:"container"`
 	VideoCodec       string `json:"video_codec"`
 	AudioCodec       string `json:"audio_codec"`
+	SourceAudioCodec string `json:"source_audio_codec,omitempty"`
 	VideoStream      int    `json:"video_stream"`
 	AudioStream      int    `json:"audio_stream"`
+	AudioTranscode   bool   `json:"audio_transcode"`
 	Confidence       string `json:"confidence"`
 	FFmpegAvailable  bool   `json:"ffmpeg_available"`
 }
@@ -91,25 +93,49 @@ func Probe(ctx context.Context, path string) (Plan, error) {
 	case "hevc", "h265", "av1":
 		videoConfidence = "conditional"
 	default:
-		plan.Reason = "video codec " + plan.VideoCodec + " cannot be made browser-compatible by remux alone"
+		plan.Reason = "video codec " + plan.VideoCodec + " cannot be made compatible without video transcoding"
 		return plan, nil
 	}
 
 	if len(audios) > 0 {
-		preferred := pickAudio(audios)
+		copyAudio := pickAudio(audios)
+		preferredAny := pickAnyAudio(audios)
+		preferred := copyAudio
+		needsAudioTranscode := false
+
 		if preferred.Index < 0 {
-			plan.AudioCodec = strings.ToLower(audios[0].CodecName)
-			plan.Reason = "no browser-copy-compatible audio track was found; audio codec is " + plan.AudioCodec
+			preferred = preferredAny
+			needsAudioTranscode = preferred.Index >= 0
+		} else if preferredAny.Index >= 0 && preferredAny.Index != preferred.Index &&
+			audioLanguageScore(preferredAny) > audioLanguageScore(preferred) &&
+			!isCopyCompatibleAudio(preferredAny.CodecName) {
+			// Prefer the clearly better Portuguese/dubbed track even when it needs
+			// a lightweight audio-only conversion. The video remains untouched.
+			preferred = preferredAny
+			needsAudioTranscode = true
+		}
+
+		if preferred.Index < 0 {
+			plan.Reason = "no usable audio track was found"
 			return plan, nil
 		}
+
 		plan.AudioStream = preferred.Index
-		plan.AudioCodec = strings.ToLower(preferred.CodecName)
+		plan.SourceAudioCodec = strings.ToLower(preferred.CodecName)
+		if needsAudioTranscode {
+			plan.AudioTranscode = true
+			plan.AudioCodec = "aac"
+		} else {
+			plan.AudioCodec = plan.SourceAudioCodec
+		}
 	}
 
 	plan.Available = true
 	plan.Mode = "remux"
 	plan.Confidence = videoConfidence
-	if videoConfidence == "safe" {
+	if plan.AudioTranscode {
+		plan.Reason = "video will be copied without re-encoding; only the selected audio track will be converted to AAC for device compatibility"
+	} else if videoConfidence == "safe" {
 		plan.Reason = "container can be repackaged to fragmented MP4 without transcoding"
 	} else {
 		plan.Reason = "remux can be attempted, but this video codec still depends on browser/OS hardware support"
@@ -117,6 +143,8 @@ func Probe(ctx context.Context, path string) (Plan, error) {
 	return plan, nil
 }
 
+// pickAudio keeps the previous copy-only behavior because it is useful whenever
+// a compatible track already exists and is also covered by existing tests.
 func pickAudio(streams []StreamInfo) StreamInfo {
 	best := StreamInfo{Index: -1}
 	bestScore := -1
@@ -133,34 +161,65 @@ func pickAudio(streams []StreamInfo) StreamInfo {
 	return best
 }
 
-func audioCopyScore(stream StreamInfo) int {
-	codec := strings.ToLower(strings.TrimSpace(stream.CodecName))
-	codecScore := -1
-	switch codec {
-	case "aac":
-		codecScore = 40
-	case "eac3":
-		codecScore = 35
-	case "ac3":
-		codecScore = 30
-	case "mp3":
-		codecScore = 20
+func pickAnyAudio(streams []StreamInfo) StreamInfo {
+	best := StreamInfo{Index: -1}
+	bestScore := -1
+	for _, stream := range streams {
+		score := audioLanguageScore(stream) + audioCodecPreference(stream.CodecName)
+		if score > bestScore {
+			best = stream
+			bestScore = score
+		}
 	}
-	if codecScore < 0 {
+	return best
+}
+
+func audioCopyScore(stream StreamInfo) int {
+	if !isCopyCompatibleAudio(stream.CodecName) {
 		return -1
 	}
+	return audioLanguageScore(stream) + audioCodecPreference(stream.CodecName)
+}
 
+func isCopyCompatibleAudio(codecName string) bool {
+	switch strings.ToLower(strings.TrimSpace(codecName)) {
+	case "aac", "eac3", "ac3", "mp3":
+		return true
+	default:
+		return false
+	}
+}
+
+func audioCodecPreference(codecName string) int {
+	switch strings.ToLower(strings.TrimSpace(codecName)) {
+	case "aac":
+		return 40
+	case "eac3":
+		return 35
+	case "ac3":
+		return 30
+	case "mp3":
+		return 20
+	case "truehd", "dts", "dca", "dtshd", "flac", "opus", "vorbis":
+		return 10
+	default:
+		return 1
+	}
+}
+
+func audioLanguageScore(stream StreamInfo) int {
 	language := strings.ToLower(strings.TrimSpace(stream.Tags["language"]))
 	title := strings.ToLower(strings.TrimSpace(stream.Tags["title"]))
-	languageScore := 0
 	if language == "pt-br" || language == "pt_br" || language == "pob" {
-		languageScore = 140
-	} else if language == "pt" || language == "por" {
-		languageScore = 130
-	} else if strings.Contains(title, "portugu") || strings.Contains(title, "pt-br") || strings.Contains(title, "dublado") || strings.Contains(title, "brasil") {
-		languageScore = 120
+		return 140
 	}
-	return languageScore + codecScore
+	if language == "pt" || language == "por" {
+		return 130
+	}
+	if strings.Contains(title, "portugu") || strings.Contains(title, "pt-br") || strings.Contains(title, "dublado") || strings.Contains(title, "brasil") {
+		return 120
+	}
+	return 0
 }
 
 func Stream(ctx context.Context, path string, plan Plan, dst io.Writer) error {
@@ -180,7 +239,18 @@ func Stream(ctx context.Context, path string, plan Plan, dst io.Writer) error {
 	if plan.AudioStream >= 0 {
 		args = append(args, "-map", fmt.Sprintf("0:%d", plan.AudioStream))
 	}
-	args = append(args, "-sn", "-dn", "-map_metadata", "-1", "-map_chapters", "-1", "-c", "copy")
+	args = append(args, "-sn", "-dn", "-map_metadata", "-1", "-map_chapters", "-1")
+	if plan.AudioTranscode && plan.AudioStream >= 0 {
+		args = append(args,
+			"-c:v", "copy",
+			"-c:a", "aac",
+			"-b:a", "256k",
+			"-ac", "2",
+			"-ar", "48000",
+		)
+	} else {
+		args = append(args, "-c", "copy")
+	}
 	if plan.VideoCodec == "hevc" || plan.VideoCodec == "h265" {
 		args = append(args, "-tag:v", "hvc1")
 	}
