@@ -41,7 +41,7 @@
 
   function render(){
     const root=$('#profile-grid');if(!root)return;
-    root.innerHTML=profiles.map(p=>`<div class="profile-choice-wrap"><button class="profile-choice ${manageMode?'managing':''}" data-profile-id="${p.id}" type="button">${avatar(p)}<b>${escapeHTML(p.name)}</b><span class="profile-flags">${p.pin_enabled?'<i>PIN</i>':''}${p.is_kids?'<i>INFANTIL</i>':''}</span></button>${manageMode?`<button type="button" class="profile-edit" data-profile-edit="${p.id}">Editar</button>`:''}</div>`).join('');
+    root.innerHTML=profiles.map(p=>`<div class="profile-choice-wrap"><button class="profile-choice ${manageMode?'managing':''}" data-profile-id="${p.id}" type="button">${avatar(p)}<b>${escapeHTML(p.name)}</b><span class="profile-flags">${p.pin_enabled?'<i>PIN</i>':''}${p.is_kids?'<i>INFANTIL</i>':''}${Number(p.content_rating_limit)<18?`<i>ATÉ ${ratingLabel(p.content_rating_limit)}</i>`:''}</span></button>${manageMode?`<button type="button" class="profile-edit" data-profile-edit="${p.id}">Editar</button>`:''}</div>`).join('');
     root.querySelectorAll('[data-profile-id]').forEach(b=>b.onclick=()=>manageMode?openEditor(profiles.find(p=>Number(p.id)===Number(b.dataset.profileId))):choose(Number(b.dataset.profileId)));
     root.querySelectorAll('[data-profile-edit]').forEach(b=>b.onclick=()=>openEditor(profiles.find(p=>Number(p.id)===Number(b.dataset.profileEdit))));
     $('#profile-add')?.classList.toggle('hidden',profiles.length>=8);
@@ -67,6 +67,7 @@
     if(old)old.outerHTML=avatar(p,true).replace('<span ','<span id="profile-initial" ');
     $('#user-label').textContent=p.name||me.display_name;
     document.documentElement.dataset.profileKids=p.is_kids?'1':'0';
+    document.documentElement.dataset.profileRating=String(p.content_rating_limit??18);
     window.dispatchEvent(new CustomEvent('stormflix:profile',{detail:p}));
   }
   function showPicker(){manageMode=false;render();$('#profile-picker')?.classList.remove('hidden')}
@@ -83,13 +84,16 @@
 
   function openEditor(profile){
     const isNew=!profile;
-    profile=profile||{name:'',avatar_key:'storm-red',avatar_url:'',is_kids:false,pin_enabled:false,autoplay_next:true,autoplay_previews:true,preferred_audio:'pt-BR',preferred_subtitle:'pt-BR'};
+    profile=profile||{name:'',avatar_key:'storm-red',avatar_url:'',is_kids:false,content_rating_limit:18,pin_enabled:false,autoplay_next:true,autoplay_previews:true,preferred_audio:'pt-BR',preferred_subtitle:'pt-BR'};
     const overlay=ensureEditor();
     let avatarKey=profile.avatar_key||'storm-red';
-    overlay.innerHTML=`<form class="profile-editor-card" id="profile-editor-form"><div class="profile-editor-head"><div><p>${isNew?'NOVO PERFIL':'EDITAR PERFIL'}</p><h2>${isNew?'Adicionar perfil':escapeHTML(profile.name)}</h2></div><button type="button" id="profile-editor-close">✕</button></div><div class="profile-editor-body"><label><span>Nome</span><input id="profile-edit-name" maxlength="40" value="${escapeHTML(profile.name)}" required></label><div class="profile-avatar-field"><span>Avatar</span><div class="profile-avatar-options">${avatarKeys.map(key=>`<button type="button" data-avatar-key="${key}" class="profile-avatar-swatch avatar-${key} ${key===avatarKey?'active':''}">${escapeHTML((profile.name||'S').charAt(0).toUpperCase())}</button>`).join('')}</div></div><div class="profile-editor-columns profile-wide"><label><span>Enviar foto do perfil</span><input id="profile-edit-avatar-file" type="file" accept="image/jpeg,image/png,image/webp,image/gif"><small>JPEG, PNG, WebP ou GIF · até 5 MiB</small></label><label><span>Ou usar imagem por URL</span><input id="profile-edit-avatar-url" value="${escapeHTML(profile.avatar_url||'')}" placeholder="https://..."><small>Ao escolher um avatar padrão, a foto personalizada é removida.</small></label></div><div class="profile-editor-columns"><label><span>${profile.pin_enabled?'Novo PIN (deixe vazio para manter)':'PIN opcional'}</span><input id="profile-edit-pin" type="password" inputmode="numeric" maxlength="6" pattern="[0-9]{4,6}" placeholder="4 a 6 números"></label><label class="profile-check"><input id="profile-clear-pin" type="checkbox"><span>Remover PIN atual</span></label></div><div class="profile-preferences"><label class="profile-check"><input id="profile-edit-kids" type="checkbox" ${profile.is_kids?'checked':''}><span>Perfil infantil</span></label><label class="profile-check"><input id="profile-edit-next" type="checkbox" ${profile.autoplay_next!==false?'checked':''}><span>Reproduzir próximo episódio automaticamente</span></label><label class="profile-check"><input id="profile-edit-previews" type="checkbox" ${profile.autoplay_previews!==false?'checked':''}><span>Permitir prévias automáticas</span></label></div><div class="profile-editor-columns"><label><span>Áudio preferido</span><select id="profile-edit-audio">${languageOptions(profile.preferred_audio)}</select></label><label><span>Legenda preferida</span><select id="profile-edit-subtitle">${languageOptions(profile.preferred_subtitle)}</select></label></div></div><div class="profile-editor-footer">${!isNew&&profiles.length>1?'<button type="button" class="profile-delete" id="profile-delete">Excluir perfil</button>':'<span></span>'}<div><button type="button" id="profile-cancel">Cancelar</button><button type="submit" class="profile-save">Salvar</button></div></div><p id="profile-editor-message"></p></form>`;
+    const rating=Number(profile.content_rating_limit??(profile.is_kids?10:18));
+    overlay.innerHTML=`<form class="profile-editor-card" id="profile-editor-form"><div class="profile-editor-head"><div><p>${isNew?'NOVO PERFIL':'EDITAR PERFIL'}</p><h2>${isNew?'Adicionar perfil':escapeHTML(profile.name)}</h2></div><button type="button" id="profile-editor-close">✕</button></div><div class="profile-editor-body"><label><span>Nome</span><input id="profile-edit-name" maxlength="40" value="${escapeHTML(profile.name)}" required></label><div class="profile-avatar-field"><span>Avatar</span><div class="profile-avatar-options">${avatarKeys.map(key=>`<button type="button" data-avatar-key="${key}" class="profile-avatar-swatch avatar-${key} ${key===avatarKey?'active':''}">${escapeHTML((profile.name||'S').charAt(0).toUpperCase())}</button>`).join('')}</div></div><div class="profile-editor-columns profile-wide"><label><span>Enviar foto do perfil</span><input id="profile-edit-avatar-file" type="file" accept="image/jpeg,image/png,image/webp,image/gif"><small>JPEG, PNG, WebP ou GIF · até 5 MiB</small></label><label><span>Ou usar imagem por URL</span><input id="profile-edit-avatar-url" value="${escapeHTML(profile.avatar_url||'')}" placeholder="https://..."><small>Ao escolher um avatar padrão, a foto personalizada é removida.</small></label></div><div class="profile-editor-columns"><label><span>${profile.pin_enabled?'Novo PIN (deixe vazio para manter)':'PIN opcional'}</span><input id="profile-edit-pin" type="password" inputmode="numeric" maxlength="6" pattern="[0-9]{4,6}" placeholder="4 a 6 números"></label><label class="profile-check"><input id="profile-clear-pin" type="checkbox"><span>Remover PIN atual</span></label></div><div class="profile-editor-columns"><label class="profile-check"><input id="profile-edit-kids" type="checkbox" ${profile.is_kids?'checked':''}><span>Perfil infantil</span></label><label><span>Classificação máxima</span><select id="profile-edit-rating">${ratingOptions(rating)}</select><small>Conteúdo acima deste limite fica oculto e bloqueado.</small></label></div><div class="profile-preferences"><label class="profile-check"><input id="profile-edit-next" type="checkbox" ${profile.autoplay_next!==false?'checked':''}><span>Reproduzir próximo episódio automaticamente</span></label><label class="profile-check"><input id="profile-edit-previews" type="checkbox" ${profile.autoplay_previews!==false?'checked':''}><span>Permitir prévias automáticas</span></label></div><div class="profile-editor-columns"><label><span>Áudio preferido</span><select id="profile-edit-audio">${languageOptions(profile.preferred_audio)}</select></label><label><span>Legenda preferida</span><select id="profile-edit-subtitle">${languageOptions(profile.preferred_subtitle)}</select></label></div></div><div class="profile-editor-footer">${!isNew&&profiles.length>1?'<button type="button" class="profile-delete" id="profile-delete">Excluir perfil</button>':'<span></span>'}<div><button type="button" id="profile-cancel">Cancelar</button><button type="submit" class="profile-save">Salvar</button></div></div><p id="profile-editor-message"></p></form>`;
     overlay.classList.remove('hidden');
     const avatarURL=$('#profile-edit-avatar-url');
     const avatarFile=$('#profile-edit-avatar-file');
+    const kids=$('#profile-edit-kids');
+    const ratingSelect=$('#profile-edit-rating');
     overlay.querySelectorAll('[data-avatar-key]').forEach(b=>b.onclick=()=>{
       avatarKey=b.dataset.avatarKey;
       overlay.querySelectorAll('[data-avatar-key]').forEach(x=>x.classList.toggle('active',x===b));
@@ -98,11 +102,15 @@
     });
     avatarFile.onchange=()=>{if(avatarFile.files?.length)avatarURL.value=''};
     avatarURL.oninput=()=>{if(avatarURL.value.trim())avatarFile.value=''};
+    kids.onchange=()=>{
+      if(kids.checked&&Number(ratingSelect.value)>10)ratingSelect.value='10';
+      if(!kids.checked&&Number(ratingSelect.value)<=10)ratingSelect.value='18';
+    };
     $('#profile-editor-close').onclick=$('#profile-cancel').onclick=closeEditor;
     if($('#profile-delete'))$('#profile-delete').onclick=()=>deleteProfile(profile);
     $('#profile-editor-form').onsubmit=async e=>{
       e.preventDefault();
-      const body={name:$('#profile-edit-name').value.trim(),avatar_key:avatarKey,avatar_url:avatarURL.value.trim(),is_kids:$('#profile-edit-kids').checked,pin:$('#profile-edit-pin').value.trim(),clear_pin:$('#profile-clear-pin').checked,autoplay_next:$('#profile-edit-next').checked,autoplay_previews:$('#profile-edit-previews').checked,preferred_audio:$('#profile-edit-audio').value,preferred_subtitle:$('#profile-edit-subtitle').value};
+      const body={name:$('#profile-edit-name').value.trim(),avatar_key:avatarKey,avatar_url:avatarURL.value.trim(),is_kids:kids.checked,content_rating_limit:Number(ratingSelect.value),pin:$('#profile-edit-pin').value.trim(),clear_pin:$('#profile-clear-pin').checked,autoplay_next:$('#profile-edit-next').checked,autoplay_previews:$('#profile-edit-previews').checked,preferred_audio:$('#profile-edit-audio').value,preferred_subtitle:$('#profile-edit-subtitle').value};
       try{
         const saved=isNew
           ?await request('/profiles',{method:'POST',body:JSON.stringify(body)})
@@ -121,6 +129,10 @@
     return data;
   }
 
+  function ratingLabel(value){return Number(value)===0?'Livre':String(value)}
+  function ratingOptions(current){
+    return [[0,'Livre'],[10,'Até 10 anos'],[12,'Até 12 anos'],[14,'Até 14 anos'],[16,'Até 16 anos'],[18,'Até 18 anos / sem restrição']].map(([value,label])=>`<option value="${value}" ${Number(current)===value?'selected':''}>${label}</option>`).join('');
+  }
   function languageOptions(current){
     const options=[['pt-BR','Português (Brasil)'],['en','English'],['es','Español'],['ja','日本語'],['','Automático']];
     return options.map(([value,label])=>`<option value="${value}" ${String(current||'pt-BR')===value?'selected':''}>${label}</option>`).join('');
