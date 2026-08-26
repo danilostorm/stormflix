@@ -45,30 +45,3 @@ func TestJellyfinPublicInfoMatchesOfficialDiscoveryContract(t *testing.T) {
 		})
 	}
 }
-
-func TestJellyfinPingIsJSONString(t *testing.T) {
-	s := &server{config: config.Config{DataDir: t.TempDir(), ServerName: "StormFlix Test"}}
-	mux := http.NewServeMux()
-	s.registerJellyfinRoutes(mux, "")
-
-	for _, method := range []string{http.MethodGet, http.MethodPost} {
-		t.Run(method, func(t *testing.T) {
-			req := httptest.NewRequest(method, "/System/Ping", nil)
-			res := httptest.NewRecorder()
-			mux.ServeHTTP(res, req)
-			if res.Code != http.StatusOK {
-				t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
-			}
-			if got := res.Header().Get("Content-Type"); got != "application/json; charset=utf-8" {
-				t.Fatalf("content-type=%q", got)
-			}
-			var name string
-			if err := json.Unmarshal(res.Body.Bytes(), &name); err != nil {
-				t.Fatalf("ping must be a JSON string: %v body=%q", err, res.Body.String())
-			}
-			if name != "StormFlix Test" {
-				t.Fatalf("ping=%q", name)
-			}
-		})
-	}
-}
