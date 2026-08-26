@@ -69,10 +69,10 @@ func (s *Service) Agents() []AgentStatus {
 	s.providerMu.RLock()
 	defer s.providerMu.RUnlock()
 	return []AgentStatus{
-		{Name: "TMDB", Enabled: true, Ready: s.tmdb.Ready(), Description: "Filmes e séries: títulos, sinopses, elenco, direção, trailer, gêneros, IDs, posters, backdrops, logos e episódios."},
+		{Name: "TMDB", Enabled: true, Ready: s.tmdb.Ready(), Description: "Filmes e séries: títulos, sinopses, classificação indicativa, lançamento, elenco, direção, trailer, gêneros, IDs, posters, backdrops, logos e episódios."},
 		{Name: "AniList", Enabled: true, Ready: s.anilist.Ready(), Description: "Agente principal para anime: títulos, sinopses, capas, banners, gêneros e IDs AniList/MAL."},
 		{Name: "Fanart.tv", Enabled: true, Ready: s.fanart.Ready(), Description: "Artwork extra: logos, clearart, fanart, posters e backgrounds de alta qualidade."},
-		{Name: "Trilha Preview", Enabled: s.cfg.ThemePreviewEnabled, Ready: s.cfg.ThemePreviewEnabled, Description: "Prévia curta opcional de trilha sonora; nunca baixa ou toca a faixa completa."},
+		{Name: "Trilha Preview", Enabled: s.cfg.ThemePreviewEnabled, Ready: s.cfg.ThemePreviewEnabled, Description: "Prévia curta opcional da abertura de séries; nunca baixa ou toca a faixa completa."},
 	}
 }
 
@@ -121,15 +121,20 @@ func (s *Service) runJob(jobID, libraryID int64, refresh bool) {
 	}
 	processed, matched, failed := 0, 0, 0
 	for _, item := range items {
-		if !refresh {
-			var status string
-			err := s.db.QueryRowContext(ctx, `SELECT status FROM media_metadata WHERE media_id=?`, item.ID).Scan(&status)
-			if err == nil && status == "matched" {
-				processed++
-				matched++
-				s.updateProgress(ctx, jobID, processed, matched, failed, "already matched")
-				continue
-			}
+		var currentStatus string
+		var manualMatch bool
+		metaErr := s.db.QueryRowContext(ctx, `SELECT status,COALESCE(manual_match,0) FROM media_metadata WHERE media_id=?`, item.ID).Scan(&currentStatus, &manualMatch)
+		if metaErr == nil && manualMatch {
+			processed++
+			matched++
+			s.updateProgress(ctx, jobID, processed, matched, failed, "correspondência manual protegida")
+			continue
+		}
+		if !refresh && metaErr == nil && currentStatus == "matched" {
+			processed++
+			matched++
+			s.updateProgress(ctx, jobID, processed, matched, failed, "already matched")
+			continue
 		}
 		parsed := ParseFilename(item.Path, item.LibraryKind)
 		result, lookupErr := s.lookup(ctx, item, parsed)
@@ -176,6 +181,7 @@ func (s *Service) lookup(ctx context.Context, item SourceItem, parsed ParsedName
 	if item.LibraryKind == "anime" {
 		result, err = anilist.Lookup(ctx, item, parsed)
 		if err == nil {
+			result.ContentRatingAge = -1
 			if tmdb.Ready() {
 				if tmdbResult, tmdbErr := tmdb.Lookup(ctx, item, parsed); tmdbErr == nil {
 					result.TMDBID = tmdbResult.TMDBID
@@ -185,6 +191,9 @@ func (s *Service) lookup(ctx context.Context, item SourceItem, parsed ParsedName
 					_ = tmdb.EnrichExperience(ctx, &tmdbResult)
 					result.OriginalTitle = tmdbResult.OriginalTitle
 					result.Tagline = tmdbResult.Tagline
+					result.ReleaseDate = tmdbResult.ReleaseDate
+					result.ContentRating = tmdbResult.ContentRating
+					result.ContentRatingAge = tmdbResult.ContentRatingAge
 					result.Cast = tmdbResult.Cast
 					result.Directors = tmdbResult.Directors
 					result.TrailerURL = tmdbResult.TrailerURL
@@ -209,7 +218,7 @@ func (s *Service) lookup(ctx context.Context, item SourceItem, parsed ParsedName
 		_ = tmdb.EnrichExperience(ctx, &result)
 	}
 	_ = fanart.Enrich(ctx, &result)
-	if cfg.ThemePreviewEnabled && theme != nil {
+	if cfg.ThemePreviewEnabled && theme != nil && result.MediaType == "series" {
 		if previewURL, previewTitle, previewErr := theme.Lookup(ctx, result.Title, result.Year); previewErr == nil {
 			result.ThemePreviewURL = previewURL
 			result.ThemePreviewTitle = previewTitle
@@ -239,24 +248,30 @@ func (s *Service) saveResult(ctx context.Context, mediaID int64, result Result) 
 	genres, _ := json.Marshal(result.Genres)
 	cast, _ := json.Marshal(result.Cast)
 	directors, _ := json.Marshal(result.Directors)
+	if strings.TrimSpace(result.ContentRating) == "" {
+		result.ContentRatingAge = -1
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	_, err = tx.ExecContext(ctx, `
-INSERT INTO media_metadata(media_id,media_type,year,season_number,episode_number,overview,genres_json,rating,runtime_minutes,provider,provider_id,tmdb_id,tvdb_id,imdb_id,anilist_id,mal_id,original_title,tagline,cast_json,directors_json,trailer_url,theme_preview_url,theme_preview_title,status,last_error,updated_at)
-VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'matched','',CURRENT_TIMESTAMP)
+INSERT INTO media_metadata(media_id,media_type,year,season_number,episode_number,overview,genres_json,rating,runtime_minutes,provider,provider_id,tmdb_id,tvdb_id,imdb_id,anilist_id,mal_id,original_title,tagline,cast_json,directors_json,trailer_url,theme_preview_url,theme_preview_title,release_date,content_rating,content_rating_age,manual_match,status,last_error,updated_at)
+VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,'matched','',CURRENT_TIMESTAMP)
 ON CONFLICT(media_id) DO UPDATE SET
  media_type=excluded.media_type,year=excluded.year,season_number=excluded.season_number,episode_number=excluded.episode_number,
  overview=excluded.overview,genres_json=excluded.genres_json,rating=excluded.rating,runtime_minutes=excluded.runtime_minutes,
  provider=excluded.provider,provider_id=excluded.provider_id,tmdb_id=excluded.tmdb_id,tvdb_id=excluded.tvdb_id,imdb_id=excluded.imdb_id,
  anilist_id=excluded.anilist_id,mal_id=excluded.mal_id,original_title=excluded.original_title,tagline=excluded.tagline,
  cast_json=excluded.cast_json,directors_json=excluded.directors_json,trailer_url=excluded.trailer_url,
- theme_preview_url=excluded.theme_preview_url,theme_preview_title=excluded.theme_preview_title,status='matched',last_error='',updated_at=CURRENT_TIMESTAMP`,
+ theme_preview_url=excluded.theme_preview_url,theme_preview_title=excluded.theme_preview_title,
+ release_date=excluded.release_date,content_rating=excluded.content_rating,content_rating_age=excluded.content_rating_age,
+ manual_match=0,status='matched',last_error='',updated_at=CURRENT_TIMESTAMP`,
 		mediaID, result.MediaType, result.Year, result.Season, result.Episode, result.Overview, string(genres), result.Rating, result.RuntimeMinutes,
 		result.Provider, result.ProviderID, result.TMDBID, result.TVDBID, result.IMDbID, result.AniListID, result.MALID,
-		result.OriginalTitle, result.Tagline, string(cast), string(directors), result.TrailerURL, result.ThemePreviewURL, result.ThemePreviewTitle)
+		result.OriginalTitle, result.Tagline, string(cast), string(directors), result.TrailerURL, result.ThemePreviewURL, result.ThemePreviewTitle,
+		result.ReleaseDate, result.ContentRating, result.ContentRatingAge)
 	if err != nil {
 		return err
 	}
@@ -366,6 +381,11 @@ func (s *Service) RefreshMedia(ctx context.Context, mediaID int64) error {
 	if err := s.db.QueryRowContext(ctx, `SELECT m.id,m.library_id,l.kind,m.title,m.path FROM media m JOIN libraries l ON l.id=m.library_id WHERE m.id=? AND m.available=1`, mediaID).
 		Scan(&item.ID, &item.LibraryID, &item.LibraryKind, &item.Title, &item.Path); err != nil {
 		return err
+	}
+	var manual bool
+	_ = s.db.QueryRowContext(ctx, `SELECT COALESCE(manual_match,0) FROM media_metadata WHERE media_id=?`, mediaID).Scan(&manual)
+	if manual {
+		return errors.New("esta mídia possui correspondência manual protegida; use Catálogo para alterar a correspondência")
 	}
 	parsed := ParseFilename(item.Path, item.LibraryKind)
 	result, err := s.lookup(ctx, item, parsed)
