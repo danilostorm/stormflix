@@ -19,13 +19,26 @@ func (s *server) homeFeed(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+
+	frontRows := []media.HomeRow{}
 	profileID := s.selectedProfileID(r, u.ID)
 	if profileID > 0 {
 		items, progressErr := s.media.ContinueWatching(r.Context(), profileID, allowed, 24)
 		if progressErr == nil && len(items) > 0 {
-			feed.Rows = append([]media.HomeRow{{ID: "continue-watching", Title: "Continuar assistindo", Items: items}}, feed.Rows...)
+			frontRows = append(frontRows, media.HomeRow{ID: "continue-watching", Title: "Continuar assistindo", Items: items})
 		}
 	}
+	if trending, trendErr := s.media.Trending(r.Context(), allowed, 2, 24); trendErr == nil && len(trending) > 0 {
+		frontRows = append(frontRows, media.HomeRow{ID: "trending-now", Title: "Em alta agora", Items: trending})
+	}
+	if weekly, trendErr := s.media.Trending(r.Context(), allowed, 7, 24); trendErr == nil && len(weekly) > 0 {
+		frontRows = append(frontRows, media.HomeRow{ID: "trending-week", Title: "Em alta nesta semana", Items: weekly})
+	}
+	if releases, releaseErr := s.media.Releases(r.Context(), allowed, 24); releaseErr == nil && len(releases) > 0 {
+		frontRows = append(frontRows, media.HomeRow{ID: "releases", Title: "Lançamentos", Items: releases})
+	}
+	feed.Rows = append(frontRows, feed.Rows...)
+
 	if s.selectedProfileRestriction(r, u.ID).Restricted {
 		s.filterRestrictedHome(r, u.ID, &feed)
 	}
