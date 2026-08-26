@@ -21,16 +21,16 @@ type StreamInfo struct {
 }
 
 type Plan struct {
-	Available      bool   `json:"available"`
-	Mode           string `json:"mode"`
-	Reason         string `json:"reason"`
-	Container      string `json:"container"`
-	VideoCodec     string `json:"video_codec"`
-	AudioCodec     string `json:"audio_codec"`
-	VideoStream    int    `json:"video_stream"`
-	AudioStream    int    `json:"audio_stream"`
-	Confidence     string `json:"confidence"`
-	FFmpegAvailable bool  `json:"ffmpeg_available"`
+	Available        bool   `json:"available"`
+	Mode             string `json:"mode"`
+	Reason           string `json:"reason"`
+	Container        string `json:"container"`
+	VideoCodec       string `json:"video_codec"`
+	AudioCodec       string `json:"audio_codec"`
+	VideoStream      int    `json:"video_stream"`
+	AudioStream      int    `json:"audio_stream"`
+	Confidence       string `json:"confidence"`
+	FFmpegAvailable  bool   `json:"ffmpeg_available"`
 }
 
 type probeOutput struct {
@@ -118,14 +118,49 @@ func Probe(ctx context.Context, path string) (Plan, error) {
 }
 
 func pickAudio(streams []StreamInfo) StreamInfo {
-	for _, codec := range []string{"aac", "mp3", "eac3", "ac3"} {
-		for _, stream := range streams {
-			if strings.EqualFold(stream.CodecName, codec) {
-				return stream
-			}
+	best := StreamInfo{Index: -1}
+	bestScore := -1
+	for _, stream := range streams {
+		score := audioCopyScore(stream)
+		if score > bestScore {
+			best = stream
+			bestScore = score
 		}
 	}
-	return StreamInfo{Index: -1}
+	if bestScore < 0 {
+		return StreamInfo{Index: -1}
+	}
+	return best
+}
+
+func audioCopyScore(stream StreamInfo) int {
+	codec := strings.ToLower(strings.TrimSpace(stream.CodecName))
+	codecScore := -1
+	switch codec {
+	case "aac":
+		codecScore = 40
+	case "eac3":
+		codecScore = 35
+	case "ac3":
+		codecScore = 30
+	case "mp3":
+		codecScore = 20
+	}
+	if codecScore < 0 {
+		return -1
+	}
+
+	language := strings.ToLower(strings.TrimSpace(stream.Tags["language"]))
+	title := strings.ToLower(strings.TrimSpace(stream.Tags["title"]))
+	languageScore := 0
+	if language == "pt-br" || language == "pt_br" || language == "pob" {
+		languageScore = 140
+	} else if language == "pt" || language == "por" {
+		languageScore = 130
+	} else if strings.Contains(title, "portugu") || strings.Contains(title, "pt-br") || strings.Contains(title, "dublado") || strings.Contains(title, "brasil") {
+		languageScore = 120
+	}
+	return languageScore + codecScore
 }
 
 func Stream(ctx context.Context, path string, plan Plan, dst io.Writer) error {
