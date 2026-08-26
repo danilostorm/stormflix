@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="/ux-v3.css">
   <link rel="stylesheet" href="/series-ui.css">
   <link rel="stylesheet" href="/detail-page.css">
+  <link rel="stylesheet" href="/profiles.css">
 </head>
 <body>
 <div id="login" class="login-overlay hidden">
@@ -24,6 +25,16 @@
     <p id="login-error" class="message error"></p>
     <a href="/admin/" class="login-admin">Administração</a>
   </form>
+</div>
+
+<div id="profile-picker" class="profile-picker hidden">
+  <div class="profile-picker-inner">
+    <div class="brand brand-large">STORM<span>FLIX</span></div>
+    <h1>Quem está assistindo?</h1>
+    <div id="profile-grid" class="profile-grid"></div>
+    <p id="profile-message"></p>
+    <button id="profile-add" class="profile-manage-link" type="button">+ Adicionar perfil</button>
+  </div>
 </div>
 
 <div id="shell" class="hidden">
@@ -117,6 +128,8 @@
 <script src="/app.js" defer></script>
 <script src="/series-ui.js" defer></script>
 <script src="/series-rules.js" defer></script>
+<script src="/profiles.js" defer></script>
+<script src="/category-nav.js" defer></script>
 <script src="/ux-v2.js" defer></script>
 <script src="/ux-v3.js" defer></script>
 <script src="/webcompat.js" defer></script>

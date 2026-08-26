@@ -19,9 +19,6 @@ func Open(path string) (*sql.DB, error) {
 		return nil, err
 	}
 
-	// Keep the pool deliberately small, but allow nested/read queries used by
-	// the administration UI. A single connection can deadlock when a rows
-	// iterator is still open and the same request needs a second query.
 	db.SetMaxOpenConns(4)
 	db.SetMaxIdleConns(2)
 
@@ -42,6 +39,10 @@ func Open(path string) (*sql.DB, error) {
 		return nil, err
 	}
 	if err := migratePhase2(db); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := migratePhase3(db); err != nil {
 		db.Close()
 		return nil, err
 	}

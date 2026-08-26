@@ -53,6 +53,7 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 401, err)
 		return
 	}
+	clearProfileCookie(w)
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: isHTTPS(r), MaxAge: 30 * 24 * 3600})
 	id := u.ID
 	s.admin.Log(r.Context(), "info", "auth", "Login successful", &id, clientIP(r))
@@ -63,6 +64,7 @@ func (s *server) logout(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		_ = s.auth.Logout(r.Context(), c.Value)
 	}
+	clearProfileCookie(w)
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", HttpOnly: true, MaxAge: -1})
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }

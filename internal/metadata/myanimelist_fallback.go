@@ -10,6 +10,7 @@ import (
 
 var stormflixMAL = NewMyAnimeListProvider()
 var stormflixAniDB = NewAniDBResolver()
+var stormflixAnimeAPI = NewAnimeAPIProvider()
 var metadataSpecialPrefixRE = regexp.MustCompile(`(?i)^(?:especiais?|specials?|ovas?|oavs?)\s+`)
 var metadataRapturaRE = regexp.MustCompile(`(?i)\braptura\b`)
 
@@ -108,16 +109,8 @@ func safeMetadataParsedAlternates(parsed ParsedName) []ParsedName {
 		candidate.Alternates = append([]string{parsed.Title}, parsed.Alternates...)
 		out = append(out, candidate)
 	}
-
-	// Common typo found in Brazilian collections: "Ponto de Raptura" instead
-	// of the localized title "Ponto de Ruptura".
 	add(metadataRapturaRE.ReplaceAllString(parsed.Title, "Ruptura"))
-
-	// Collection prefixes such as "Especiais Dragon Ball Z - ..." describe the
-	// folder/category, not the provider title. Retry without that prefix.
 	add(metadataSpecialPrefixRE.ReplaceAllString(parsed.Title, ""))
-
-	// Apply both corrections together when needed.
 	withoutPrefix := metadataSpecialPrefixRE.ReplaceAllString(parsed.Title, "")
 	add(metadataRapturaRE.ReplaceAllString(withoutPrefix, "Ruptura"))
 	return out
@@ -125,8 +118,6 @@ func safeMetadataParsedAlternates(parsed ParsedName) []ParsedName {
 
 func (s *Service) lookupMyAnimeListFallback(ctx context.Context, item SourceItem, parsed ParsedName) (Result, error) {
 	kind := strings.ToLower(strings.TrimSpace(item.LibraryKind))
-	// Mixed is the preferred type for a library that contains anime films and
-	// western animation together. Anime remains supported for existing setups.
 	if kind != "anime" && kind != "mixed" {
 		return Result{}, errors.New("MyAnimeList fallback skipped: library is not anime/mixed")
 	}
@@ -137,7 +128,6 @@ func (s *Service) lookupMyAnimeListFallback(ctx context.Context, item SourceItem
 	}
 	result, err := stormflixMAL.Lookup(ctx, item, resolved)
 	if err != nil {
-		// If AniDB canonicalization was too aggressive, retry the original title.
 		if normalizeTitle(resolved.Title) != normalizeTitle(parsed.Title) {
 			result, err = stormflixMAL.Lookup(ctx, item, parsed)
 		}
@@ -149,9 +139,12 @@ func (s *Service) lookupMyAnimeListFallback(ctx context.Context, item SourceItem
 	result.Season = parsed.Season
 	result.Episode = parsed.Episode
 
-	// Once MAL gives us a canonical title, TMDB sometimes succeeds where the
-	// original filename did not. Use that only as enrichment; MAL remains the
-	// successful identity and poster source.
+	// AnimeAPI is a relation mapper, not a primary metadata provider. Once MAL
+	// has identified the title, use AnimeAPI to bridge MAL/AniList to TMDB/TVDB/
+	// IMDb. It is intentionally best-effort because the public project is being
+	// refactored and StormFlix must keep working if it is unavailable.
+	_ = stormflixAnimeAPI.Enrich(ctx, &result)
+
 	s.providerMu.RLock()
 	tmdb := s.tmdb
 	fanart := s.fanart

@@ -20,7 +20,7 @@ import (
 )
 
 const sessionCookie = "stormflix_session"
-const version = "0.6.3-assets-cleanup"
+const version = "0.7.0-profiles-categories"
 
 type contextKey string
 
@@ -75,12 +75,22 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("POST /api/v1/auth/login", s.login)
 	mux.HandleFunc("POST /api/v1/auth/logout", s.requireAuth(s.logout))
 	mux.HandleFunc("GET /api/v1/auth/me", s.requireAuth(s.me))
+
+	mux.HandleFunc("GET /api/v1/profiles", s.requireAuth(s.listProfiles))
+	mux.HandleFunc("POST /api/v1/profiles", s.requireAuth(s.createOwnProfile))
+	mux.HandleFunc("PUT /api/v1/profiles/{id}", s.requireAuth(s.updateOwnProfile))
+	mux.HandleFunc("DELETE /api/v1/profiles/{id}", s.requireAuth(s.deleteOwnProfile))
+	mux.HandleFunc("POST /api/v1/profiles/{id}/select", s.requireAuth(s.selectProfile))
+
 	mux.HandleFunc("GET /api/v1/libraries", s.requireAuth(s.listLibraries))
 	mux.HandleFunc("POST /api/v1/libraries", s.requireRole("manager", s.createLibrary))
 	mux.HandleFunc("PUT /api/v1/libraries/{id}", s.requireRole("manager", s.updateLibrary))
 	mux.HandleFunc("DELETE /api/v1/libraries/{id}", s.requireRole("manager", s.deleteLibrary))
 	mux.HandleFunc("POST /api/v1/libraries/{id}/scan", s.requireRole("operator", s.scanLibrary))
 	mux.HandleFunc("POST /api/v1/libraries/{id}/scan/cancel", s.requireRole("operator", s.cancelLibraryScan))
+
+	mux.HandleFunc("GET /api/v1/categories", s.requireAuth(s.listCategories))
+	mux.HandleFunc("GET /api/v1/categories/{slug}", s.requireAuth(s.browseCategory))
 	mux.HandleFunc("GET /api/v1/home", s.requireAuth(s.homeFeed))
 	mux.HandleFunc("GET /api/v1/series", s.requireAuth(s.listSeries))
 	mux.HandleFunc("GET /api/v1/series/{id}", s.requireAuth(s.seriesDetails))
@@ -94,11 +104,24 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("GET /api/v1/media/{id}/subtitles/{subtitle_id}/vtt", s.requireAuth(s.subtitleVTT))
 	mux.HandleFunc("POST /api/v1/media/{id}/playback", s.requireAuth(s.playbackHeartbeat))
 	mux.HandleFunc("DELETE /api/v1/media/{id}/playback", s.requireAuth(s.playbackStop))
+
 	mux.HandleFunc("GET /api/v1/admin/dashboard", s.requireRole("operator", s.adminDashboard))
 	mux.HandleFunc("GET /api/v1/admin/users", s.requireRole("admin", s.listUsers))
 	mux.HandleFunc("POST /api/v1/admin/users", s.requireRole("admin", s.createUser))
 	mux.HandleFunc("PUT /api/v1/admin/users/{id}", s.requireRole("admin", s.updateUser))
 	mux.HandleFunc("DELETE /api/v1/admin/users/{id}", s.requireRole("admin", s.deleteUser))
+	mux.HandleFunc("GET /api/v1/admin/users/{id}/profiles", s.requireRole("admin", s.adminUserProfiles))
+	mux.HandleFunc("POST /api/v1/admin/users/{id}/profiles", s.requireRole("admin", s.adminCreateProfile))
+	mux.HandleFunc("PUT /api/v1/admin/profiles/{id}", s.requireRole("admin", s.adminUpdateProfile))
+	mux.HandleFunc("DELETE /api/v1/admin/profiles/{id}", s.requireRole("admin", s.adminDeleteProfile))
+
+	mux.HandleFunc("GET /api/v1/admin/categories", s.requireRole("manager", s.adminCategories))
+	mux.HandleFunc("POST /api/v1/admin/categories", s.requireRole("manager", s.createCategory))
+	mux.HandleFunc("PUT /api/v1/admin/categories/{id}", s.requireRole("manager", s.updateCategory))
+	mux.HandleFunc("DELETE /api/v1/admin/categories/{id}", s.requireRole("manager", s.deleteCategory))
+
+	mux.HandleFunc("GET /api/v1/admin/cleanup", s.requireRole("admin", s.cleanupStatus))
+	mux.HandleFunc("POST /api/v1/admin/cleanup", s.requireRole("admin", s.runCleanup))
 	mux.HandleFunc("GET /api/v1/admin/sessions", s.requireRole("admin", s.listSessions))
 	mux.HandleFunc("DELETE /api/v1/admin/sessions/{id}", s.requireRole("admin", s.revokeSession))
 	mux.HandleFunc("GET /api/v1/admin/logs", s.requireRole("operator", s.logs))

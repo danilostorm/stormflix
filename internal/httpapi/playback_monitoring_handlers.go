@@ -38,6 +38,10 @@ func (s *server) playbackHeartbeat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	profileID := s.selectedProfileID(r, u.ID)
+	if profileID > 0 {
+		_ = s.admin.SaveProfileProgress(r.Context(), profileID, id, hb.PositionSeconds, hb.DurationSeconds)
+	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 

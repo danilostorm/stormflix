@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/admin/admin.css">
   <link rel="stylesheet" href="/admin/phase2.css">
   <link rel="stylesheet" href="/admin/admin-monitoring.css">
+  <link rel="stylesheet" href="/admin/admin-v3.css">
 </head>
 <body>
 <div id="gate" class="gate">
@@ -26,15 +27,24 @@
     <div class="brand">STORM<span>FLIX</span></div>
     <div class="sub">ADMIN · DIRECT PLAY ONLY</div>
     <nav>
+      <span class="nav-group">Visão geral</span>
       <button data-page="dashboard" class="active">Dashboard</button>
-      <button data-page="users" data-admin>Usuários</button>
+
+      <span class="nav-group">Conteúdo</span>
       <button data-page="libraries">Bibliotecas</button>
+      <button data-page="categories">Categorias</button>
       <button data-page="metadata">Metadados & Capas</button>
       <button data-page="subtitles">Legendas</button>
       <button data-page="cdn">CDN / Assets</button>
+
+      <span class="nav-group">Pessoas</span>
+      <button data-page="users" data-admin>Contas & Perfis</button>
       <button data-page="sessions" data-admin>Sessões</button>
       <button data-page="playbacks">Reproduzindo agora</button>
+
+      <span class="nav-group">Sistema</span>
       <button data-page="storage">Armazenamento</button>
+      <button data-page="cleanup" data-admin>Limpeza</button>
       <button data-page="logs">Logs</button>
       <button data-page="server">Servidor</button>
       <button data-page="settings" data-admin>Configurações</button>
@@ -47,12 +57,14 @@
     <section id="dashboard" class="page"></section>
     <section id="users" class="page hidden"></section>
     <section id="libraries" class="page hidden"></section>
+    <section id="categories" class="page hidden"></section>
     <section id="metadata" class="page hidden"></section>
     <section id="subtitles" class="page hidden"></section>
     <section id="cdn" class="page hidden"></section>
     <section id="sessions" class="page hidden"></section>
     <section id="playbacks" class="page hidden"></section>
     <section id="storage" class="page hidden"></section>
+    <section id="cleanup" class="page hidden"></section>
     <section id="logs" class="page hidden"></section>
     <section id="server" class="page hidden"></section>
     <section id="settings" class="page hidden"></section>
@@ -66,5 +78,6 @@
 <script src="/admin/admin-diagnostics.js" defer></script>
 <script src="/admin/admin-enhancements.js" defer></script>
 <script src="/admin/admin-monitoring.js" defer></script>
+<script src="/admin/admin-v3.js" defer></script>
 </body>
 </html>
