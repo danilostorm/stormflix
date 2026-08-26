@@ -20,7 +20,7 @@ import (
 )
 
 const sessionCookie = "stormflix_session"
-const version = "0.6.2-localized-titles"
+const version = "0.6.3-assets-cleanup"
 
 type contextKey string
 
