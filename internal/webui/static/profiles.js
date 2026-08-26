@@ -86,19 +86,39 @@
     profile=profile||{name:'',avatar_key:'storm-red',avatar_url:'',is_kids:false,pin_enabled:false,autoplay_next:true,autoplay_previews:true,preferred_audio:'pt-BR',preferred_subtitle:'pt-BR'};
     const overlay=ensureEditor();
     let avatarKey=profile.avatar_key||'storm-red';
-    overlay.innerHTML=`<form class="profile-editor-card" id="profile-editor-form"><div class="profile-editor-head"><div><p>${isNew?'NOVO PERFIL':'EDITAR PERFIL'}</p><h2>${isNew?'Adicionar perfil':escapeHTML(profile.name)}</h2></div><button type="button" id="profile-editor-close">✕</button></div><div class="profile-editor-body"><label><span>Nome</span><input id="profile-edit-name" maxlength="40" value="${escapeHTML(profile.name)}" required></label><div class="profile-avatar-field"><span>Avatar</span><div class="profile-avatar-options">${avatarKeys.map(key=>`<button type="button" data-avatar-key="${key}" class="profile-avatar-swatch avatar-${key} ${key===avatarKey?'active':''}">${escapeHTML((profile.name||'S').charAt(0).toUpperCase())}</button>`).join('')}</div></div><label class="profile-wide"><span>Avatar personalizado por URL (opcional)</span><input id="profile-edit-avatar-url" value="${escapeHTML(profile.avatar_url||'')}" placeholder="https://..."></label><div class="profile-editor-columns"><label><span>${profile.pin_enabled?'Novo PIN (deixe vazio para manter)':'PIN opcional'}</span><input id="profile-edit-pin" type="password" inputmode="numeric" maxlength="6" pattern="[0-9]{4,6}" placeholder="4 a 6 números"></label><label class="profile-check"><input id="profile-clear-pin" type="checkbox"><span>Remover PIN atual</span></label></div><div class="profile-preferences"><label class="profile-check"><input id="profile-edit-kids" type="checkbox" ${profile.is_kids?'checked':''}><span>Perfil infantil</span></label><label class="profile-check"><input id="profile-edit-next" type="checkbox" ${profile.autoplay_next!==false?'checked':''}><span>Reproduzir próximo episódio automaticamente</span></label><label class="profile-check"><input id="profile-edit-previews" type="checkbox" ${profile.autoplay_previews!==false?'checked':''}><span>Permitir prévias automáticas</span></label></div><div class="profile-editor-columns"><label><span>Áudio preferido</span><select id="profile-edit-audio">${languageOptions(profile.preferred_audio)}</select></label><label><span>Legenda preferida</span><select id="profile-edit-subtitle">${languageOptions(profile.preferred_subtitle)}</select></label></div></div><div class="profile-editor-footer">${!isNew&&profiles.length>1?'<button type="button" class="profile-delete" id="profile-delete">Excluir perfil</button>':'<span></span>'}<div><button type="button" id="profile-cancel">Cancelar</button><button type="submit" class="profile-save">Salvar</button></div></div><p id="profile-editor-message"></p></form>`;
+    overlay.innerHTML=`<form class="profile-editor-card" id="profile-editor-form"><div class="profile-editor-head"><div><p>${isNew?'NOVO PERFIL':'EDITAR PERFIL'}</p><h2>${isNew?'Adicionar perfil':escapeHTML(profile.name)}</h2></div><button type="button" id="profile-editor-close">✕</button></div><div class="profile-editor-body"><label><span>Nome</span><input id="profile-edit-name" maxlength="40" value="${escapeHTML(profile.name)}" required></label><div class="profile-avatar-field"><span>Avatar</span><div class="profile-avatar-options">${avatarKeys.map(key=>`<button type="button" data-avatar-key="${key}" class="profile-avatar-swatch avatar-${key} ${key===avatarKey?'active':''}">${escapeHTML((profile.name||'S').charAt(0).toUpperCase())}</button>`).join('')}</div></div><div class="profile-editor-columns profile-wide"><label><span>Enviar foto do perfil</span><input id="profile-edit-avatar-file" type="file" accept="image/jpeg,image/png,image/webp,image/gif"><small>JPEG, PNG, WebP ou GIF · até 5 MiB</small></label><label><span>Ou usar imagem por URL</span><input id="profile-edit-avatar-url" value="${escapeHTML(profile.avatar_url||'')}" placeholder="https://..."><small>Ao escolher um avatar padrão, a foto personalizada é removida.</small></label></div><div class="profile-editor-columns"><label><span>${profile.pin_enabled?'Novo PIN (deixe vazio para manter)':'PIN opcional'}</span><input id="profile-edit-pin" type="password" inputmode="numeric" maxlength="6" pattern="[0-9]{4,6}" placeholder="4 a 6 números"></label><label class="profile-check"><input id="profile-clear-pin" type="checkbox"><span>Remover PIN atual</span></label></div><div class="profile-preferences"><label class="profile-check"><input id="profile-edit-kids" type="checkbox" ${profile.is_kids?'checked':''}><span>Perfil infantil</span></label><label class="profile-check"><input id="profile-edit-next" type="checkbox" ${profile.autoplay_next!==false?'checked':''}><span>Reproduzir próximo episódio automaticamente</span></label><label class="profile-check"><input id="profile-edit-previews" type="checkbox" ${profile.autoplay_previews!==false?'checked':''}><span>Permitir prévias automáticas</span></label></div><div class="profile-editor-columns"><label><span>Áudio preferido</span><select id="profile-edit-audio">${languageOptions(profile.preferred_audio)}</select></label><label><span>Legenda preferida</span><select id="profile-edit-subtitle">${languageOptions(profile.preferred_subtitle)}</select></label></div></div><div class="profile-editor-footer">${!isNew&&profiles.length>1?'<button type="button" class="profile-delete" id="profile-delete">Excluir perfil</button>':'<span></span>'}<div><button type="button" id="profile-cancel">Cancelar</button><button type="submit" class="profile-save">Salvar</button></div></div><p id="profile-editor-message"></p></form>`;
     overlay.classList.remove('hidden');
-    overlay.querySelectorAll('[data-avatar-key]').forEach(b=>b.onclick=()=>{avatarKey=b.dataset.avatarKey;overlay.querySelectorAll('[data-avatar-key]').forEach(x=>x.classList.toggle('active',x===b))});
+    const avatarURL=$('#profile-edit-avatar-url');
+    const avatarFile=$('#profile-edit-avatar-file');
+    overlay.querySelectorAll('[data-avatar-key]').forEach(b=>b.onclick=()=>{
+      avatarKey=b.dataset.avatarKey;
+      overlay.querySelectorAll('[data-avatar-key]').forEach(x=>x.classList.toggle('active',x===b));
+      avatarURL.value='';
+      avatarFile.value='';
+    });
+    avatarFile.onchange=()=>{if(avatarFile.files?.length)avatarURL.value=''};
+    avatarURL.oninput=()=>{if(avatarURL.value.trim())avatarFile.value=''};
     $('#profile-editor-close').onclick=$('#profile-cancel').onclick=closeEditor;
     if($('#profile-delete'))$('#profile-delete').onclick=()=>deleteProfile(profile);
     $('#profile-editor-form').onsubmit=async e=>{
       e.preventDefault();
-      const body={name:$('#profile-edit-name').value.trim(),avatar_key:avatarKey,avatar_url:$('#profile-edit-avatar-url').value.trim(),is_kids:$('#profile-edit-kids').checked,pin:$('#profile-edit-pin').value.trim(),clear_pin:$('#profile-clear-pin').checked,autoplay_next:$('#profile-edit-next').checked,autoplay_previews:$('#profile-edit-previews').checked,preferred_audio:$('#profile-edit-audio').value,preferred_subtitle:$('#profile-edit-subtitle').value};
+      const body={name:$('#profile-edit-name').value.trim(),avatar_key:avatarKey,avatar_url:avatarURL.value.trim(),is_kids:$('#profile-edit-kids').checked,pin:$('#profile-edit-pin').value.trim(),clear_pin:$('#profile-clear-pin').checked,autoplay_next:$('#profile-edit-next').checked,autoplay_previews:$('#profile-edit-previews').checked,preferred_audio:$('#profile-edit-audio').value,preferred_subtitle:$('#profile-edit-subtitle').value};
       try{
-        if(isNew)await request('/profiles',{method:'POST',body:JSON.stringify(body)});else await request(`/profiles/${profile.id}`,{method:'PUT',body:JSON.stringify(body)});
+        const saved=isNew
+          ?await request('/profiles',{method:'POST',body:JSON.stringify(body)})
+          :await request(`/profiles/${profile.id}`,{method:'PUT',body:JSON.stringify(body)});
+        if(avatarFile.files?.[0])await uploadAvatar(saved.id,avatarFile.files[0]);
         closeEditor();await loadProfiles(false);showPicker();
       }catch(err){$('#profile-editor-message').textContent=err.message}
     };
+  }
+
+  async function uploadAvatar(profileID,file){
+    const form=new FormData();form.append('avatar',file);
+    const response=await fetch(`${api}/profiles/${profileID}/avatar`,{method:'POST',body:form,credentials:'same-origin'});
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok)throw Object.assign(new Error(data.error||`HTTP ${response.status}`),{status:response.status});
+    return data;
   }
 
   function languageOptions(current){
