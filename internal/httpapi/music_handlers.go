@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/danilostorm/stormflix/internal/admin"
 	"github.com/danilostorm/stormflix/internal/media"
 )
 
@@ -77,7 +78,8 @@ func (s *server) musicStream(w http.ResponseWriter, r *http.Request) {
 	if roleLevel(u.Role) < 2 {
 		allowed = u.LibraryIDs
 	}
-	if _, err := s.music.Track(r.Context(), s.selectedProfileID(r, u.ID), id, allowed); err != nil {
+	track, err := s.music.Track(r.Context(), s.selectedProfileID(r, u.ID), id, allowed)
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			writeError(w, http.StatusNotFound, errors.New("track not found"))
 		} else {
@@ -109,6 +111,14 @@ func (s *server) musicStream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	_ = s.admin.Heartbeat(r.Context(), u.ID, id, shortDevice(r.UserAgent()), clientIP(r), admin.PlaybackHeartbeat{
+		DurationSeconds:  track.DurationSeconds,
+		State:            "playing",
+		Mode:             "music",
+		AudioCodec:       track.Codec,
+		SourceAudioCodec: track.Codec,
+		BitrateKbps:      int64(track.Bitrate / 1000),
+	})
 	w.Header().Set("Content-Type", musicContentType(item.Extension))
 	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("X-StormFlix-Playback", "direct")
