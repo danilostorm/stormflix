@@ -161,8 +161,8 @@ func (s *server) listMedia(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, err)
 		return
 	}
-	if s.selectedProfileIsKids(r, u.ID) {
-		items = filterKidsItems(items)
+	if s.selectedProfileRestriction(r, u.ID).Restricted {
+		items = s.filterRestrictedItems(r, u.ID, items)
 	}
 	if items == nil {
 		items = []media.Item{}
