@@ -50,9 +50,19 @@
       <div class="library-stats"><div class="library-stat"><strong>${l.media_count||0}</strong><span>Mídias</span></div><div class="library-stat"><strong>${l.source_count||sources.length||1}</strong><span>Origens</span></div><div class="library-stat"><strong>${l.online_sources||0}</strong><span>Online</span></div></div>
       <div class="library-source-preview">${sources.map((s,index)=>`<div class="library-source-item ${s.online?'online':''}" title="${esc(s.path)}"><i class="source-led"></i><code>${esc(s.path)}</code><small>${s.online?'ONLINE':'OFFLINE'}</small></div>`).join('')}</div>
       <div class="library-scan-note"><span class="source-health ${health}">${statusText(l)}</span> · Scan: ${esc(l.last_scan_status||'never')}${l.last_error?` · ${esc(l.last_error)}`:''}</div>
-      <div class="library-actions"><button onclick="scanLib(${l.id})" ${active?'disabled':''}>${active?(l.last_scan_status==='cancelling'?'Cancelando…':'Escaneando…'):'Escanear agora'}</button>${active?`<button class="danger" onclick="cancelScan(${l.id})">Cancelar scan</button>`:''}<button onclick="editLibrary(${l.id})">Editar biblioteca</button><button class="danger" onclick="delLib(${l.id})">Excluir catálogo</button></div>
+      <div class="library-actions"><button onclick="scanLib(${l.id})" ${active?'disabled':''}>${active?(l.last_scan_status==='cancelling'?'Cancelando…':'Escaneando…'):'Escanear agora'}</button>${active?`<button class="danger" onclick="cancelScan(${l.id})">Cancelar scan</button>`:''}<button onclick="editLibrary(${l.id})">Editar biblioteca</button>${(l.source_count||sources.length)>1?`<button onclick="consolidateLibrary(${l.id})">Consolidar cópias</button>`:''}<button class="danger" onclick="delLib(${l.id})">Excluir catálogo</button></div>
     </article>`;
   }
+
+  window.consolidateLibrary=async function(id){
+    const lib=libs.find(x=>Number(x.id)===Number(id));
+    if(!confirm(`Consolidar cópias repetidas de ${lib?.name||'esta biblioteca'}? Os filmes nos remotes NÃO serão apagados.`))return;
+    try{
+      const r=await req(`/admin/libraries/${id}/consolidate`,{method:'POST'});
+      notice(`Consolidação concluída: ${r.duplicate_groups||0} títulos com múltiplos servidores · ${bytes(r.freed_bytes||0)} liberados.`,true);
+      await loadLibraries();
+    }catch(err){notice(err.message)}
+  };
 
   window.scanLib=async function(id){
     id=Number(id);
@@ -86,6 +96,5 @@
     }finally{if(pollers.get(id)===token)pollers.delete(id)}
   }
 
-  // If the admin was already opened while deferred scripts were loading, repaint it with v4.
   setTimeout(()=>{if(!$('#app')?.classList.contains('hidden')){loadDashboard().catch(()=>{});loadLibraries().catch(()=>{})}},0);
 })();
