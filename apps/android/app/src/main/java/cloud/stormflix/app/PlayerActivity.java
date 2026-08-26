@@ -29,6 +29,7 @@ import org.json.JSONObject;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -41,7 +42,9 @@ public class PlayerActivity extends Activity {
     private PlayerView playerView;
     private TextView badge;
     private long mediaId;
+    private long streamMediaId;
     private String title;
+    private boolean versionFallbackAttempted;
     private boolean remuxAttempted;
     private String playbackMode = "direct";
     private final Runnable heartbeat = new Runnable() {
@@ -54,21 +57,22 @@ public class PlayerActivity extends Activity {
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         mediaId = getIntent().getLongExtra("media_id", 0);
+        streamMediaId = mediaId;
         title = getIntent().getStringExtra("title");
         if (mediaId <= 0) { finish(); return; }
         api = new ApiClient(this);
         immersive();
         buildPlayer();
-        loadDirectWithSubtitles();
+        loadSource(mediaId, "DIRECT PLAY", true);
     }
 
     private void buildPlayer() {
         Map<String,String> headers = new HashMap<>();
         String cookie = api.store().cookieHeader();
         if (!cookie.isEmpty()) headers.put("Cookie", cookie);
-        headers.put("User-Agent", "StormFlix-Android/0.1");
+        headers.put("User-Agent", "StormFlix-Android/0.1.2");
         DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory()
-            .setUserAgent("StormFlix-Android/0.1")
+            .setUserAgent("StormFlix-Android/0.1.2")
             .setAllowCrossProtocolRedirects(true)
             .setDefaultRequestProperties(headers);
         DefaultDataSource.Factory data = new DefaultDataSource.Factory(this, http);
@@ -84,39 +88,99 @@ public class PlayerActivity extends Activity {
         setContentView(root);
 
         player.addListener(new Player.Listener() {
-            @Override public void onPlayerError(PlaybackException error) { tryRemux(error); }
+            @Override public void onPlayerError(PlaybackException error) { handlePlaybackFailure(error); }
             @Override public void onPlaybackStateChanged(int state) { if (state == Player.STATE_ENDED) sendHeartbeat(); }
         });
         main.postDelayed(heartbeat, 10000);
     }
 
-    private void loadDirectWithSubtitles() {
+    private void loadSource(long sourceId, String label, boolean autoPlay) {
+        streamMediaId = sourceId;
+        badge.setText(label);
+        badge.setTextColor(label.contains("1080") || label.contains("720") ? Color.rgb(126,200,255) : Color.rgb(117,255,170));
         io.submit(() -> {
             List<MediaItem.SubtitleConfiguration> subtitles = new ArrayList<>();
             try {
-                JSONArray arr = new JSONArray(api.get("/media/" + mediaId + "/subtitles"));
+                JSONArray arr = new JSONArray(api.get("/media/" + sourceId + "/subtitles"));
                 for (int i=0;i<arr.length();i++) {
                     JSONObject s = arr.optJSONObject(i); if (s==null) continue;
                     long id=s.optLong("id"); String lang=s.optString("language","pt");
-                    Uri uri=Uri.parse(api.apiUrl("/media/"+mediaId+"/subtitles/"+id+"/vtt"));
+                    Uri uri=Uri.parse(api.apiUrl("/media/"+sourceId+"/subtitles/"+id+"/vtt"));
                     subtitles.add(new MediaItem.SubtitleConfiguration.Builder(uri).setMimeType(MimeTypes.TEXT_VTT).setLanguage(lang).setLabel(lang).build());
                 }
             } catch (Exception ignored) {}
-            main.post(() -> playUri(api.apiUrl("/media/" + mediaId + "/stream"), subtitles, true));
+            main.post(() -> {
+                if (player == null || isFinishing()) return;
+                player.stop();
+                playUri(api.apiUrl("/media/" + sourceId + "/stream"), subtitles, autoPlay);
+            });
         });
     }
 
     private void playUri(String uri, List<MediaItem.SubtitleConfiguration> subtitles, boolean autoPlay) {
-        MediaItem.Builder builder = new MediaItem.Builder().setUri(Uri.parse(uri)).setMediaId(String.valueOf(mediaId));
+        MediaItem.Builder builder = new MediaItem.Builder().setUri(Uri.parse(uri)).setMediaId(String.valueOf(streamMediaId));
         if (subtitles != null && !subtitles.isEmpty()) builder.setSubtitleConfigurations(subtitles);
         player.setMediaItem(builder.build()); player.prepare(); player.setPlayWhenReady(autoPlay);
     }
 
-    private void tryRemux(PlaybackException original) {
-        if (remuxAttempted || isFinishing()) {
-            Toast.makeText(this, "Este aparelho não conseguiu decodificar o arquivo: " + original.getMessage(), Toast.LENGTH_LONG).show();
+    private void handlePlaybackFailure(PlaybackException error) {
+        if (!versionFallbackAttempted) {
+            versionFallbackAttempted = true;
+            tryCompatibleVersion(error);
             return;
         }
+        if (!remuxAttempted) {
+            tryRemux(error);
+            return;
+        }
+        showUnsupported(error);
+    }
+
+    private void tryCompatibleVersion(PlaybackException original) {
+        badge.setText("PROCURANDO VERSÃO COMPATÍVEL…"); badge.setTextColor(Color.WHITE);
+        io.submit(() -> {
+            try {
+                JSONArray versions = new JSONArray(api.get("/media/" + mediaId + "/versions"));
+                JSONObject best = null;
+                int bestRank = -1;
+                for (int i=0; i<versions.length(); i++) {
+                    JSONObject v = versions.optJSONObject(i); if (v == null) continue;
+                    long id = v.optLong("id"); if (id <= 0 || id == mediaId) continue;
+                    String label = v.optString("label", "Original");
+                    int rank = compatibilityRank(label);
+                    if (rank > bestRank) { bestRank = rank; best = v; }
+                }
+                JSONObject selected = best;
+                if (selected == null || bestRank < 0) {
+                    main.post(() -> tryRemux(original));
+                    return;
+                }
+                long id = selected.optLong("id");
+                String quality = selected.optString("label", "Compatível");
+                String server = selected.optString("server_label", "");
+                main.post(() -> {
+                    playbackMode = "direct-compatible";
+                    String label = "DIRECT PLAY · " + quality;
+                    if (!server.isEmpty()) label += " · " + server;
+                    Toast.makeText(this, "O arquivo original não abriu. Tentando " + quality + " sem transcodificação.", Toast.LENGTH_SHORT).show();
+                    loadSource(id, label, true);
+                });
+            } catch (Exception e) {
+                main.post(() -> tryRemux(original));
+            }
+        });
+    }
+
+    private int compatibilityRank(String label) {
+        String q = label == null ? "" : label.toLowerCase(Locale.ROOT);
+        if (q.contains("1080")) return 3;
+        if (q.contains("720")) return 2;
+        if (q.contains("480")) return 1;
+        return -1;
+    }
+
+    private void tryRemux(PlaybackException original) {
+        if (remuxAttempted || isFinishing()) { showUnsupported(original); return; }
         remuxAttempted = true;
         badge.setText("VERIFICANDO REMUX…"); badge.setTextColor(Color.WHITE);
         io.submit(() -> {
@@ -125,18 +189,26 @@ public class PlayerActivity extends Activity {
                 if (!plan.optBoolean("available", false)) throw new Exception(plan.optString("reason", "Remux não disponível"));
                 main.post(() -> {
                     playbackMode = "remux";
+                    streamMediaId = mediaId;
                     badge.setText("REMUX · SEM TRANSCODIFICAÇÃO"); badge.setTextColor(Color.rgb(255,196,94));
                     player.stop();
                     playUri(api.apiUrl("/media/" + mediaId + "/remux"), null, true);
-                    Toast.makeText(this, "Direct Play falhou; tentando Remux sem reencode.", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, "Tentando Remux. O vídeo continua com a resolução e codec originais.", Toast.LENGTH_SHORT).show();
                 });
             } catch (Exception e) {
-                main.post(() -> {
-                    badge.setText("FORMATO NÃO SUPORTADO"); badge.setTextColor(Color.rgb(255,100,110));
-                    Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show();
-                });
+                main.post(() -> showUnsupported(original));
             }
         });
+    }
+
+    private void showUnsupported(PlaybackException error) {
+        if (isFinishing()) return;
+        badge.setText("APARELHO NÃO SUPORTA ESTE ARQUIVO"); badge.setTextColor(Color.rgb(255,100,110));
+        String detail = error == null ? "" : error.getErrorCodeName();
+        String msg = "Direct Play e Remux falharam. Remux não reduz 4K nem troca o codec. ";
+        if (!detail.isEmpty()) msg += "Erro: " + detail + ". ";
+        msg += "Se não existir uma versão 1080p/720p deste título, será necessária uma versão de compatibilidade para este aparelho.";
+        Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
     }
 
     private void sendHeartbeat() {
