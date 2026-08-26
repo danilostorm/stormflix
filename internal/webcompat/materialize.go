@@ -77,7 +77,9 @@ func MaterializeSeekable(ctx context.Context, source string, plan Plan, cacheDir
 		return "", fmt.Errorf("create compatibility cache: %w", err)
 	}
 
-	sum := sha256.Sum256([]byte(cacheKey))
+	// Bump this namespace whenever mux/audio generation semantics change. It
+	// prevents a previously generated silent/broken file from being reused.
+	sum := sha256.Sum256([]byte("seekable-aac-v2|" + cacheKey))
 	name := hex.EncodeToString(sum[:16]) + ".mp4"
 	finalPath := filepath.Join(cacheDir, name)
 	lockValue, _ := materializeLocks.LoadOrStore(finalPath, &sync.Mutex{})
