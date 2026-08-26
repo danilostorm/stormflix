@@ -12,6 +12,8 @@
   <link rel="stylesheet" href="/detail-page.css">
   <link rel="stylesheet" href="/profiles.css">
   <link rel="stylesheet" href="/source-selector.css">
+  <link rel="stylesheet" href="/person-ui.css">
+  <link rel="stylesheet" href="/continue-watching.css">
 </head>
 <body>
 <div id="login" class="login-overlay hidden">
@@ -21,7 +23,7 @@
     <p class="login-kicker">Direct Play Only</p>
     <h1>Entrar</h1>
     <input id="login-user" placeholder="Usuário" autocomplete="username" required>
-    <input id="login-pass" type="password" placeholder="Senha" autocomplete="current-password" required>
+    <input id="login-pass" type="password" placeholder="Senha" required autocomplete="current-password">
     <button class="primary big" type="submit">Entrar</button>
     <p id="login-error" class="message error"></p>
     <a href="/admin/" class="login-admin">Administração</a>
@@ -134,7 +136,9 @@
 <script src="/ux-v2.js" defer></script>
 <script src="/ux-v3.js" defer></script>
 <script src="/source-selector.js" defer></script>
+<script src="/person-ui.js" defer></script>
 <script src="/webcompat.js" defer></script>
 <script src="/player-monitor.js" defer></script>
+<script src="/continue-watching.js" defer></script>
 </body>
 </html>
