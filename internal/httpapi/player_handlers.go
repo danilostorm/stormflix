@@ -20,6 +20,9 @@ func (s *server) mediaVersions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u := currentUser(r)
+	if !s.requireKidsMediaAccess(w, r, u.ID, id) {
+		return
+	}
 	var allowed []int64
 	if roleLevel(u.Role) < 2 {
 		allowed = u.LibraryIDs
@@ -47,6 +50,10 @@ func (s *server) subtitleVTT(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	u := currentUser(r)
+	if !s.requireKidsMediaAccess(w, r, u.ID, mediaID) {
+		return
+	}
 	item, err := s.media.GetStreamItem(r.Context(), mediaID)
 	if errors.Is(err, sql.ErrNoRows) || !item.Available {
 		writeError(w, http.StatusNotFound, errors.New("media not found"))
@@ -56,7 +63,6 @@ func (s *server) subtitleVTT(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	u := currentUser(r)
 	if roleLevel(u.Role) < 2 && !media.ContainsLibrary(u.LibraryIDs, item.LibraryID) {
 		writeError(w, http.StatusForbidden, errors.New("library access denied"))
 		return
