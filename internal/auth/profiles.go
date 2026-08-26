@@ -2,26 +2,37 @@ package auth
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"errors"
+	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
 type Profile struct {
-	ID        int64  `json:"id"`
-	UserID    int64  `json:"user_id"`
-	Name      string `json:"name"`
-	AvatarKey string `json:"avatar_key"`
-	AvatarURL string `json:"avatar_url"`
-	IsKids    bool   `json:"is_kids"`
-	Active    bool   `json:"active"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	ID                int64  `json:"id"`
+	UserID            int64  `json:"user_id"`
+	Name              string `json:"name"`
+	AvatarKey         string `json:"avatar_key"`
+	AvatarURL         string `json:"avatar_url"`
+	IsKids            bool   `json:"is_kids"`
+	Active            bool   `json:"active"`
+	PINEnabled        bool   `json:"pin_enabled"`
+	AutoplayNext      bool   `json:"autoplay_next"`
+	AutoplayPreviews  bool   `json:"autoplay_previews"`
+	PreferredAudio    string `json:"preferred_audio"`
+	PreferredSubtitle string `json:"preferred_subtitle"`
+	CreatedAt         string `json:"created_at"`
+	UpdatedAt         string `json:"updated_at"`
 }
 
+const profileSelect = `SELECT id,user_id,name,avatar_key,avatar_url,is_kids,active,(pin_hash<>''),autoplay_next,autoplay_previews,preferred_audio,preferred_subtitle,created_at,updated_at FROM profiles`
+
 func (s *Service) Profiles(ctx context.Context, userID int64) ([]Profile, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,user_id,name,avatar_key,avatar_url,is_kids,active,created_at,updated_at FROM profiles WHERE user_id=? ORDER BY id`, userID)
+	rows, err := s.db.QueryContext(ctx, profileSelect+` WHERE user_id=? ORDER BY id`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -29,7 +40,7 @@ func (s *Service) Profiles(ctx context.Context, userID int64) ([]Profile, error)
 	out := []Profile{}
 	for rows.Next() {
 		var p Profile
-		if err := rows.Scan(&p.ID, &p.UserID, &p.Name, &p.AvatarKey, &p.AvatarURL, &p.IsKids, &p.Active, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		if err := scanProfile(rows, &p); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
@@ -39,9 +50,15 @@ func (s *Service) Profiles(ctx context.Context, userID int64) ([]Profile, error)
 
 func (s *Service) Profile(ctx context.Context, userID, profileID int64) (Profile, error) {
 	var p Profile
-	err := s.db.QueryRowContext(ctx, `SELECT id,user_id,name,avatar_key,avatar_url,is_kids,active,created_at,updated_at FROM profiles WHERE id=? AND user_id=?`, profileID, userID).
-		Scan(&p.ID, &p.UserID, &p.Name, &p.AvatarKey, &p.AvatarURL, &p.IsKids, &p.Active, &p.CreatedAt, &p.UpdatedAt)
+	row := s.db.QueryRowContext(ctx, profileSelect+` WHERE id=? AND user_id=?`, profileID, userID)
+	err := row.Scan(&p.ID, &p.UserID, &p.Name, &p.AvatarKey, &p.AvatarURL, &p.IsKids, &p.Active, &p.PINEnabled, &p.AutoplayNext, &p.AutoplayPreviews, &p.PreferredAudio, &p.PreferredSubtitle, &p.CreatedAt, &p.UpdatedAt)
 	return p, err
+}
+
+type profileScanner interface{ Scan(...any) error }
+
+func scanProfile(scanner profileScanner, p *Profile) error {
+	return scanner.Scan(&p.ID, &p.UserID, &p.Name, &p.AvatarKey, &p.AvatarURL, &p.IsKids, &p.Active, &p.PINEnabled, &p.AutoplayNext, &p.AutoplayPreviews, &p.PreferredAudio, &p.PreferredSubtitle, &p.CreatedAt, &p.UpdatedAt)
 }
 
 func (s *Service) CreateProfile(ctx context.Context, userID int64, name, avatarKey, avatarURL string, isKids bool) (Profile, error) {
@@ -89,6 +106,49 @@ func (s *Service) UpdateProfile(ctx context.Context, userID, profileID int64, na
 	return s.Profile(ctx, userID, profileID)
 }
 
+func (s *Service) UpdateProfilePreferences(ctx context.Context, userID, profileID int64, pin string, clearPIN, autoplayNext, autoplayPreviews bool, preferredAudio, preferredSubtitle string) (Profile, error) {
+	preferredAudio = normalizeLanguagePreference(preferredAudio)
+	preferredSubtitle = normalizeLanguagePreference(preferredSubtitle)
+	var pinHash any = nil
+	if clearPIN {
+		pinHash = ""
+	} else if strings.TrimSpace(pin) != "" {
+		hash, err := hashProfilePIN(pin)
+		if err != nil {
+			return Profile{}, err
+		}
+		pinHash = hash
+	}
+	var res sql.Result
+	var err error
+	if pinHash == nil {
+		res, err = s.db.ExecContext(ctx, `UPDATE profiles SET autoplay_next=?,autoplay_previews=?,preferred_audio=?,preferred_subtitle=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?`, autoplayNext, autoplayPreviews, preferredAudio, preferredSubtitle, profileID, userID)
+	} else {
+		res, err = s.db.ExecContext(ctx, `UPDATE profiles SET pin_hash=?,autoplay_next=?,autoplay_previews=?,preferred_audio=?,preferred_subtitle=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?`, pinHash, autoplayNext, autoplayPreviews, preferredAudio, preferredSubtitle, profileID, userID)
+	}
+	if err != nil {
+		return Profile{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return Profile{}, sql.ErrNoRows
+	}
+	return s.Profile(ctx, userID, profileID)
+}
+
+func (s *Service) VerifyProfilePIN(ctx context.Context, userID, profileID int64, pin string) error {
+	var encoded string
+	if err := s.db.QueryRowContext(ctx, `SELECT pin_hash FROM profiles WHERE id=? AND user_id=? AND active=1`, profileID, userID).Scan(&encoded); err != nil {
+		return err
+	}
+	if encoded == "" {
+		return nil
+	}
+	if !verifyProfilePIN(pin, encoded) {
+		return errors.New("PIN inválido")
+	}
+	return nil
+}
+
 func (s *Service) DeleteProfile(ctx context.Context, userID, profileID int64) error {
 	var count int
 	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM profiles WHERE user_id=?`, userID).Scan(&count); err != nil {
@@ -127,4 +187,72 @@ func normalizeAvatarURL(value string) (string, error) {
 		return "", errors.New("avatar URL must be a valid http/https URL")
 	}
 	return value, nil
+}
+
+func normalizeLanguagePreference(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "pt-BR"
+	}
+	if len(value) > 16 {
+		return value[:16]
+	}
+	return value
+}
+
+func validProfilePIN(pin string) bool {
+	pin = strings.TrimSpace(pin)
+	if len(pin) < 4 || len(pin) > 6 {
+		return false
+	}
+	for _, r := range pin {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func hashProfilePIN(pin string) (string, error) {
+	pin = strings.TrimSpace(pin)
+	if !validProfilePIN(pin) {
+		return "", errors.New("PIN must contain 4 to 6 digits")
+	}
+	salt := make([]byte, 16)
+	if _, err := rand.Read(salt); err != nil {
+		return "", err
+	}
+	key := pbkdf2SHA256([]byte(pin), salt, passwordIterations)
+	return fmt.Sprintf("pbkdf2_pin$%d$%s$%s", passwordIterations, base64.RawStdEncoding.EncodeToString(salt), base64.RawStdEncoding.EncodeToString(key)), nil
+}
+
+func verifyProfilePIN(pin, encoded string) bool {
+	if !validProfilePIN(pin) {
+		return false
+	}
+	parts := strings.Split(encoded, "$")
+	if len(parts) != 4 || parts[0] != "pbkdf2_pin" {
+		return false
+	}
+	iterations, err := strconv.Atoi(parts[1])
+	if err != nil || iterations < 1 {
+		return false
+	}
+	salt, err := base64.RawStdEncoding.DecodeString(parts[2])
+	if err != nil {
+		return false
+	}
+	want, err := base64.RawStdEncoding.DecodeString(parts[3])
+	if err != nil {
+		return false
+	}
+	got := pbkdf2SHA256([]byte(strings.TrimSpace(pin)), salt, iterations)
+	if len(got) != len(want) {
+		return false
+	}
+	var diff byte
+	for i := range got {
+		diff |= got[i] ^ want[i]
+	}
+	return diff == 0
 }
