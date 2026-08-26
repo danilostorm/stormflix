@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -24,20 +25,19 @@ func (s *server) uploadOwnProfileAvatar(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, maxAvatarUploadBytes+1<<20)
-	if err := r.ParseMultipartForm(maxAvatarUploadBytes + 1<<20); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, maxAvatarUploadBytes+(1<<20))
+	if err := r.ParseMultipartForm(maxAvatarUploadBytes + (1 << 20)); err != nil {
 		writeError(w, http.StatusBadRequest, errors.New("avatar upload is too large or invalid"))
 		return
 	}
-	file, header, err := r.FormFile("avatar")
+	file, _, err := r.FormFile("avatar")
 	if err != nil {
 		writeError(w, http.StatusBadRequest, errors.New("avatar file is required"))
 		return
 	}
 	defer file.Close()
 
-	limited := io.LimitReader(file, maxAvatarUploadBytes+1)
-	data, err := io.ReadAll(limited)
+	data, err := io.ReadAll(io.LimitReader(file, maxAvatarUploadBytes+1))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -57,12 +57,11 @@ func (s *server) uploadOwnProfileAvatar(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, errors.New("avatar must be JPEG, PNG, WebP or GIF"))
 		return
 	}
-	_ = header
 
-	key := filepath.ToSlash(filepath.Join("avatars", strconv.FormatInt(u.ID, 10), fmt.Sprintf("profile-%d%s", profileID, ext)))
-	// Remove a previous avatar with another extension before writing the new one.
-	_ = s.assets.RemoveTree(filepath.ToSlash(filepath.Join("avatars", strconv.FormatInt(u.ID, 10), fmt.Sprintf("profile-%d", profileID))))
-	_, publicURL, err := s.assets.Put(key, strings.NewReader(string(data)))
+	profileDir := filepath.ToSlash(filepath.Join("avatars", strconv.FormatInt(u.ID, 10), fmt.Sprintf("profile-%d", profileID)))
+	_ = s.assets.RemoveTree(profileDir)
+	key := filepath.ToSlash(filepath.Join(profileDir, "avatar"+ext))
+	_, publicURL, err := s.assets.Put(key, bytes.NewReader(data))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
