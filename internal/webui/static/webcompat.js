@@ -4,6 +4,7 @@
   let remuxActive=false;
   let audioFallbackActive=false;
   let triedVersions=new Set();
+  let playbackGeneration=0;
 
   function currentItem(){
     if(typeof sfCurrentMedia!=='undefined'&&sfCurrentMedia)return sfCurrentMedia;
@@ -30,13 +31,38 @@
     triedVersions=new Set([Number(item.id)]);
     window.sfLastCompatibilityPlan=null;
     setPlaybackMode('direct_play');
+    const generation=++playbackGeneration;
     basePlayMedia(item);
+    autoAudioCompatibility(item,generation);
   };
 
-  async function useCompatibility(item,manual=false){
+  async function autoAudioCompatibility(item,generation){
+    if(!item?.id)return null;
+    try{
+      const plan=await request(`/media/${Number(item.id)}/compatibility?audio=aac`);
+      if(generation!==playbackGeneration)return plan;
+      const active=currentItem();
+      if(!active||Number(active.id)!==Number(item.id))return plan;
+      if(document.querySelector('#player-modal')?.classList.contains('hidden'))return plan;
+      window.sfLastCompatibilityPlan=plan;
+      if(plan.available&&plan.audio_transcode){
+        if(typeof sfToast==='function')sfToast('Áudio não-AAC detectado · ativando compatibilidade');
+        await useCompatibility(item,false,plan);
+      }
+      return plan;
+    }catch{return null}
+  }
+
+  window.sfEnsureWebAudioCompatibility=function(){
+    const item=currentItem();
+    const generation=++playbackGeneration;
+    return autoAudioCompatibility(item,generation);
+  };
+
+  async function useCompatibility(item,manual=false,knownPlan=null){
     if(!item?.id)throw new Error('Mídia não disponível');
     const id=Number(item.id);
-    const plan=await request(`/media/${id}/compatibility?audio=aac`);
+    const plan=knownPlan||await request(`/media/${id}/compatibility?audio=aac`);
     window.sfLastCompatibilityPlan=plan;
     if(!plan.available)throw new Error(plan.reason||'Modo compatibilidade não disponível para este arquivo.');
 
@@ -68,12 +94,14 @@
 
   window.sfUseAACCompatibility=async function(){
     const item=currentItem();
+    playbackGeneration++;
     return useCompatibility(item,true);
   };
 
   window.sfUseOriginalStream=function(){
     const item=currentItem();
     if(!item?.id)return;
+    playbackGeneration++;
     const oldTime=Number.isFinite(player.currentTime)?player.currentTime:0;
     const wasPlaying=!player.paused;
     remuxActive=false;
@@ -116,6 +144,7 @@
         player.src=`${api}/media/${webVersion.id}/stream`;
         player.load();
         player.play().catch(()=>{});
+        setTimeout(()=>window.sfEnsureWebAudioCompatibility?.(),0);
         return;
       }
 
