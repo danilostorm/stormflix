@@ -40,7 +40,7 @@ COALESCE((SELECT a.public_url FROM media_artwork a WHERE a.media_id=m.id AND a.k
 COALESCE(mm.status,'pending'),COALESCE(mm.last_error,''),COALESCE(mm.manual_match,0),
 COALESCE(mm.content_rating,''),COALESCE(mm.content_rating_age,-1),COALESCE(mm.release_date,'')
 FROM media m JOIN libraries l ON l.id=m.library_id LEFT JOIN media_metadata mm ON mm.media_id=m.id
-WHERE m.available=1`
+WHERE m.available=1 AND l.kind<>'music'`
 	if libraryID > 0 {
 		query += ` AND m.library_id=?`
 		args = append(args, libraryID)
