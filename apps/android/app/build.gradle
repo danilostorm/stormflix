@@ -1,4 +1,4 @@
-// StormFlix Android 0.1.5 - CI validation
+// StormFlix Android 0.1.6 - monitoring and web-audio companion update
 plugins {
     id 'com.android.application'
 }
@@ -11,8 +11,8 @@ android {
         applicationId 'cloud.stormflix.app'
         minSdk 23
         targetSdk 36
-        versionCode 5
-        versionName '0.1.5'
+        versionCode 6
+        versionName '0.1.6'
     }
 
     buildTypes {
