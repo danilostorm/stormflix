@@ -106,6 +106,21 @@ func (s *Service) UpdateProfile(ctx context.Context, userID, profileID int64, na
 	return s.Profile(ctx, userID, profileID)
 }
 
+func (s *Service) SetProfileAvatarURL(ctx context.Context, userID, profileID int64, avatarURL string) (Profile, error) {
+	avatarURL, err := normalizeAvatarURL(avatarURL)
+	if err != nil {
+		return Profile{}, err
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE profiles SET avatar_url=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?`, avatarURL, profileID, userID)
+	if err != nil {
+		return Profile{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return Profile{}, sql.ErrNoRows
+	}
+	return s.Profile(ctx, userID, profileID)
+}
+
 func (s *Service) UpdateProfilePreferences(ctx context.Context, userID, profileID int64, pin string, clearPIN, autoplayNext, autoplayPreviews bool, preferredAudio, preferredSubtitle string) (Profile, error) {
 	preferredAudio = normalizeLanguagePreference(preferredAudio)
 	preferredSubtitle = normalizeLanguagePreference(preferredSubtitle)
@@ -182,9 +197,12 @@ func normalizeAvatarURL(value string) (string, error) {
 	if value == "" {
 		return "", nil
 	}
+	if strings.HasPrefix(value, "/assets/avatars/") {
+		return value, nil
+	}
 	u, err := url.Parse(value)
 	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
-		return "", errors.New("avatar URL must be a valid http/https URL")
+		return "", errors.New("avatar URL must be a valid http/https URL or a StormFlix avatar")
 	}
 	return value, nil
 }
