@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/danilostorm/stormflix/internal/admin"
 	"github.com/danilostorm/stormflix/internal/media"
 	"github.com/danilostorm/stormflix/internal/webcompat"
 )
@@ -106,7 +107,17 @@ func (s *server) remuxMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.admin.TouchPlayback(r.Context(), u.ID, id, shortDevice(r.UserAgent()), clientIP(r))
+	mode := "web_remux"
+	if plan.AudioTranscode {
+		mode = "audio_aac"
+	}
+	_ = s.admin.Heartbeat(r.Context(), u.ID, id, shortDevice(r.UserAgent()), clientIP(r), admin.PlaybackHeartbeat{
+		State:            "playing",
+		Mode:             mode,
+		VideoCodec:       plan.VideoCodec,
+		AudioCodec:       plan.AudioCodec,
+		SourceAudioCodec: plan.SourceAudioCodec,
+	})
 	w.Header().Set("Content-Type", "video/mp4")
 	w.Header().Set("Cache-Control", "private, no-store")
 	w.Header().Set("X-Accel-Buffering", "no")
