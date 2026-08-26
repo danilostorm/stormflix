@@ -79,6 +79,7 @@ func (s *Service) Logs(ctx context.Context, limit int) ([]LogEntry, error) {
 	return out, rows.Err()
 }
 func (s *Service) TouchPlayback(ctx context.Context, userID, mediaID int64, device, ip string) {
+	device = normalizePlaybackDevice(device)
 	_, _ = s.db.ExecContext(ctx, `INSERT INTO playback_sessions(user_id,media_id,device,ip) VALUES(?,?,?,?) ON CONFLICT(user_id,media_id,device) DO UPDATE SET ip=excluded.ip,last_seen_at=CURRENT_TIMESTAMP`, userID, mediaID, device, ip)
 }
 func (s *Service) Playbacks(ctx context.Context) ([]Playback, error) {
@@ -93,6 +94,7 @@ func (s *Service) Playbacks(ctx context.Context) ([]Playback, error) {
 		if err := rows.Scan(&v.ID, &v.UserID, &v.Username, &v.DisplayName, &v.MediaID, &v.Title, &v.Device, &v.IP, &v.StartedAt, &v.LastSeenAt); err != nil {
 			return nil, err
 		}
+		v.Device = normalizePlaybackDevice(v.Device)
 		out = append(out, v)
 	}
 	return out, rows.Err()
