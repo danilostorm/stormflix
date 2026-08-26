@@ -1,6 +1,7 @@
 package cloud.stormflix.app;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
@@ -9,8 +10,8 @@ import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Button;
 import android.widget.FrameLayout;
-import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.media3.common.C;
@@ -25,6 +26,7 @@ import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
+import androidx.media3.ui.AspectRatioFrameLayout;
 import androidx.media3.ui.PlayerView;
 
 import org.json.JSONArray;
@@ -44,7 +46,7 @@ public class PlayerActivity extends Activity {
     private ApiClient api;
     private ExoPlayer player;
     private PlayerView playerView;
-    private TextView badge;
+    private Button settingsButton;
     private long mediaId;
     private long streamMediaId;
     private String title;
@@ -53,7 +55,10 @@ public class PlayerActivity extends Activity {
     private boolean audioPreferenceApplied;
     private boolean audioRecoveryAttempted;
     private boolean audioFailure;
-    private String playbackMode = "direct";
+    private int audioCheckGeneration;
+    private String playbackMode = "Direct Play";
+    private List<MediaItem.SubtitleConfiguration> currentSubtitles = new ArrayList<>();
+
     private final Runnable heartbeat = new Runnable() {
         @Override public void run() {
             sendHeartbeat();
@@ -70,16 +75,16 @@ public class PlayerActivity extends Activity {
         api = new ApiClient(this);
         immersive();
         buildPlayer();
-        loadSource(mediaId, "DIRECT PLAY", true);
+        loadSource(mediaId, true);
     }
 
     private void buildPlayer() {
         Map<String,String> headers = new HashMap<>();
         String cookie = api.store().cookieHeader();
         if (!cookie.isEmpty()) headers.put("Cookie", cookie);
-        headers.put("User-Agent", "StormFlix-Android/0.1.3");
+        headers.put("User-Agent", "StormFlix-Android/0.1.4");
         DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory()
-            .setUserAgent("StormFlix-Android/0.1.3")
+            .setUserAgent("StormFlix-Android/0.1.4")
             .setAllowCrossProtocolRedirects(true)
             .setDefaultRequestProperties(headers);
         DefaultDataSource.Factory data = new DefaultDataSource.Factory(this, http);
@@ -87,34 +92,57 @@ public class PlayerActivity extends Activity {
             .setMediaSourceFactory(new DefaultMediaSourceFactory(data))
             .build();
 
+        applyProfileLanguagePreferences();
+
+        FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(Color.BLACK);
+        playerView = new PlayerView(this);
+        playerView.setPlayer(player);
+        playerView.setUseController(true);
+        playerView.setKeepScreenOn(true);
+        playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
+        root.addView(playerView, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        settingsButton = new Button(this);
+        settingsButton.setText("⚙");
+        settingsButton.setTextColor(Color.WHITE);
+        settingsButton.setTextSize(18);
+        settingsButton.setAllCaps(false);
+        settingsButton.setFocusable(true);
+        settingsButton.setBackground(Ui.round(Color.argb(150, 10, 12, 16), 12));
+        settingsButton.setOnClickListener(v -> showPlayerMenu());
+        FrameLayout.LayoutParams gear = new FrameLayout.LayoutParams(Ui.dp(this, 52), Ui.dp(this, 46), Gravity.TOP | Gravity.END);
+        gear.setMargins(0, Ui.dp(this, 16), Ui.dp(this, 16), 0);
+        root.addView(settingsButton, gear);
+        setContentView(root);
+
+        player.addListener(new Player.Listener() {
+            @Override public void onPlayerError(PlaybackException error) { handlePlaybackFailure(error); }
+            @Override public void onPlaybackStateChanged(int state) {
+                if (state == Player.STATE_ENDED) sendHeartbeat();
+                if (state == Player.STATE_READY) scheduleAudioInspection();
+            }
+            @Override public void onTracksChanged(Tracks tracks) { scheduleAudioInspection(); }
+        });
+        main.postDelayed(heartbeat, 10000);
+    }
+
+    private void applyProfileLanguagePreferences() {
         player.setTrackSelectionParameters(
             player.getTrackSelectionParameters()
                 .buildUpon()
                 .setPreferredAudioLanguages(languagePriority(api.store().preferredAudio()))
                 .setPreferredTextLanguages(languagePriority(api.store().preferredSubtitle()))
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
                 .build());
-
-        FrameLayout root = new FrameLayout(this); root.setBackgroundColor(Color.BLACK);
-        playerView = new PlayerView(this); playerView.setPlayer(player); playerView.setUseController(true); playerView.setKeepScreenOn(true);
-        root.addView(playerView, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        badge = new TextView(this); badge.setText("DIRECT PLAY"); badge.setTextColor(Color.rgb(117,255,170)); badge.setTextSize(11); badge.setPadding(Ui.dp(this,10),Ui.dp(this,6),Ui.dp(this,10),Ui.dp(this,6)); badge.setBackground(Ui.round(Color.argb(210,15,35,25),8));
-        FrameLayout.LayoutParams bp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP|Gravity.END); bp.setMargins(0,Ui.dp(this,18),Ui.dp(this,18),0); root.addView(badge,bp);
-        setContentView(root);
-
-        player.addListener(new Player.Listener() {
-            @Override public void onPlayerError(PlaybackException error) { handlePlaybackFailure(error); }
-            @Override public void onPlaybackStateChanged(int state) { if (state == Player.STATE_ENDED) sendHeartbeat(); }
-            @Override public void onTracksChanged(Tracks tracks) { inspectAndSelectAudio(tracks); }
-        });
-        main.postDelayed(heartbeat, 10000);
     }
 
-    private void loadSource(long sourceId, String label, boolean autoPlay) {
+    private void loadSource(long sourceId, boolean autoPlay) {
         streamMediaId = sourceId;
         audioPreferenceApplied = false;
         audioRecoveryAttempted = false;
-        badge.setText(label);
-        badge.setTextColor(label.contains("1080") || label.contains("720") ? Color.rgb(126,200,255) : Color.rgb(117,255,170));
+        audioFailure = false;
+        audioCheckGeneration++;
         io.submit(() -> {
             List<MediaItem.SubtitleConfiguration> subtitles = new ArrayList<>();
             try {
@@ -123,9 +151,11 @@ public class PlayerActivity extends Activity {
                     JSONObject s = arr.optJSONObject(i); if (s==null) continue;
                     long id=s.optLong("id"); String lang=s.optString("language","pt");
                     Uri uri=Uri.parse(api.apiUrl("/media/"+sourceId+"/subtitles/"+id+"/vtt"));
-                    subtitles.add(new MediaItem.SubtitleConfiguration.Builder(uri).setMimeType(MimeTypes.TEXT_VTT).setLanguage(lang).setLabel(lang).build());
+                    subtitles.add(new MediaItem.SubtitleConfiguration.Builder(uri)
+                        .setMimeType(MimeTypes.TEXT_VTT).setLanguage(lang).setLabel(lang).build());
                 }
             } catch (Exception ignored) {}
+            currentSubtitles = subtitles;
             main.post(() -> {
                 if (player == null || isFinishing()) return;
                 player.stop();
@@ -137,7 +167,18 @@ public class PlayerActivity extends Activity {
     private void playUri(String uri, List<MediaItem.SubtitleConfiguration> subtitles, boolean autoPlay) {
         MediaItem.Builder builder = new MediaItem.Builder().setUri(Uri.parse(uri)).setMediaId(String.valueOf(streamMediaId));
         if (subtitles != null && !subtitles.isEmpty()) builder.setSubtitleConfigurations(subtitles);
-        player.setMediaItem(builder.build()); player.prepare(); player.setPlayWhenReady(autoPlay);
+        player.setMediaItem(builder.build());
+        player.prepare();
+        player.setPlayWhenReady(autoPlay);
+    }
+
+    private void scheduleAudioInspection() {
+        final int generation = ++audioCheckGeneration;
+        main.postDelayed(() -> {
+            if (generation != audioCheckGeneration || player == null || isFinishing()) return;
+            if (player.getPlaybackState() == Player.STATE_IDLE) return;
+            inspectAndSelectAudio(player.getCurrentTracks());
+        }, 1800);
     }
 
     private void inspectAndSelectAudio(Tracks tracks) {
@@ -148,16 +189,13 @@ public class PlayerActivity extends Activity {
         int bestScore = -1;
         boolean hasAudio = false;
         boolean hasSupportedAudio = false;
-        boolean selectedSupportedAudio = false;
 
         for (Tracks.Group group : tracks.getGroups()) {
             if (group.getType() != C.TRACK_TYPE_AUDIO) continue;
             hasAudio = true;
             for (int i = 0; i < group.length; i++) {
-                boolean supported = group.isTrackSupported(i);
-                if (supported) hasSupportedAudio = true;
-                if (supported && group.isTrackSelected(i)) selectedSupportedAudio = true;
-                if (!supported) continue;
+                if (!group.isTrackSupported(i)) continue;
+                hasSupportedAudio = true;
                 int score = audioScore(group.getTrackFormat(i), wanted);
                 if (score > bestScore) {
                     bestScore = score;
@@ -171,31 +209,25 @@ public class PlayerActivity extends Activity {
             audioPreferenceApplied = true;
             if (!bestGroup.isTrackSelected(bestIndex)) {
                 player.setTrackSelectionParameters(
-                    player.getTrackSelectionParameters()
-                        .buildUpon()
+                    player.getTrackSelectionParameters().buildUpon()
                         .setOverrideForType(new TrackSelectionOverride(bestGroup.getMediaTrackGroup(), bestIndex))
                         .build());
-                Format selected = bestGroup.getTrackFormat(bestIndex);
-                String label = audioLabel(selected);
-                if (!label.isEmpty()) Toast.makeText(this, "Áudio selecionado: " + label, Toast.LENGTH_SHORT).show();
+                String label = audioLabel(bestGroup.getTrackFormat(bestIndex));
+                if (!label.isEmpty()) Toast.makeText(this, "Áudio: " + label, Toast.LENGTH_SHORT).show();
             }
+            return;
         }
 
         if (hasAudio && !hasSupportedAudio && !audioRecoveryAttempted) {
             audioRecoveryAttempted = true;
             audioFailure = true;
-            badge.setText("ÁUDIO INCOMPATÍVEL · PROCURANDO ALTERNATIVA…");
-            badge.setTextColor(Color.rgb(255,196,94));
-            main.postDelayed(this::recoverUnsupportedAudio, 350);
-        } else if (hasSupportedAudio && !selectedSupportedAudio && bestGroup == null && !audioRecoveryAttempted) {
-            audioRecoveryAttempted = true;
-            audioFailure = true;
-            main.postDelayed(this::recoverUnsupportedAudio, 350);
+            recoverUnsupportedAudio();
         }
     }
 
     private void recoverUnsupportedAudio() {
         if (player == null || isFinishing()) return;
+        Toast.makeText(this, "Faixa de áudio incompatível. Procurando alternativa…", Toast.LENGTH_SHORT).show();
         if (!versionFallbackAttempted) {
             versionFallbackAttempted = true;
             tryCompatibleVersion(null);
@@ -214,10 +246,8 @@ public class PlayerActivity extends Activity {
         String primary = primaryLang(want);
         String language = normalizeLang(format.language);
         String label = format.label == null ? "" : format.label.toLowerCase(Locale.ROOT);
-
         if (!want.isEmpty() && language.equals(want)) score += 120;
         else if (!primary.isEmpty() && primaryLang(language).equals(primary)) score += 100;
-
         if (primary.equals("pt")) {
             if (language.equals("por") || language.equals("pt-br") || language.equals("pob")) score += 110;
             if (label.contains("portugu") || label.contains("pt-br") || label.contains("dublado") || label.contains("brasil")) score += 95;
@@ -235,7 +265,13 @@ public class PlayerActivity extends Activity {
         if (format.label != null && !format.label.trim().isEmpty()) return format.label.trim();
         if (format.language != null && !format.language.trim().isEmpty()) return format.language.trim();
         if (format.sampleMimeType != null && !format.sampleMimeType.trim().isEmpty()) return format.sampleMimeType.replace("audio/", "").toUpperCase(Locale.ROOT);
-        return "";
+        return "Áudio";
+    }
+
+    private String textLabel(Format format) {
+        if (format.label != null && !format.label.trim().isEmpty()) return format.label.trim();
+        if (format.language != null && !format.language.trim().isEmpty()) return format.language.trim();
+        return "Legenda";
     }
 
     private String[] languagePriority(String preferred) {
@@ -244,13 +280,9 @@ public class PlayerActivity extends Activity {
         List<String> out = new ArrayList<>();
         if (!normalized.isEmpty()) out.add(preferred.trim());
         if (!primary.isEmpty() && !containsIgnoreCase(out, primary)) out.add(primary);
-        if (primary.equals("pt")) {
-            if (!containsIgnoreCase(out, "por")) out.add("por");
-        } else if (primary.equals("en")) {
-            if (!containsIgnoreCase(out, "eng")) out.add("eng");
-        } else if (primary.equals("es")) {
-            if (!containsIgnoreCase(out, "spa")) out.add("spa");
-        }
+        if (primary.equals("pt") && !containsIgnoreCase(out, "por")) out.add("por");
+        else if (primary.equals("en") && !containsIgnoreCase(out, "eng")) out.add("eng");
+        else if (primary.equals("es") && !containsIgnoreCase(out, "spa")) out.add("spa");
         return out.toArray(new String[0]);
     }
 
@@ -284,7 +316,6 @@ public class PlayerActivity extends Activity {
     }
 
     private void tryCompatibleVersion(PlaybackException original) {
-        badge.setText(audioFailure ? "PROCURANDO OUTRA VERSÃO COM ÁUDIO…" : "PROCURANDO VERSÃO COMPATÍVEL…"); badge.setTextColor(Color.WHITE);
         io.submit(() -> {
             try {
                 JSONArray versions = new JSONArray(api.get("/media/" + mediaId + "/versions"));
@@ -293,8 +324,7 @@ public class PlayerActivity extends Activity {
                 for (int i=0; i<versions.length(); i++) {
                     JSONObject v = versions.optJSONObject(i); if (v == null) continue;
                     long id = v.optLong("id"); if (id <= 0 || id == streamMediaId) continue;
-                    String label = v.optString("label", "Original");
-                    int rank = compatibilityRank(label);
+                    int rank = compatibilityRank(v.optString("label", "Original"));
                     if (rank > bestRank) { bestRank = rank; best = v; }
                 }
                 JSONObject selected = best;
@@ -304,13 +334,10 @@ public class PlayerActivity extends Activity {
                 }
                 long id = selected.optLong("id");
                 String quality = selected.optString("label", "Compatível");
-                String server = selected.optString("server_label", "");
                 main.post(() -> {
-                    playbackMode = "direct-compatible";
-                    String label = "DIRECT PLAY · " + quality;
-                    if (!server.isEmpty()) label += " · " + server;
-                    Toast.makeText(this, audioFailure ? "Tentando outra cópia com áudio compatível." : "O arquivo original não abriu. Tentando " + quality + " sem transcodificação.", Toast.LENGTH_SHORT).show();
-                    loadSource(id, label, true);
+                    playbackMode = "Direct Play · " + quality;
+                    Toast.makeText(this, audioFailure ? "Tentando outra cópia com áudio compatível." : "Tentando " + quality + " sem transcodificação.", Toast.LENGTH_SHORT).show();
+                    loadSource(id, true);
                 });
             } catch (Exception e) {
                 main.post(() -> tryRemux(original));
@@ -329,22 +356,20 @@ public class PlayerActivity extends Activity {
     private void tryRemux(PlaybackException original) {
         if (remuxAttempted || isFinishing()) { showUnsupported(original); return; }
         remuxAttempted = true;
-        badge.setText(audioFailure ? "VERIFICANDO REMUX DE ÁUDIO…" : "VERIFICANDO REMUX…"); badge.setTextColor(Color.WHITE);
         final long targetMediaId = streamMediaId;
         io.submit(() -> {
             try {
                 JSONObject plan = new JSONObject(api.get("/media/" + targetMediaId + "/compatibility"));
                 if (!plan.optBoolean("available", false)) throw new Exception(plan.optString("reason", "Remux não disponível"));
                 main.post(() -> {
-                    playbackMode = audioFailure ? "remux-audio-compatible" : "remux";
+                    playbackMode = audioFailure ? "Remux · áudio compatível" : "Remux · sem transcodificação";
                     streamMediaId = targetMediaId;
                     audioPreferenceApplied = false;
                     audioRecoveryAttempted = false;
-                    badge.setText(audioFailure ? "REMUX · ÁUDIO COMPATÍVEL" : "REMUX · SEM TRANSCODIFICAÇÃO");
-                    badge.setTextColor(Color.rgb(255,196,94));
+                    audioCheckGeneration++;
                     player.stop();
-                    playUri(api.apiUrl("/media/" + targetMediaId + "/remux"), null, true);
-                    Toast.makeText(this, audioFailure ? "Tentando uma faixa de áudio compatível no Remux." : "Tentando Remux. O vídeo continua com a resolução e codec originais.", Toast.LENGTH_SHORT).show();
+                    playUri(api.apiUrl("/media/" + targetMediaId + "/remux"), currentSubtitles, true);
+                    Toast.makeText(this, audioFailure ? "Tentando Remux com uma faixa de áudio compatível." : "Tentando Remux sem reencode.", Toast.LENGTH_SHORT).show();
                 });
             } catch (Exception e) {
                 main.post(() -> showUnsupported(original));
@@ -355,16 +380,130 @@ public class PlayerActivity extends Activity {
     private void showUnsupported(PlaybackException error) {
         if (isFinishing()) return;
         if (audioFailure) {
-            badge.setText("ÁUDIO NÃO SUPORTADO"); badge.setTextColor(Color.rgb(255,100,110));
-            Toast.makeText(this, "O vídeo abriu, mas este aparelho não possui decoder para nenhuma faixa de áudio compatível deste arquivo. Se houver outra cópia com AAC/AC3/EAC3 o StormFlix tentará automaticamente; DTS/TrueHD podem exigir uma versão de compatibilidade de áudio.", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Áudio não suportado neste aparelho. Abra ⚙ → Áudio para conferir as faixas disponíveis.", Toast.LENGTH_LONG).show();
             return;
         }
-        badge.setText("APARELHO NÃO SUPORTA ESTE ARQUIVO"); badge.setTextColor(Color.rgb(255,100,110));
         String detail = error == null ? "" : error.getErrorCodeName();
-        String msg = "Direct Play e Remux falharam. Remux não reduz 4K nem troca o codec. ";
-        if (!detail.isEmpty()) msg += "Erro: " + detail + ". ";
-        msg += "Se não existir uma versão 1080p/720p deste título, será necessária uma versão de compatibilidade para este aparelho.";
+        String msg = "Este aparelho não conseguiu reproduzir o arquivo por Direct Play, versão alternativa ou Remux.";
+        if (!detail.isEmpty()) msg += " Erro: " + detail + ".";
         Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
+    }
+
+    private void showPlayerMenu() {
+        String label = title == null || title.trim().isEmpty() ? "Player StormFlix" : title;
+        String[] items = {"Áudio", "Legendas", "Tela / Zoom", "Informações"};
+        new AlertDialog.Builder(this)
+            .setTitle(label)
+            .setItems(items, (d, which) -> {
+                if (which == 0) showAudioMenu();
+                else if (which == 1) showSubtitleMenu();
+                else if (which == 2) showScreenMenu();
+                else showPlaybackInfo();
+            })
+            .setNegativeButton("Fechar", null)
+            .show();
+    }
+
+    private void showAudioMenu() {
+        Tracks tracks = player.getCurrentTracks();
+        List<String> labels = new ArrayList<>();
+        List<Tracks.Group> groups = new ArrayList<>();
+        List<Integer> indexes = new ArrayList<>();
+        labels.add("Automático · preferência " + api.store().preferredAudio());
+        groups.add(null); indexes.add(-1);
+        for (Tracks.Group group : tracks.getGroups()) {
+            if (group.getType() != C.TRACK_TYPE_AUDIO) continue;
+            for (int i=0;i<group.length;i++) {
+                Format f = group.getTrackFormat(i);
+                String label = audioLabel(f);
+                if (!group.isTrackSupported(i)) label += " · não suportado";
+                else if (group.isTrackSelected(i)) label += " · atual";
+                labels.add(label);
+                groups.add(group); indexes.add(i);
+            }
+        }
+        new AlertDialog.Builder(this).setTitle("Áudio")
+            .setItems(labels.toArray(new String[0]), (d, which) -> {
+                if (which == 0) {
+                    player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon()
+                        .clearOverrides()
+                        .setPreferredAudioLanguages(languagePriority(api.store().preferredAudio()))
+                        .setPreferredTextLanguages(languagePriority(api.store().preferredSubtitle()))
+                        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                        .build());
+                    audioPreferenceApplied = false;
+                    scheduleAudioInspection();
+                    return;
+                }
+                Tracks.Group group = groups.get(which); int index = indexes.get(which);
+                if (group == null || !group.isTrackSupported(index)) {
+                    Toast.makeText(this, "Este aparelho não possui decoder para esta faixa.", Toast.LENGTH_LONG).show(); return;
+                }
+                player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon()
+                    .setOverrideForType(new TrackSelectionOverride(group.getMediaTrackGroup(), index)).build());
+                Toast.makeText(this, "Áudio: " + audioLabel(group.getTrackFormat(index)), Toast.LENGTH_SHORT).show();
+            }).setNegativeButton("Voltar", null).show();
+    }
+
+    private void showSubtitleMenu() {
+        Tracks tracks = player.getCurrentTracks();
+        List<String> labels = new ArrayList<>();
+        List<Tracks.Group> groups = new ArrayList<>();
+        List<Integer> indexes = new ArrayList<>();
+        labels.add("Desativadas"); groups.add(null); indexes.add(-1);
+        labels.add("Automático · preferência " + api.store().preferredSubtitle()); groups.add(null); indexes.add(-2);
+        for (Tracks.Group group : tracks.getGroups()) {
+            if (group.getType() != C.TRACK_TYPE_TEXT) continue;
+            for (int i=0;i<group.length;i++) {
+                String label = textLabel(group.getTrackFormat(i));
+                if (!group.isTrackSupported(i)) label += " · não suportada";
+                else if (group.isTrackSelected(i)) label += " · atual";
+                labels.add(label); groups.add(group); indexes.add(i);
+            }
+        }
+        new AlertDialog.Builder(this).setTitle("Legendas")
+            .setItems(labels.toArray(new String[0]), (d, which) -> {
+                if (which == 0) {
+                    player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build());
+                    return;
+                }
+                if (which == 1) {
+                    player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon()
+                        .clearOverrides()
+                        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                        .setPreferredAudioLanguages(languagePriority(api.store().preferredAudio()))
+                        .setPreferredTextLanguages(languagePriority(api.store().preferredSubtitle()))
+                        .build());
+                    return;
+                }
+                Tracks.Group group = groups.get(which); int index = indexes.get(which);
+                if (group == null || !group.isTrackSupported(index)) {
+                    Toast.makeText(this, "Legenda não suportada.", Toast.LENGTH_SHORT).show(); return;
+                }
+                player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                    .setOverrideForType(new TrackSelectionOverride(group.getMediaTrackGroup(), index)).build());
+            }).setNegativeButton("Voltar", null).show();
+    }
+
+    private void showScreenMenu() {
+        String[] modes = {"Ajustar / sem zoom", "16:9 · sem corte", "Preencher / Zoom", "Esticar para tela"};
+        new AlertDialog.Builder(this).setTitle("Tela")
+            .setItems(modes, (d, which) -> {
+                if (which == 0 || which == 1) playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
+                else if (which == 2) playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
+                else playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FILL);
+                Toast.makeText(this, modes[which], Toast.LENGTH_SHORT).show();
+            }).setNegativeButton("Voltar", null).show();
+    }
+
+    private void showPlaybackInfo() {
+        StringBuilder info = new StringBuilder();
+        info.append("Modo: ").append(playbackMode);
+        info.append("\nPreferência de áudio: ").append(api.store().preferredAudio());
+        info.append("\nPreferência de legenda: ").append(api.store().preferredSubtitle());
+        info.append("\nFonte: ").append(streamMediaId == mediaId ? "principal" : "alternativa");
+        new AlertDialog.Builder(this).setTitle("Informações de reprodução").setMessage(info.toString()).setPositiveButton("OK", null).show();
     }
 
     private void sendHeartbeat() {
@@ -378,7 +517,7 @@ public class PlayerActivity extends Activity {
                     .put("position_seconds", position / 1000.0)
                     .put("duration_seconds", duration / 1000.0)
                     .put("state", state)
-                    .put("mode", playbackMode);
+                    .put("mode", playbackMode.toLowerCase(Locale.ROOT));
                 api.post("/media/" + mediaId + "/playback", body);
             } catch (Exception ignored) {}
         });
@@ -386,7 +525,8 @@ public class PlayerActivity extends Activity {
 
     private void immersive() {
         getWindow().getDecorView().setSystemUiVisibility(
-            View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+            View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY |
+            View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
     }
 
     @Override public void onBackPressed() { finish(); }
@@ -397,6 +537,7 @@ public class PlayerActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        audioCheckGeneration++;
         main.removeCallbacks(heartbeat);
         if (player != null) { player.release(); player = null; }
         io.shutdownNow();
