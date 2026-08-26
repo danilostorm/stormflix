@@ -44,11 +44,7 @@ func (s *server) jellyfinTVAuthenticateMinimal(w http.ResponseWriter, r *http.Re
 	}
 	_ = s.jellyfinDefaultProfileID(r.Context(), u)
 
-	user := s.jellyfinUserObject(u)
-	// UserConfiguration and UserPolicy are nullable. Partial versions of those
-	// DTOs are less compatible than null across Jellyfin SDK generations.
-	user["Configuration"] = nil
-	user["Policy"] = nil
+	user := s.jellyfinStrictUserObject(u)
 
 	uid := u.ID
 	s.admin.Log(r.Context(), "info", "jellyfin", "JELLYFIN_AUTH_SUCCESS", &uid,
