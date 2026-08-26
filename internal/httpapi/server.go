@@ -21,7 +21,7 @@ import (
 )
 
 const sessionCookie = "stormflix_session"
-const version = "0.13.0-music"
+const version = "0.14.0-smart-music-metadata"
 
 type contextKey string
 
@@ -60,6 +60,7 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	if err := admin.EnsureMonitoring(db); err != nil {
 		panic(err)
 	}
+	music.ConfigureProviders(effective.LastFMAPIKey)
 	s := &server{
 		db: db, libraries: libraries, media: media.NewService(db), music: music.NewService(db), auth: auth.NewService(db), admin: admin.NewService(db),
 		assets: assetStore, settings: settingsService, baseConfig: cfg, config: effective, startedAt: time.Now(),
