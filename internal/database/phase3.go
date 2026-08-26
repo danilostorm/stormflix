@@ -36,6 +36,11 @@ CREATE TABLE IF NOT EXISTS profiles (
     avatar_url TEXT NOT NULL DEFAULT '',
     is_kids INTEGER NOT NULL DEFAULT 0,
     active INTEGER NOT NULL DEFAULT 1,
+    pin_hash TEXT NOT NULL DEFAULT '',
+    autoplay_next INTEGER NOT NULL DEFAULT 1,
+    autoplay_previews INTEGER NOT NULL DEFAULT 1,
+    preferred_audio TEXT NOT NULL DEFAULT 'pt-BR',
+    preferred_subtitle TEXT NOT NULL DEFAULT 'pt-BR',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -105,6 +110,19 @@ END;
 `
 	if _, err := db.Exec(schema); err != nil {
 		return fmt.Errorf("migrate phase3 database: %w", err)
+	}
+
+	columns := []struct{ table, name, definition string }{
+		{"profiles", "pin_hash", "TEXT NOT NULL DEFAULT ''"},
+		{"profiles", "autoplay_next", "INTEGER NOT NULL DEFAULT 1"},
+		{"profiles", "autoplay_previews", "INTEGER NOT NULL DEFAULT 1"},
+		{"profiles", "preferred_audio", "TEXT NOT NULL DEFAULT 'pt-BR'"},
+		{"profiles", "preferred_subtitle", "TEXT NOT NULL DEFAULT 'pt-BR'"},
+	}
+	for _, c := range columns {
+		if err := ensureColumn(db, c.table, c.name, c.definition); err != nil {
+			return err
+		}
 	}
 	return nil
 }
