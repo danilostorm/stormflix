@@ -45,7 +45,6 @@ func (s *Service) Bootstrap(name, path string) error {
 	if strings.TrimSpace(path) == "" {
 		return nil
 	}
-
 	var count int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM libraries`).Scan(&count); err != nil {
 		return err
@@ -53,7 +52,6 @@ func (s *Service) Bootstrap(name, path string) error {
 	if count > 0 {
 		return nil
 	}
-
 	_, err := s.Create(context.Background(), name, "movies", path)
 	return err
 }
@@ -62,7 +60,6 @@ func (s *Service) Create(ctx context.Context, name, kind, path string) (Library,
 	name = strings.TrimSpace(name)
 	kind = strings.TrimSpace(strings.ToLower(kind))
 	path = strings.TrimSpace(path)
-
 	if name == "" {
 		return Library{}, errors.New("library name is required")
 	}
@@ -72,7 +69,6 @@ func (s *Service) Create(ctx context.Context, name, kind, path string) (Library,
 	if kind == "" {
 		kind = "movies"
 	}
-
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return Library{}, fmt.Errorf("resolve library path: %w", err)
@@ -84,13 +80,10 @@ func (s *Service) Create(ctx context.Context, name, kind, path string) (Library,
 	if !info.IsDir() {
 		return Library{}, errors.New("library path must be a directory")
 	}
-
-	result, err := s.db.ExecContext(ctx,
-		`INSERT INTO libraries(name, kind, path) VALUES(?, ?, ?)`, name, kind, abs)
+	result, err := s.db.ExecContext(ctx, `INSERT INTO libraries(name, kind, path) VALUES(?, ?, ?)`, name, kind, abs)
 	if err != nil {
 		return Library{}, fmt.Errorf("create library: %w", err)
 	}
-
 	id, err := result.LastInsertId()
 	if err != nil {
 		return Library{}, err
@@ -100,20 +93,16 @@ func (s *Service) Create(ctx context.Context, name, kind, path string) (Library,
 
 func (s *Service) Get(ctx context.Context, id int64) (Library, error) {
 	var item Library
-	err := s.db.QueryRowContext(ctx,
-		`SELECT id, name, kind, path, created_at, updated_at FROM libraries WHERE id = ?`, id,
-	).Scan(&item.ID, &item.Name, &item.Kind, &item.Path, &item.CreatedAt, &item.UpdatedAt)
+	err := s.db.QueryRowContext(ctx, `SELECT id, name, kind, path, created_at, updated_at FROM libraries WHERE id = ?`, id).Scan(&item.ID, &item.Name, &item.Kind, &item.Path, &item.CreatedAt, &item.UpdatedAt)
 	return item, err
 }
 
 func (s *Service) List(ctx context.Context) ([]Library, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, kind, path, created_at, updated_at FROM libraries ORDER BY name`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, kind, path, created_at, updated_at FROM libraries ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-
 	items := []Library{}
 	for rows.Next() {
 		var item Library
@@ -139,22 +128,18 @@ func (s *Service) Scan(ctx context.Context, libraryID int64) (ScanResult, error)
 	if err != nil {
 		return ScanResult{}, err
 	}
-
 	files, err := s.discover(ctx, lib, libraryID)
 	if err != nil {
 		return ScanResult{}, fmt.Errorf("scan library: %w", err)
 	}
-
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return ScanResult{}, err
 	}
 	defer tx.Rollback()
-
 	if _, err := tx.ExecContext(ctx, `UPDATE media SET available = 0 WHERE library_id = ?`, libraryID); err != nil {
 		return ScanResult{}, err
 	}
-
 	for _, file := range files {
 		_, err = tx.ExecContext(ctx, `
 INSERT INTO media(library_id, title, path, extension, size_bytes, modified_unix, available)
@@ -164,17 +149,14 @@ ON CONFLICT(library_id, path) DO UPDATE SET
     size_bytes = CASE WHEN excluded.size_bytes > 0 THEN excluded.size_bytes ELSE media.size_bytes END,
     modified_unix = CASE WHEN excluded.modified_unix > 0 THEN excluded.modified_unix ELSE media.modified_unix END,
     available = 1,
-    updated_at = CURRENT_TIMESTAMP`,
-			libraryID, file.title, file.path, file.extension, file.sizeBytes, file.modifiedUnix)
+    updated_at = CURRENT_TIMESTAMP`, libraryID, file.title, file.path, file.extension, file.sizeBytes, file.modifiedUnix)
 		if err != nil {
 			return ScanResult{}, err
 		}
 	}
-
 	if err := tx.Commit(); err != nil {
 		return ScanResult{}, err
 	}
-
 	return ScanResult{LibraryID: libraryID, Files: len(files), DurationMS: time.Since(started).Milliseconds()}, nil
 }
 
@@ -183,7 +165,6 @@ func (s *Service) discover(ctx context.Context, lib Library, libraryID int64) ([
 	dirs := []string{lib.Path}
 	lastProgress := time.Time{}
 	statWarnings := 0
-
 	touchProgress := func(dir string, force bool) {
 		if !force && !lastProgress.IsZero() && time.Since(lastProgress) < 1500*time.Millisecond {
 			return
@@ -192,14 +173,13 @@ func (s *Service) discover(ctx context.Context, lib Library, libraryID int64) ([
 		if rel == "." {
 			rel = "/"
 		}
-		msg := fmt.Sprintf("scanning %s · %d files found", rel, len(files))
+		msg := fmt.Sprintf("lendo %s · %d arquivos encontrados", rel, len(files))
 		if statWarnings > 0 {
-			msg += fmt.Sprintf(" · %d slow stats skipped", statWarnings)
+			msg += fmt.Sprintf(" · %d stats lentos ignorados", statWarnings)
 		}
 		_, _ = s.db.Exec(`UPDATE libraries SET last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND last_scan_status IN ('running','cancelling')`, msg, libraryID)
 		lastProgress = time.Now()
 	}
-
 	for len(dirs) > 0 {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -207,7 +187,6 @@ func (s *Service) discover(ctx context.Context, lib Library, libraryID int64) ([
 		dir := dirs[0]
 		dirs = dirs[1:]
 		touchProgress(dir, lastProgress.IsZero())
-
 		entries, err := readDirContext(ctx, dir)
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", dir, err)
@@ -226,19 +205,13 @@ func (s *Service) discover(ctx context.Context, lib Library, libraryID int64) ([
 				touchProgress(dir, false)
 				continue
 			}
-			file := discoveredFile{
-				path:      path,
-				title:     titleFromFilename(path),
-				extension: strings.ToLower(filepath.Ext(path)),
-			}
+			file := discoveredFile{path: path, title: titleFromFilename(path), extension: strings.ToLower(filepath.Ext(path))}
 			if info, infoErr := entryInfoContext(ctx, entry); infoErr == nil {
 				file.sizeBytes = info.Size()
 				file.modifiedUnix = info.ModTime().Unix()
 			} else if ctx.Err() != nil {
 				return nil, ctx.Err()
 			} else {
-				// A slow FUSE/rclone stat must not make an otherwise visible video
-				// disappear from the catalog. Keep the path and preserve old size/mtime.
 				statWarnings++
 			}
 			files = append(files, file)
@@ -255,7 +228,10 @@ type readDirResult struct {
 }
 
 func readDirContext(parent context.Context, path string) ([]os.DirEntry, error) {
-	ctx, cancel := context.WithTimeout(parent, 60*time.Second)
+	// Large cloud folders can legitimately take more than a minute to hydrate
+	// through rclone/FUSE. Bound the call, but leave enough room for healthy
+	// remotes instead of declaring them dead too early.
+	ctx, cancel := context.WithTimeout(parent, 3*time.Minute)
 	defer cancel()
 	ch := make(chan readDirResult, 1)
 	go func() {
