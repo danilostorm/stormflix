@@ -138,7 +138,7 @@ func (s *Service) StartAdminScan(ctx context.Context, id int64) (ManagedLibrary,
 		s.scanMu.Unlock()
 		return ManagedLibrary{}, errors.New("a library scan is already running")
 	}
-	scanCtx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	scanCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	s.running[id] = true
 	s.scanCancel[id] = cancel
 	s.scanMu.Unlock()
@@ -159,9 +159,15 @@ func (s *Service) StartAdminScan(ctx context.Context, id int64) (ManagedLibrary,
 func (s *Service) runAdminScan(id int64, ctx context.Context, cancel context.CancelFunc) {
 	defer cancel()
 	defer s.clearScan(id)
+	go s.watchScanProgress(id, ctx, cancel, 3*time.Minute)
 
 	result, err := s.ScanMulti(ctx, id)
 	if err != nil {
+		var currentStatus string
+		_ = s.db.QueryRow(`SELECT last_scan_status FROM libraries WHERE id=?`, id).Scan(&currentStatus)
+		if currentStatus == "timeout" {
+			return
+		}
 		status := "error"
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
 			status = "timeout"
@@ -181,7 +187,7 @@ func (s *Service) runAdminScan(id int64, ctx context.Context, cancel context.Can
 	message := fmt.Sprintf("%d files · %d/%d sources scanned · %d ms", result.Files, result.SourcesScanned, result.SourcesScanned+result.SourcesOffline, result.DurationMS)
 	if result.SourcesOffline > 0 {
 		status = "partial"
-		message += fmt.Sprintf(" · %d source(s) offline preserved", result.SourcesOffline)
+		message += fmt.Sprintf(" · %d source(s) offline/suspicious preserved", result.SourcesOffline)
 	}
 	_, _ = s.db.Exec(`UPDATE libraries SET last_scan_at=CURRENT_TIMESTAMP,last_scan_status=?,last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, status, message, id)
 }
@@ -291,8 +297,23 @@ func (s *Service) setScanRunning(id int64, value bool) {
 }
 
 func dirOnline(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.IsDir()
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	type statResult struct {
+		info os.FileInfo
+		err  error
+	}
+	ch := make(chan statResult, 1)
+	go func() {
+		info, err := os.Stat(path)
+		ch <- statResult{info: info, err: err}
+	}()
+	select {
+	case <-ctx.Done():
+		return false
+	case result := <-ch:
+		return result.err == nil && result.info.IsDir()
+	}
 }
 
 func cleanLibraryPath(path string) string {
