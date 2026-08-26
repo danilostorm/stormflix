@@ -20,7 +20,7 @@ import (
 )
 
 const sessionCookie = "stormflix_session"
-const version = "0.10.0-profiles-cast-scan"
+const version = "0.11.0-rclone-kids-avatar"
 
 type contextKey string
 
@@ -82,6 +82,7 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("PUT /api/v1/profiles/{id}", s.requireAuth(s.updateOwnProfile))
 	mux.HandleFunc("DELETE /api/v1/profiles/{id}", s.requireAuth(s.deleteOwnProfile))
 	mux.HandleFunc("POST /api/v1/profiles/{id}/select", s.requireAuth(s.selectProfile))
+	mux.HandleFunc("POST /api/v1/profiles/{id}/avatar", s.requireAuth(s.uploadOwnProfileAvatar))
 
 	mux.HandleFunc("GET /api/v1/libraries", s.requireAuth(s.listLibraries))
 	mux.HandleFunc("POST /api/v1/libraries", s.requireRole("manager", s.createLibrary))
