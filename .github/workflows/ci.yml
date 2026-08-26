@@ -58,6 +58,7 @@ jobs:
           node --check internal/webui/static/webcompat.js
           node --check internal/webui/static/player-monitor.js
           node --check internal/webui/static/continue-watching.js
+          node --check internal/webui/static/rail-nav-v2.js
 
       - name: Test
         run: go test ./...
