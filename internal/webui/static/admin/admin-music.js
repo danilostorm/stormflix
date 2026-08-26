@@ -2,6 +2,8 @@
 (function(){
   let progressTimer=null;
   let lastStatus=null;
+  let organizeChain=false;
+  let chaining=false;
 
   const baseEdit=window.editLibrary;
   if(typeof baseEdit==='function'){
@@ -44,11 +46,12 @@
 
   window.organizeMusicNow=async function(button){
     if(button)button.disabled=true;
+    organizeChain=true;
     try{
       const r=await req('/admin/music/index',{method:'POST',body:'{}'});
-      notice(r.started?'Organização da biblioteca de música iniciada. Acompanhe o progresso abaixo.':'A biblioteca de música já está sendo organizada.',true);
+      notice(r.started?'Organização da biblioteca de música iniciada. O StormFlix continuará os lotes automaticamente até terminar.':'A biblioteca de música já está sendo organizada; o acompanhamento continuará até terminar.',true);
       await refreshMusicStatus(true);
-    }catch(err){notice(err.message)}finally{if(button)button.disabled=false}
+    }catch(err){organizeChain=false;notice(err.message)}finally{if(button)button.disabled=false}
   };
 
   async function decorateMusicLibraryProgress(){
@@ -101,6 +104,7 @@
       const agents=await req('/admin/agents');
       lastStatus=agents.music_status||{};
       document.querySelectorAll('[data-music-status]').forEach(el=>el.innerHTML=musicStatusHTML(lastStatus));
+      await continueOrganizerIfNeeded(lastStatus);
       scheduleProgressPoll(lastStatus,forcePoll);
       return lastStatus;
     }catch(err){
@@ -109,12 +113,23 @@
     }
   }
 
+  async function continueOrganizerIfNeeded(status){
+    if(!organizeChain||chaining||status?.indexing)return;
+    const pending=Number(status?.pending_tracks||0)+Number(status?.pending_albums||0);
+    if(pending<=0){organizeChain=false;notice('Organização de música concluída.',true);return}
+    chaining=true;
+    try{
+      const r=await req('/admin/music/index',{method:'POST',body:'{}'});
+      if(r.started)notice(`Continuando organização · ${Number(status.pending_tracks||0).toLocaleString('pt-BR')} faixa(s) e ${Number(status.pending_albums||0).toLocaleString('pt-BR')} álbum(ns) pendentes.`,true);
+    }catch(err){organizeChain=false;notice(`A continuação automática parou: ${err.message}`)}finally{chaining=false}
+  }
+
   function scheduleProgressPoll(status,force){
     if(progressTimer){clearTimeout(progressTimer);progressTimer=null}
-    if(status?.indexing||force){
+    if(status?.indexing||force||organizeChain){
       progressTimer=setTimeout(async()=>{
         const next=await refreshMusicStatus(false);
-        if(next?.indexing)scheduleProgressPoll(next,false);
+        if(next?.indexing||organizeChain)scheduleProgressPoll(next,false);
       },1600);
     }
   }
