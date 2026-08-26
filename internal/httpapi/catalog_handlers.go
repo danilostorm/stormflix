@@ -19,6 +19,13 @@ func (s *server) homeFeed(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	profileID := s.selectedProfileID(r, u.ID)
+	if profileID > 0 {
+		items, progressErr := s.media.ContinueWatching(r.Context(), profileID, allowed, 24)
+		if progressErr == nil && len(items) > 0 {
+			feed.Rows = append([]media.HomeRow{{ID: "continue-watching", Title: "Continuar assistindo", Items: items}}, feed.Rows...)
+		}
+	}
 	writeJSON(w, http.StatusOK, feed)
 }
 
