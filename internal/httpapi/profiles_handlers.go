@@ -196,7 +196,15 @@ func (s *server) decodeCreateProfile(r *http.Request, userID int64) (auth.Profil
 		if in.AutoplayPreviews != nil {
 			previews = *in.AutoplayPreviews
 		}
-		p, err = s.auth.UpdateProfilePreferences(r.Context(), userID, p.ID, in.PIN, in.ClearPIN, next, previews, in.PreferredAudio, in.PreferredSubtitle)
+		audio := p.PreferredAudio
+		subtitle := p.PreferredSubtitle
+		if in.PreferredAudio != "" {
+			audio = in.PreferredAudio
+		}
+		if in.PreferredSubtitle != "" {
+			subtitle = in.PreferredSubtitle
+		}
+		p, err = s.auth.UpdateProfilePreferences(r.Context(), userID, p.ID, in.PIN, in.ClearPIN, next, previews, audio, subtitle)
 	}
 	return p, err
 }
@@ -214,8 +222,7 @@ func (s *server) decodeUpdateProfile(r *http.Request, userID, profileID int64) (
 	if in.Active != nil {
 		active = *in.Active
 	}
-	p, err := s.auth.UpdateProfile(r.Context(), userID, profileID, in.Name, in.AvatarKey, in.AvatarURL, in.IsKids, active)
-	if err != nil {
+	if _, err := s.auth.UpdateProfile(r.Context(), userID, profileID, in.Name, in.AvatarKey, in.AvatarURL, in.IsKids, active); err != nil {
 		return auth.Profile{}, err
 	}
 	next := current.AutoplayNext
@@ -226,7 +233,15 @@ func (s *server) decodeUpdateProfile(r *http.Request, userID, profileID int64) (
 	if in.AutoplayPreviews != nil {
 		previews = *in.AutoplayPreviews
 	}
-	return s.auth.UpdateProfilePreferences(r.Context(), userID, profileID, in.PIN, in.ClearPIN, next, previews, in.PreferredAudio, in.PreferredSubtitle)
+	audio := current.PreferredAudio
+	subtitle := current.PreferredSubtitle
+	if in.PreferredAudio != "" {
+		audio = in.PreferredAudio
+	}
+	if in.PreferredSubtitle != "" {
+		subtitle = in.PreferredSubtitle
+	}
+	return s.auth.UpdateProfilePreferences(r.Context(), userID, profileID, in.PIN, in.ClearPIN, next, previews, audio, subtitle)
 }
 
 func (s *server) selectedProfileID(r *http.Request, userID int64) int64 {
