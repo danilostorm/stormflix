@@ -2,13 +2,28 @@ package httpapi
 
 import (
 	"net/http"
+
+	"github.com/danilostorm/stormflix/internal/auth"
 )
+
+// jellyfinStrictUserObject returns the fields required by Jellyfin's UserDto
+// across the Android/Android TV SDK generations we support. In particular,
+// older Android TV SDKs still require HasConfiguredEasyPassword even though
+// the field is deprecated. Configuration and Policy stay null because sending
+// partial nested DTOs is less compatible than omitting them.
+func (s *server) jellyfinStrictUserObject(u auth.User) map[string]any {
+	user := s.jellyfinUserObject(u)
+	user["HasConfiguredEasyPassword"] = false
+	user["Configuration"] = nil
+	user["Policy"] = nil
+	return user
+}
 
 // jellyfinMe implements the canonical endpoint used by modern Jellyfin clients
 // immediately after authentication. /Users/{id} alone is not enough because
 // Android TV explicitly asks for /Users/Me while validating the saved session.
 func (s *server) jellyfinMe(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.jellyfinUserObject(currentUser(r)))
+	writeJSON(w, http.StatusOK, s.jellyfinStrictUserObject(currentUser(r)))
 }
 
 // jellyfinDisplayPreferences returns a complete DisplayPreferencesDto. The
