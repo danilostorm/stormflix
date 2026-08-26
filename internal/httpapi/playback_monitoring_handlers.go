@@ -84,6 +84,19 @@ func (s *server) playbackHeartbeat(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	reason := strings.TrimSpace(in.ProgressReason)
+	if reason != "" && reason != "periodic" && reason != "ready" {
+		level := "info"
+		message := "PROGRESS_SAVE_ACCEPTED"
+		if !accepted {
+			level = "warn"
+			message = "PROGRESS_SAVE_REJECTED_STALE"
+		}
+		s.admin.Log(r.Context(), level, "playback", message, &u.ID, fmt.Sprintf(
+			"media=%d session=%s seq=%d event_ms=%d reason=%s position=%.3f duration=%.3f",
+			id, in.PlaybackSession, in.ProgressSequence, in.ProgressEventMS, reason, in.PositionSeconds, in.DurationSeconds,
+		))
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "progress_accepted": accepted})
 }
 
@@ -94,14 +107,14 @@ func (s *server) playbackEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Event             string  `json:"event"`
-		PlaybackSession   string  `json:"playback_session_id"`
-		SourceGeneration  int     `json:"source_generation"`
-		PositionSeconds   float64 `json:"position_seconds"`
-		DurationSeconds   float64 `json:"duration_seconds"`
-		Seekable          *bool   `json:"seekable"`
-		PlaybackState     int     `json:"playback_state"`
-		Details           string  `json:"details"`
+		Event            string  `json:"event"`
+		PlaybackSession  string  `json:"playback_session_id"`
+		SourceGeneration int     `json:"source_generation"`
+		PositionSeconds  float64 `json:"position_seconds"`
+		DurationSeconds  float64 `json:"duration_seconds"`
+		Seekable         *bool   `json:"seekable"`
+		PlaybackState    int     `json:"playback_state"`
+		Details          string  `json:"details"`
 	}
 	if decodeJSON(w, r, &in) != nil {
 		return
