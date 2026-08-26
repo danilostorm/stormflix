@@ -39,7 +39,14 @@ async function loadSettings(){
         </section>
 
         <section class="panel settings-section">
-          <div class="section-title"><span>03</span><div><h2>Legendas</h2><small>Busca automática opcional.</small></div></div>
+          <div class="section-title"><span>03</span><div><h2>Música & identificação</h2><small>Fallbacks para coleções com tags incompletas ou nomes de pasta irregulares.</small></div></div>
+          ${secretField('set-lastfm-key','Last.fm · API Key',secrets.lastfm_api_key,'Opcional, mas recomendado para sua coleção. Ajuda a corrigir artista, faixa, álbum e tags quando o arquivo não possui metadados confiáveis.')}
+          <div class="storage-preview"><b>Ordem de identificação</b><span>Tags → nome do arquivo → Last.fm → MusicBrainz</span><small>O StormFlix reconhece padrões como “Artista - Título.mp3” antes de usar a estrutura de pastas.</small></div>
+          <div class="agent-mini-grid">${(agents.music||[]).map(a=>`<div><b>${esc(a.name)}</b><span class="${a.ready?'online':'offline'}">${a.ready?'PRONTO':a.enabled?'INDISPONÍVEL':'OPCIONAL'}</span></div>`).join('')}</div>
+        </section>
+
+        <section class="panel settings-section">
+          <div class="section-title"><span>04</span><div><h2>Legendas</h2><small>Busca automática opcional.</small></div></div>
           ${secretField('set-os-key','OpenSubtitles · API Key',secrets.opensubtitles_api_key)}
           <div class="setting-field"><label>OpenSubtitles · Usuário</label><input id="set-os-user" value="${esc(s.opensubtitles_username||'')}" autocomplete="off"></div>
           ${secretField('set-os-pass','OpenSubtitles · Senha',secrets.opensubtitles_password)}
@@ -49,14 +56,14 @@ async function loadSettings(){
         </section>
 
         <section class="panel settings-section">
-          <div class="section-title"><span>04</span><div><h2>CDN / Assets</h2><small>Onde ficam capas, fanart e legendas.</small></div></div>
+          <div class="section-title"><span>05</span><div><h2>CDN / Assets</h2><small>Onde ficam capas, fanart e legendas.</small></div></div>
           <div class="setting-field"><label>Diretório de assets</label><input id="set-asset-dir" value="${esc(s.asset_dir||'/data/assets')}" placeholder="/data/assets"><small>Pode ser local ou qualquer mount visível no container: Google Drive, FTP, S3, WebDAV via rclone.</small></div>
           <div class="setting-field"><label>URL pública / CDN</label><input id="set-asset-url" value="${esc(s.asset_public_base_url||'')}" placeholder="https://cdn.seudominio.com/stormflix"><small>Opcional. Deixe vazio para servir em /assets pelo próprio StormFlix.</small></div>
           <div class="storage-preview"><b>Modo atual</b><span>${esc((agents.assets||{}).mode||'local')}</span><small>${esc((agents.assets||{}).directory||s.asset_dir||'')}</small></div>
         </section>
 
         <section class="panel settings-section settings-wide">
-          <div class="section-title"><span>05</span><div><h2>Experiência cinematográfica</h2><small>Comportamento da tela de detalhes.</small></div></div>
+          <div class="section-title"><span>06</span><div><h2>Experiência cinematográfica</h2><small>Comportamento da tela de detalhes.</small></div></div>
           <div class="experience-grid">
             <label class="switch-row"><div><b>Prévia de trilha sonora</b><small>Tenta localizar uma prévia curta associada ao título.</small></div><input id="set-theme-enabled" type="checkbox" ${s.theme_preview_enabled?'checked':''}></label>
             <label class="switch-row"><div><b>Tocar ao abrir detalhes</b><small>Depende da política de autoplay do navegador e sempre usa apenas a prévia.</small></div><input id="set-theme-autoplay" type="checkbox" ${s.theme_preview_autoplay?'checked':''}></label>
@@ -98,6 +105,7 @@ async function saveSettings(e){
     tmdb_api_key:secretValue('set-tmdb-key'),
     fanart_api_key:secretValue('set-fanart-key'),
     fanart_client_key:secretValue('set-fanart-client'),
+    lastfm_api_key:secretValue('set-lastfm-key'),
     opensubtitles_api_key:secretValue('set-os-key'),
     opensubtitles_password:secretValue('set-os-pass'),
     subdl_api_key:secretValue('set-subdl-key')
