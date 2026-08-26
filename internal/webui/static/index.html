@@ -20,6 +20,7 @@
   <link rel="stylesheet" href="/continue-watching.css">
   <link rel="stylesheet" href="/mobile-v2.css">
   <link rel="stylesheet" href="/rail-nav-v2.css">
+  <link rel="stylesheet" href="/player-v3.css">
 </head>
 <body>
 <div id="login" class="login-overlay hidden">
@@ -132,9 +133,9 @@
 </div>
 
 <div id="player-modal" class="player-modal hidden" role="dialog" aria-label="Player StormFlix">
-  <div class="player-bar"><strong id="player-title"></strong><div><span class="direct-badge">DIRECT PLAY</span><button id="player-close" aria-label="Fechar player">✕</button></div></div>
+  <div class="player-bar"><strong id="player-title"></strong><div class="player-top-actions"><button id="player-settings-top" class="player-top-settings" type="button" aria-label="Configurações do player">⚙</button><button id="player-close" aria-label="Fechar player">✕</button></div></div>
   <video id="player" controls playsinline preload="metadata"></video>
-  <div id="player-help" class="player-help hidden">Este navegador não reproduziu o formato diretamente. O StormFlix tentará Web Remux sem transcodificação quando isso puder ajudar.</div>
+  <div id="player-help" class="player-help hidden">Este navegador não reproduziu o formato diretamente. O StormFlix tentará o modo compatibilidade automaticamente.</div>
 </div>
 
 <audio id="theme-audio" preload="none"></audio>
@@ -152,6 +153,7 @@
 <script src="/source-selector.js" defer></script>
 <script src="/person-ui.js" defer></script>
 <script src="/webcompat.js" defer></script>
+<script src="/player-v3.js" defer></script>
 <script src="/player-monitor.js" defer></script>
 <script src="/continue-watching.js" defer></script>
 <script src="/rail-nav-v2.js" defer></script>
