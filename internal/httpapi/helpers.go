@@ -28,6 +28,12 @@ func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 			writeError(w, 401, errors.New("session expired or invalid"))
 			return
 		}
+		// The current StormFlix model is full-catalog by default. Older users may
+		// have no user_libraries rows because library selection used to be manual;
+		// treat that legacy empty set as access to every enabled library.
+		if roleLevel(u.Role) < 2 && len(u.LibraryIDs) == 0 {
+			u.LibraryIDs = s.allEnabledLibraryIDs(r.Context())
+		}
 		next(w, r.WithContext(context.WithValue(r.Context(), userKey, u)))
 	}
 }
