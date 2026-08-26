@@ -10,6 +10,26 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
+      - name: DNS and IP family
+        shell: bash
+        run: |
+          set +e
+          echo '--- A ---'
+          dig +short A stormflix.cloud
+          echo '--- AAAA ---'
+          dig +short AAAA stormflix.cloud
+          echo '--- IPv4 ---'
+          curl -4 -sS -D - --max-time 10 https://stormflix.cloud/System/Info/Public -o /tmp/info4.json
+          cat /tmp/info4.json 2>/dev/null || true
+          echo
+          echo '--- IPv6 ---'
+          curl -6 -sS -D - --max-time 10 https://stormflix.cloud/System/Info/Public -o /tmp/info6.json
+          rc=$?
+          cat /tmp/info6.json 2>/dev/null || true
+          echo
+          echo "curl_ipv6_rc=$rc"
+          exit 0
+
       - name: TLS certificate
         shell: bash
         run: |
