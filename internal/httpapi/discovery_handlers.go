@@ -21,8 +21,8 @@ func (s *server) personTitles(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	if s.selectedProfileIsKids(r, u.ID) {
-		result.Items = filterKidsItems(result.Items)
+	if s.selectedProfileRestriction(r, u.ID).Restricted {
+		result.Items = s.filterRestrictedItems(r, u.ID, result.Items)
 	}
 	writeJSON(w, http.StatusOK, result)
 }
@@ -43,8 +43,8 @@ func (s *server) continueWatching(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	if s.selectedProfileIsKids(r, u.ID) {
-		items = filterKidsItems(items)
+	if s.selectedProfileRestriction(r, u.ID).Restricted {
+		items = s.filterRestrictedItems(r, u.ID, items)
 	}
 	writeJSON(w, http.StatusOK, items)
 }
