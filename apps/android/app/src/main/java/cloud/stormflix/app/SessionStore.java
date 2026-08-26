@@ -37,6 +37,23 @@ public final class SessionStore {
         prefs.edit().putString("profile", value == null ? "" : value).apply();
     }
 
+    public String preferredAudio() {
+        String value = prefs.getString("preferred_audio", "pt-BR");
+        return value == null || value.trim().isEmpty() ? "pt-BR" : value.trim();
+    }
+
+    public String preferredSubtitle() {
+        String value = prefs.getString("preferred_subtitle", "pt-BR");
+        return value == null || value.trim().isEmpty() ? "pt-BR" : value.trim();
+    }
+
+    public void setProfilePreferences(String audio, String subtitle) {
+        prefs.edit()
+            .putString("preferred_audio", normalizeLanguage(audio))
+            .putString("preferred_subtitle", normalizeLanguage(subtitle))
+            .apply();
+    }
+
     public String cookieHeader() {
         String session = sessionCookie();
         String profile = profileCookie();
@@ -54,7 +71,12 @@ public final class SessionStore {
     }
 
     public void clear() {
-        prefs.edit().remove("session").remove("profile").apply();
+        prefs.edit()
+            .remove("session")
+            .remove("profile")
+            .remove("preferred_audio")
+            .remove("preferred_subtitle")
+            .apply();
     }
 
     public static String normalizeBase(String value) {
@@ -64,5 +86,10 @@ public final class SessionStore {
         while (v.endsWith("/")) v = v.substring(0, v.length() - 1);
         if (v.endsWith("/api/v1")) v = v.substring(0, v.length() - 7);
         return v;
+    }
+
+    private static String normalizeLanguage(String value) {
+        String v = value == null ? "" : value.trim();
+        return v.isEmpty() ? "pt-BR" : v;
     }
 }
