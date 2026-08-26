@@ -102,7 +102,9 @@
   if(baseSelectVersion){
     sfSelectVersion=async function(id){
       window.sfPlaybackMode='direct_play';window.sfLastCompatibilityPlan=null;
-      return baseSelectVersion(id);
+      const result=await baseSelectVersion(id);
+      setTimeout(()=>window.sfEnsureWebAudioCompatibility?.(),0);
+      return result;
     };
   }
 
