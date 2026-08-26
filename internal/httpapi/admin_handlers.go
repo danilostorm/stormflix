@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"runtime"
@@ -48,6 +49,9 @@ func (s *server) createUser(w http.ResponseWriter, r *http.Request) {
 	if decodeJSON(w, r, &in) != nil {
 		return
 	}
+	if len(in.LibraryIDs) == 0 {
+		in.LibraryIDs = s.allEnabledLibraryIDs(r.Context())
+	}
 	u, err := s.auth.CreateUser(r.Context(), in.Username, in.DisplayName, in.Password, in.Role, in.Active, in.LibraryIDs)
 	if err != nil {
 		writeError(w, 400, err)
@@ -77,6 +81,9 @@ func (s *server) updateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, errors.New("cannot disable your own account"))
 		return
 	}
+	if len(in.LibraryIDs) == 0 {
+		in.LibraryIDs = s.allEnabledLibraryIDs(r.Context())
+	}
 	u, err := s.auth.UpdateUser(r.Context(), id, in.DisplayName, in.Password, in.Role, in.Active, in.LibraryIDs)
 	if err != nil {
 		writeError(w, 400, err)
@@ -85,6 +92,21 @@ func (s *server) updateUser(w http.ResponseWriter, r *http.Request) {
 	uid := currentUser(r).ID
 	s.admin.Log(r.Context(), "info", "users", "User updated", &uid, u.Username)
 	writeJSON(w, 200, u)
+}
+func (s *server) allEnabledLibraryIDs(ctx context.Context) []int64 {
+	rows, err := s.db.QueryContext(ctx, `SELECT id FROM libraries WHERE enabled=1 ORDER BY id`)
+	if err != nil {
+		return []int64{}
+	}
+	defer rows.Close()
+	ids := []int64{}
+	for rows.Next() {
+		var id int64
+		if rows.Scan(&id) == nil && id > 0 {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 func (s *server) deleteUser(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r.PathValue("id"))
