@@ -21,159 +21,161 @@ import (
 )
 
 const sessionCookie = "stormflix_session"
-const version = "0.15.4-monitoring-web-audio"
+const version = "0.16.0-tv-jellyfin"
 
 type contextKey string
-
 const userKey contextKey = "user"
 
 type server struct {
-	db         *sql.DB
-	libraries  *library.Service
-	media      *media.Service
-	music      *music.Service
-	auth       *auth.Service
-	admin      *admin.Service
-	metadata   *metadata.Service
-	subtitles  *subtitles.Service
-	assets     *assets.Store
-	settings   *appsettings.Service
+	db *sql.DB
+	libraries *library.Service
+	media *media.Service
+	music *music.Service
+	auth *auth.Service
+	admin *admin.Service
+	metadata *metadata.Service
+	subtitles *subtitles.Service
+	assets *assets.Store
+	settings *appsettings.Service
 	baseConfig config.Config
-	config     config.Config
-	startedAt  time.Time
+	config config.Config
+	startedAt time.Time
 }
 
 func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler {
-	settingsService, err := appsettings.New(db, cfg.DataDir)
-	if err != nil {
-		panic(err)
-	}
-	effective, err := settingsService.Apply(context.Background(), cfg)
-	if err != nil {
-		panic(err)
-	}
-	effective = config.NormalizeCredentials(effective)
-	assetStore, err := assets.New(effective.AssetDir, effective.AssetPublicBaseURL)
-	if err != nil {
-		panic(err)
-	}
-	if err := admin.EnsureMonitoring(db); err != nil {
-		panic(err)
-	}
+	settingsService,err:=appsettings.New(db,cfg.DataDir);if err!=nil{panic(err)}
+	effective,err:=settingsService.Apply(context.Background(),cfg);if err!=nil{panic(err)}
+	effective=config.NormalizeCredentials(effective)
+	assetStore,err:=assets.New(effective.AssetDir,effective.AssetPublicBaseURL);if err!=nil{panic(err)}
+	if err:=admin.EnsureMonitoring(db);err!=nil{panic(err)}
 	music.ConfigureProviders(effective.LastFMAPIKey)
-	s := &server{
-		db: db, libraries: libraries, media: media.NewService(db), music: music.NewService(db), auth: auth.NewService(db), admin: admin.NewService(db),
-		assets: assetStore, settings: settingsService, baseConfig: cfg, config: effective, startedAt: time.Now(),
-	}
-	s.metadata = metadata.NewService(db, effective, assetStore)
-	s.metadata.RecoverInterruptedJobs()
-	s.subtitles = subtitles.NewService(db, effective, assetStore)
-	s.auth.Cleanup(context.Background())
+	s:=&server{db:db,libraries:libraries,media:media.NewService(db),music:music.NewService(db),auth:auth.NewService(db),admin:admin.NewService(db),assets:assetStore,settings:settingsService,baseConfig:cfg,config:effective,startedAt:time.Now()}
+	s.metadata=metadata.NewService(db,effective,assetStore);s.metadata.RecoverInterruptedJobs()
+	s.subtitles=subtitles.NewService(db,effective,assetStore);s.auth.Cleanup(context.Background())
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", s.health)
-	mux.HandleFunc("GET /api/v1/system/info", s.systemInfo)
-	mux.HandleFunc("GET /api/v1/setup/status", s.setupStatus)
-	mux.HandleFunc("POST /api/v1/setup/admin", s.createFirstAdmin)
-	mux.HandleFunc("POST /api/v1/auth/login", s.login)
-	mux.HandleFunc("POST /api/v1/auth/logout", s.requireAuth(s.logout))
-	mux.HandleFunc("GET /api/v1/auth/me", s.requireAuth(s.me))
+	mux:=http.NewServeMux()
+	mux.HandleFunc("GET /healthz",s.health)
+	mux.HandleFunc("GET /api/v1/system/info",s.systemInfo)
+	mux.HandleFunc("GET /api/v1/setup/status",s.setupStatus)
+	mux.HandleFunc("POST /api/v1/setup/admin",s.createFirstAdmin)
+	mux.HandleFunc("POST /api/v1/auth/login",s.login)
+	mux.HandleFunc("POST /api/v1/auth/logout",s.requireAuth(s.logout))
+	mux.HandleFunc("GET /api/v1/auth/me",s.requireAuth(s.me))
 
-	mux.HandleFunc("GET /api/v1/profiles", s.requireAuth(s.listProfiles))
-	mux.HandleFunc("GET /api/v1/profiles/continue", s.requireAuth(s.continueWatching))
-	mux.HandleFunc("GET /api/v1/profiles/history", s.requireAuth(s.profileHistory))
-	mux.HandleFunc("GET /api/v1/profiles/stats", s.requireAuth(s.profileStats))
-	mux.HandleFunc("GET /api/v1/community/ranking", s.requireAuth(s.communityRanking))
-	mux.HandleFunc("POST /api/v1/profiles", s.requireAuth(s.createOwnProfile))
-	mux.HandleFunc("PUT /api/v1/profiles/{id}", s.requireAuth(s.updateOwnProfile))
-	mux.HandleFunc("DELETE /api/v1/profiles/{id}", s.requireAuth(s.deleteOwnProfile))
-	mux.HandleFunc("POST /api/v1/profiles/{id}/select", s.requireAuth(s.selectProfile))
-	mux.HandleFunc("POST /api/v1/profiles/{id}/avatar", s.requireAuth(s.uploadOwnProfileAvatar))
+	mux.HandleFunc("GET /api/v1/profiles",s.requireAuth(s.listProfiles))
+	mux.HandleFunc("GET /api/v1/profiles/continue",s.requireAuth(s.continueWatching))
+	mux.HandleFunc("GET /api/v1/profiles/history",s.requireAuth(s.profileHistory))
+	mux.HandleFunc("GET /api/v1/profiles/stats",s.requireAuth(s.profileStats))
+	mux.HandleFunc("GET /api/v1/community/ranking",s.requireAuth(s.communityRanking))
+	mux.HandleFunc("POST /api/v1/profiles",s.requireAuth(s.createOwnProfile))
+	mux.HandleFunc("PUT /api/v1/profiles/{id}",s.requireAuth(s.updateOwnProfile))
+	mux.HandleFunc("DELETE /api/v1/profiles/{id}",s.requireAuth(s.deleteOwnProfile))
+	mux.HandleFunc("POST /api/v1/profiles/{id}/select",s.requireAuth(s.selectProfile))
+	mux.HandleFunc("POST /api/v1/profiles/{id}/avatar",s.requireAuth(s.uploadOwnProfileAvatar))
 
-	mux.HandleFunc("GET /api/v1/libraries", s.requireAuth(s.listLibraries))
-	mux.HandleFunc("POST /api/v1/libraries", s.requireRole("manager", s.createLibrary))
-	mux.HandleFunc("PUT /api/v1/libraries/{id}", s.requireRole("manager", s.updateLibrary))
-	mux.HandleFunc("DELETE /api/v1/libraries/{id}", s.requireRole("manager", s.deleteLibrary))
-	mux.HandleFunc("POST /api/v1/libraries/{id}/scan", s.requireRole("operator", s.scanLibrary))
-	mux.HandleFunc("POST /api/v1/libraries/{id}/scan/cancel", s.requireRole("operator", s.cancelLibraryScan))
+	mux.HandleFunc("GET /api/v1/libraries",s.requireAuth(s.listLibraries))
+	mux.HandleFunc("POST /api/v1/libraries",s.requireRole("manager",s.createLibrary))
+	mux.HandleFunc("PUT /api/v1/libraries/{id}",s.requireRole("manager",s.updateLibrary))
+	mux.HandleFunc("DELETE /api/v1/libraries/{id}",s.requireRole("manager",s.deleteLibrary))
+	mux.HandleFunc("POST /api/v1/libraries/{id}/scan",s.requireRole("operator",s.scanLibrary))
+	mux.HandleFunc("POST /api/v1/libraries/{id}/scan/cancel",s.requireRole("operator",s.cancelLibraryScan))
 
-	mux.HandleFunc("GET /api/v1/categories", s.requireAuth(s.listCategories))
-	mux.HandleFunc("GET /api/v1/categories/{slug}", s.requireAuth(s.browseCategory))
-	mux.HandleFunc("GET /api/v1/home", s.requireAuth(s.homeFeed))
-	mux.HandleFunc("GET /api/v1/people", s.requireAuth(s.personTitles))
-	mux.HandleFunc("GET /api/v1/series", s.requireAuth(s.listSeries))
-	mux.HandleFunc("GET /api/v1/series/{id}", s.requireAuth(s.seriesDetails))
-	mux.HandleFunc("GET /api/v1/media", s.requireAuth(s.listMedia))
-	mux.HandleFunc("GET /api/v1/media/{id}", s.requireAuth(s.mediaDetails))
-	mux.HandleFunc("GET /api/v1/media/{id}/stream", s.requireAuth(s.streamMedia))
-	mux.HandleFunc("GET /api/v1/media/{id}/compatibility", s.requireAuth(s.mediaCompatibility))
-	mux.HandleFunc("GET /api/v1/media/{id}/remux", s.requireAuth(s.remuxMedia))
-	mux.HandleFunc("GET /api/v1/media/{id}/versions", s.requireAuth(s.mediaVersions))
-	mux.HandleFunc("GET /api/v1/media/{id}/subtitles", s.requireAuth(s.mediaSubtitles))
-	mux.HandleFunc("GET /api/v1/media/{id}/subtitles/{subtitle_id}/vtt", s.requireAuth(s.subtitleVTT))
-	mux.HandleFunc("POST /api/v1/media/{id}/playback", s.requireAuth(s.playbackHeartbeat))
-	mux.HandleFunc("DELETE /api/v1/media/{id}/playback", s.requireAuth(s.playbackStop))
+	mux.HandleFunc("GET /api/v1/categories",s.requireAuth(s.listCategories))
+	mux.HandleFunc("GET /api/v1/categories/{slug}",s.requireAuth(s.browseCategory))
+	mux.HandleFunc("GET /api/v1/home",s.requireAuth(s.homeFeed))
+	mux.HandleFunc("GET /api/v1/people",s.requireAuth(s.personTitles))
+	mux.HandleFunc("GET /api/v1/series",s.requireAuth(s.listSeries))
+	mux.HandleFunc("GET /api/v1/series/{id}",s.requireAuth(s.seriesDetails))
+	mux.HandleFunc("GET /api/v1/media",s.requireAuth(s.listMedia))
+	mux.HandleFunc("GET /api/v1/media/{id}",s.requireAuth(s.mediaDetails))
+	mux.HandleFunc("GET /api/v1/media/{id}/neighbors",s.requireAuth(s.mediaEpisodeNeighbors))
+	mux.HandleFunc("GET /api/v1/media/{id}/stream",s.requireAuth(s.streamMedia))
+	mux.HandleFunc("GET /api/v1/media/{id}/compatibility",s.requireAuth(s.mediaCompatibility))
+	mux.HandleFunc("GET /api/v1/media/{id}/remux",s.requireAuth(s.remuxMedia))
+	mux.HandleFunc("GET /api/v1/media/{id}/versions",s.requireAuth(s.mediaVersions))
+	mux.HandleFunc("GET /api/v1/media/{id}/subtitles",s.requireAuth(s.mediaSubtitles))
+	mux.HandleFunc("GET /api/v1/media/{id}/subtitles/{subtitle_id}/vtt",s.requireAuth(s.subtitleVTT))
+	mux.HandleFunc("POST /api/v1/media/{id}/playback",s.requireAuth(s.playbackHeartbeat))
+	mux.HandleFunc("DELETE /api/v1/media/{id}/playback",s.requireAuth(s.playbackStop))
 
-	mux.HandleFunc("GET /api/v1/music/home", s.requireAuth(s.musicHome))
-	mux.HandleFunc("GET /api/v1/music/tracks", s.requireAuth(s.musicTracks))
-	mux.HandleFunc("GET /api/v1/music/tracks/{id}", s.requireAuth(s.musicTrack))
-	mux.HandleFunc("GET /api/v1/music/tracks/{id}/stream", s.requireAuth(s.musicStream))
-	mux.HandleFunc("POST /api/v1/music/tracks/{id}/listening", s.requireAuth(s.musicListening))
-	mux.HandleFunc("POST /api/v1/music/tracks/{id}/favorite", s.requireAuth(s.musicFavorite))
-	mux.HandleFunc("GET /api/v1/music/tracks/{id}/lyrics", s.requireAuth(s.musicLyrics))
+	mux.HandleFunc("GET /api/v1/music/home",s.requireAuth(s.musicHome))
+	mux.HandleFunc("GET /api/v1/music/tracks",s.requireAuth(s.musicTracks))
+	mux.HandleFunc("GET /api/v1/music/tracks/{id}",s.requireAuth(s.musicTrack))
+	mux.HandleFunc("GET /api/v1/music/tracks/{id}/stream",s.requireAuth(s.musicStream))
+	mux.HandleFunc("POST /api/v1/music/tracks/{id}/listening",s.requireAuth(s.musicListening))
+	mux.HandleFunc("POST /api/v1/music/tracks/{id}/favorite",s.requireAuth(s.musicFavorite))
+	mux.HandleFunc("GET /api/v1/music/tracks/{id}/lyrics",s.requireAuth(s.musicLyrics))
 
-	mux.HandleFunc("GET /api/v1/admin/dashboard", s.requireRole("operator", s.adminDashboard))
-	mux.HandleFunc("GET /api/v1/admin/users", s.requireRole("admin", s.listUsers))
-	mux.HandleFunc("POST /api/v1/admin/users", s.requireRole("admin", s.createUser))
-	mux.HandleFunc("PUT /api/v1/admin/users/{id}", s.requireRole("admin", s.updateUser))
-	mux.HandleFunc("DELETE /api/v1/admin/users/{id}", s.requireRole("admin", s.deleteUser))
-	mux.HandleFunc("GET /api/v1/admin/users/{id}/profiles", s.requireRole("admin", s.adminUserProfiles))
-	mux.HandleFunc("POST /api/v1/admin/users/{id}/profiles", s.requireRole("admin", s.adminCreateProfile))
-	mux.HandleFunc("PUT /api/v1/admin/profiles/{id}", s.requireRole("admin", s.adminUpdateProfile))
-	mux.HandleFunc("DELETE /api/v1/admin/profiles/{id}", s.requireRole("admin", s.adminDeleteProfile))
+	// Jellyfin-compatible TV gateway. All routes stay isolated from the native API.
+	mux.HandleFunc("GET /jellyfin-api/System/Info/Public",s.jellyfinPublicInfo)
+	mux.HandleFunc("GET /jellyfin-api/Users/Public",s.jellyfinPublicUsers)
+	mux.HandleFunc("POST /jellyfin-api/Users/AuthenticateByName",s.jellyfinAuthenticate)
+	mux.HandleFunc("GET /jellyfin-api/System/Info",s.jellyfinRequireAuth(s.jellyfinSystemInfo))
+	mux.HandleFunc("POST /jellyfin-api/Sessions/Logout",s.jellyfinRequireAuth(s.jellyfinLogout))
+	mux.HandleFunc("GET /jellyfin-api/Users/{id}",s.jellyfinRequireAuth(s.jellyfinCurrentUser))
+	mux.HandleFunc("GET /jellyfin-api/Users/{id}/Views",s.jellyfinRequireAuth(s.jellyfinViews))
+	mux.HandleFunc("GET /jellyfin-api/Library/MediaFolders",s.jellyfinRequireAuth(s.jellyfinViews))
+	mux.HandleFunc("GET /jellyfin-api/Users/{id}/Items",s.jellyfinRequireAuth(s.jellyfinItems))
+	mux.HandleFunc("GET /jellyfin-api/Users/{id}/Items/Resume",s.jellyfinRequireAuth(s.jellyfinResume))
+	mux.HandleFunc("GET /jellyfin-api/Items/{id}",s.jellyfinRequireAuth(s.jellyfinItem))
+	mux.HandleFunc("GET /jellyfin-api/Items/{id}/Images/{kind}",s.jellyfinRequireAuth(s.jellyfinImage))
+	mux.HandleFunc("GET /jellyfin-api/Items/{id}/PlaybackInfo",s.jellyfinRequireAuth(s.jellyfinPlaybackInfo))
+	mux.HandleFunc("POST /jellyfin-api/Items/{id}/PlaybackInfo",s.jellyfinRequireAuth(s.jellyfinPlaybackInfo))
+	mux.HandleFunc("GET /jellyfin-api/Shows/{id}/Seasons",s.jellyfinRequireAuth(s.jellyfinSeasons))
+	mux.HandleFunc("GET /jellyfin-api/Shows/{id}/Episodes",s.jellyfinRequireAuth(s.jellyfinEpisodes))
+	mux.HandleFunc("GET /jellyfin-api/Videos/{id}/stream",s.jellyfinRequireAuth(s.jellyfinStream))
+	mux.HandleFunc("GET /jellyfin-api/Audio/{id}/stream",s.jellyfinRequireAuth(s.jellyfinStream))
+	mux.HandleFunc("GET /jellyfin-api/Videos/{id}/{subtitle_id}/Subtitles/{index}/Stream.vtt",s.jellyfinRequireAuth(s.jellyfinSubtitle))
+	mux.HandleFunc("POST /jellyfin-api/Sessions/Playing",s.jellyfinRequireAuth(s.jellyfinProgress))
+	mux.HandleFunc("POST /jellyfin-api/Sessions/Playing/Progress",s.jellyfinRequireAuth(s.jellyfinProgress))
+	mux.HandleFunc("POST /jellyfin-api/Sessions/Playing/Stopped",s.jellyfinRequireAuth(s.jellyfinStopped))
 
-	mux.HandleFunc("GET /api/v1/admin/catalog", s.requireRole("operator", s.adminCatalog))
-	mux.HandleFunc("GET /api/v1/admin/catalog/{id}/matches", s.requireRole("manager", s.adminCatalogMatches))
-	mux.HandleFunc("POST /api/v1/admin/catalog/{id}/match", s.requireRole("manager", s.adminCatalogMatch))
-	mux.HandleFunc("POST /api/v1/admin/catalog/{id}/auto", s.requireRole("manager", s.adminCatalogAuto))
-	mux.HandleFunc("GET /api/v1/admin/categories", s.requireRole("manager", s.adminCategories))
-	mux.HandleFunc("POST /api/v1/admin/categories", s.requireRole("manager", s.createCategory))
-	mux.HandleFunc("PUT /api/v1/admin/categories/{id}", s.requireRole("manager", s.updateCategory))
-	mux.HandleFunc("DELETE /api/v1/admin/categories/{id}", s.requireRole("manager", s.deleteCategory))
-	mux.HandleFunc("POST /api/v1/admin/libraries/{id}/consolidate", s.requireRole("manager", s.consolidateLibraryCopies))
-	mux.HandleFunc("POST /api/v1/admin/music/index", s.requireRole("operator", s.adminMusicIndex))
+	mux.HandleFunc("GET /api/v1/admin/dashboard",s.requireRole("operator",s.adminDashboard))
+	mux.HandleFunc("GET /api/v1/admin/users",s.requireRole("admin",s.listUsers))
+	mux.HandleFunc("POST /api/v1/admin/users",s.requireRole("admin",s.createUser))
+	mux.HandleFunc("PUT /api/v1/admin/users/{id}",s.requireRole("admin",s.updateUser))
+	mux.HandleFunc("DELETE /api/v1/admin/users/{id}",s.requireRole("admin",s.deleteUser))
+	mux.HandleFunc("GET /api/v1/admin/users/{id}/profiles",s.requireRole("admin",s.adminUserProfiles))
+	mux.HandleFunc("POST /api/v1/admin/users/{id}/profiles",s.requireRole("admin",s.adminCreateProfile))
+	mux.HandleFunc("PUT /api/v1/admin/profiles/{id}",s.requireRole("admin",s.adminUpdateProfile))
+	mux.HandleFunc("DELETE /api/v1/admin/profiles/{id}",s.requireRole("admin",s.adminDeleteProfile))
+	mux.HandleFunc("GET /api/v1/admin/catalog",s.requireRole("operator",s.adminCatalog))
+	mux.HandleFunc("GET /api/v1/admin/catalog/{id}/matches",s.requireRole("manager",s.adminCatalogMatches))
+	mux.HandleFunc("POST /api/v1/admin/catalog/{id}/match",s.requireRole("manager",s.adminCatalogMatch))
+	mux.HandleFunc("POST /api/v1/admin/catalog/{id}/auto",s.requireRole("manager",s.adminCatalogAuto))
+	mux.HandleFunc("GET /api/v1/admin/categories",s.requireRole("manager",s.adminCategories))
+	mux.HandleFunc("POST /api/v1/admin/categories",s.requireRole("manager",s.createCategory))
+	mux.HandleFunc("PUT /api/v1/admin/categories/{id}",s.requireRole("manager",s.updateCategory))
+	mux.HandleFunc("DELETE /api/v1/admin/categories/{id}",s.requireRole("manager",s.deleteCategory))
+	mux.HandleFunc("POST /api/v1/admin/libraries/{id}/consolidate",s.requireRole("manager",s.consolidateLibraryCopies))
+	mux.HandleFunc("POST /api/v1/admin/music/index",s.requireRole("operator",s.adminMusicIndex))
+	mux.HandleFunc("GET /api/v1/admin/cleanup",s.requireRole("admin",s.cleanupStatus))
+	mux.HandleFunc("POST /api/v1/admin/cleanup",s.requireRole("admin",s.runCleanup))
+	mux.HandleFunc("GET /api/v1/admin/sessions",s.requireRole("admin",s.listSessions))
+	mux.HandleFunc("DELETE /api/v1/admin/sessions/{id}",s.requireRole("admin",s.revokeSession))
+	mux.HandleFunc("GET /api/v1/admin/logs",s.requireRole("operator",s.logs))
+	mux.HandleFunc("GET /api/v1/admin/storage",s.requireRole("operator",s.storage))
+	mux.HandleFunc("GET /api/v1/admin/playbacks",s.requireRole("operator",s.playbacks))
+	mux.HandleFunc("GET /api/v1/admin/monitoring",s.requireRole("operator",s.monitoringOverview))
+	mux.HandleFunc("GET /api/v1/admin/server",s.requireRole("operator",s.serverInfo))
+	mux.HandleFunc("GET /api/v1/admin/filesystem",s.requireRole("manager",s.browseFilesystem))
+	mux.HandleFunc("GET /api/v1/admin/agents",s.requireRole("operator",s.agentStatus))
+	mux.HandleFunc("POST /api/v1/admin/agents/tmdb/test",s.requireRole("operator",s.testTMDBAgent))
+	mux.HandleFunc("GET /api/v1/admin/settings",s.requireRole("admin",s.getSettings))
+	mux.HandleFunc("PUT /api/v1/admin/settings",s.requireRole("admin",s.updateSettings))
+	mux.HandleFunc("GET /api/v1/admin/metadata/status",s.requireRole("operator",s.metadataStatus))
+	mux.HandleFunc("GET /api/v1/admin/metadata/errors",s.requireRole("operator",s.metadataErrors))
+	mux.HandleFunc("GET /api/v1/admin/metadata/jobs",s.requireRole("operator",s.metadataJobs))
+	mux.HandleFunc("POST /api/v1/admin/libraries/{id}/metadata",s.requireRole("operator",s.startMetadataJob))
+	mux.HandleFunc("POST /api/v1/admin/libraries/{id}/metadata/errors/retry",s.requireRole("operator",s.retryMetadataErrors))
+	mux.HandleFunc("POST /api/v1/admin/media/{id}/metadata",s.requireRole("operator",s.refreshMediaMetadata))
+	mux.HandleFunc("GET /api/v1/admin/media/{id}/artwork",s.requireRole("operator",s.mediaArtwork))
+	mux.HandleFunc("POST /api/v1/admin/media/{id}/artwork/{artwork_id}/select",s.requireRole("manager",s.selectMediaArtwork))
+	mux.HandleFunc("GET /api/v1/admin/subtitles/jobs",s.requireRole("operator",s.subtitleJobs))
+	mux.HandleFunc("POST /api/v1/admin/libraries/{id}/subtitles",s.requireRole("operator",s.startSubtitleJob))
 
-	mux.HandleFunc("GET /api/v1/admin/cleanup", s.requireRole("admin", s.cleanupStatus))
-	mux.HandleFunc("POST /api/v1/admin/cleanup", s.requireRole("admin", s.runCleanup))
-	mux.HandleFunc("GET /api/v1/admin/sessions", s.requireRole("admin", s.listSessions))
-	mux.HandleFunc("DELETE /api/v1/admin/sessions/{id}", s.requireRole("admin", s.revokeSession))
-	mux.HandleFunc("GET /api/v1/admin/logs", s.requireRole("operator", s.logs))
-	mux.HandleFunc("GET /api/v1/admin/storage", s.requireRole("operator", s.storage))
-	mux.HandleFunc("GET /api/v1/admin/playbacks", s.requireRole("operator", s.playbacks))
-	mux.HandleFunc("GET /api/v1/admin/monitoring", s.requireRole("operator", s.monitoringOverview))
-	mux.HandleFunc("GET /api/v1/admin/server", s.requireRole("operator", s.serverInfo))
-	mux.HandleFunc("GET /api/v1/admin/filesystem", s.requireRole("manager", s.browseFilesystem))
-	mux.HandleFunc("GET /api/v1/admin/agents", s.requireRole("operator", s.agentStatus))
-	mux.HandleFunc("POST /api/v1/admin/agents/tmdb/test", s.requireRole("operator", s.testTMDBAgent))
-	mux.HandleFunc("GET /api/v1/admin/settings", s.requireRole("admin", s.getSettings))
-	mux.HandleFunc("PUT /api/v1/admin/settings", s.requireRole("admin", s.updateSettings))
-	mux.HandleFunc("GET /api/v1/admin/metadata/status", s.requireRole("operator", s.metadataStatus))
-	mux.HandleFunc("GET /api/v1/admin/metadata/errors", s.requireRole("operator", s.metadataErrors))
-	mux.HandleFunc("GET /api/v1/admin/metadata/jobs", s.requireRole("operator", s.metadataJobs))
-	mux.HandleFunc("POST /api/v1/admin/libraries/{id}/metadata", s.requireRole("operator", s.startMetadataJob))
-	mux.HandleFunc("POST /api/v1/admin/libraries/{id}/metadata/errors/retry", s.requireRole("operator", s.retryMetadataErrors))
-	mux.HandleFunc("POST /api/v1/admin/media/{id}/metadata", s.requireRole("operator", s.refreshMediaMetadata))
-	mux.HandleFunc("GET /api/v1/admin/media/{id}/artwork", s.requireRole("operator", s.mediaArtwork))
-	mux.HandleFunc("POST /api/v1/admin/media/{id}/artwork/{artwork_id}/select", s.requireRole("manager", s.selectMediaArtwork))
-	mux.HandleFunc("GET /api/v1/admin/subtitles/jobs", s.requireRole("operator", s.subtitleJobs))
-	mux.HandleFunc("POST /api/v1/admin/libraries/{id}/subtitles", s.requireRole("operator", s.startSubtitleJob))
-
-	mux.HandleFunc("GET /assets/", s.requireAuth(s.serveAsset))
-
-	staticFS, err := fs.Sub(webui.Static, "static")
-	if err != nil {
-		panic(err)
-	}
-	mux.Handle("/", http.FileServer(http.FS(staticFS)))
+	mux.HandleFunc("GET /assets/",s.requireAuth(s.serveAsset))
+	staticFS,err:=fs.Sub(webui.Static,"static");if err!=nil{panic(err)}
+	mux.Handle("/",http.FileServer(http.FS(staticFS)))
 	return requestLogger(recoverer(securityHeaders(mux)))
 }
