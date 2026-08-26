@@ -38,6 +38,7 @@ jobs:
           node --check internal/webui/static/admin/admin-enhancements.js
           node --check internal/webui/static/admin/admin-monitoring.js
           node --check internal/webui/static/admin/admin-v3.js
+          node --check internal/webui/static/admin/admin-v4.js
           node --check internal/webui/static/app.js
           node --check internal/webui/static/series-ui.js
           node --check internal/webui/static/series-rules.js

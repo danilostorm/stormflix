@@ -20,7 +20,7 @@ import (
 )
 
 const sessionCookie = "stormflix_session"
-const version = "0.7.0-profiles-categories"
+const version = "0.8.0-multi-source-admin"
 
 type contextKey string
 

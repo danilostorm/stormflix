@@ -1,24 +1,66 @@
 let folderTarget=null;
 
 window.editLibrary=id=>{
-  const l=libs.find(x=>x.id===id)||{name:'',kind:'movies',path:'',enabled:true};
-  $('#lib-form').innerHTML=`<form class="form" id="library-editor">
-    <input id="lib-name" value="${esc(l.name)}" placeholder="Nome" required>
-    <select id="lib-kind"><option value="movies">Filmes</option><option value="series">Séries</option><option value="anime">Animes</option><option value="shows">Shows</option><option value="other">Outros</option></select>
-    <div class="wide path-picker"><input id="lib-path" value="${esc(l.path)}" placeholder="/media/Filmes" required readonly><button type="button" id="browse-path">Selecionar pasta</button></div>
-    <label><input id="lib-enabled" type="checkbox" ${l.enabled?'checked':''}> Ativa</label>
-    <button class="primary">Salvar</button>
+  const l=libs.find(x=>Number(x.id)===Number(id))||{name:'',kind:'movies',path:'',paths:[],enabled:true};
+  const initialPaths=(Array.isArray(l.paths)&&l.paths.length?l.paths:[l.path||'']).filter((v,i,a)=>v||a.length===1);
+  $('#lib-form').innerHTML=`<form id="library-editor" class="library-editor-card">
+    <div class="library-editor-head">
+      <div><p class="kicker">${id?'Editar biblioteca':'Nova biblioteca'}</p><h2>${id?esc(l.name||'Biblioteca'):'Criar biblioteca'}</h2><p>Uma biblioteca pode reunir várias pastas/remotes como uma única coleção.</p></div>
+      <button type="button" class="ghost library-editor-close" id="library-editor-close">Fechar</button>
+    </div>
+    <div class="library-main-fields">
+      <label class="field"><span>Nome da biblioteca</span><input id="lib-name" value="${esc(l.name)}" placeholder="Ex.: Filmes Animação" required></label>
+      <label class="field"><span>Tipo de conteúdo</span><select id="lib-kind"><option value="movies">Filmes</option><option value="series">Séries</option><option value="anime">Animes</option><option value="mixed">Filmes + Anime misto</option><option value="shows">Shows</option><option value="other">Outros</option></select></label>
+      <label class="toggle-field"><input id="lib-enabled" type="checkbox" ${l.enabled?'checked':''}><span><b>Biblioteca ativa</b><small>Permite scan e exibição no catálogo.</small></span></label>
+    </div>
+    <div class="library-sources-block">
+      <div class="library-sources-head"><div><h3>Origens da biblioteca</h3><p>Adicione um caminho para cada Drive/remote que pertence a esta mesma biblioteca.</p></div><button type="button" id="add-library-source">+ Adicionar origem</button></div>
+      <div id="library-source-list" class="library-source-list"></div>
+    </div>
+    <div id="library-kind-hint" class="library-kind-hint"></div>
+    <div class="library-editor-footer"><span class="muted">Os arquivos nos remotes nunca são movidos nem apagados ao salvar.</span><button class="primary" type="submit">Salvar biblioteca</button></div>
   </form>`;
-  $('#lib-kind').value=l.kind;
-  $('#browse-path').onclick=()=>openFolderBrowser($('#lib-path'));
+  $('#lib-kind').value=l.kind||'movies';
+  const sourceList=$('#library-source-list');
+  const renderSources=paths=>{
+    const values=paths.length?paths:[''];
+    sourceList.innerHTML=values.map((path,index)=>`<div class="library-source-row" data-source-row>
+      <div class="source-index"><b>${index+1}</b><span>Origem ${index+1}</span></div>
+      <div class="source-path-wrap"><input data-source-path value="${esc(path)}" placeholder="/media/remote/Filmes Animação" readonly required><button type="button" data-browse-source>Selecionar pasta</button></div>
+      <span class="source-state ${path&&libs.some(lib=>(lib.paths||[lib.path]).includes(path)&&lib.online)?'online':''}">${path?'Drive / pasta':'Não selecionada'}</span>
+      <button type="button" class="danger source-remove" data-remove-source ${values.length===1?'disabled':''}>Remover</button>
+    </div>`).join('');
+    sourceList.querySelectorAll('[data-browse-source]').forEach(button=>button.onclick=()=>openFolderBrowser(button.closest('[data-source-row]').querySelector('[data-source-path]')));
+    sourceList.querySelectorAll('[data-remove-source]').forEach(button=>button.onclick=()=>{
+      const all=[...sourceList.querySelectorAll('[data-source-path]')].map(input=>input.value);
+      const index=[...sourceList.querySelectorAll('[data-source-row]')].indexOf(button.closest('[data-source-row]'));
+      all.splice(index,1);renderSources(all);
+    });
+  };
+  renderSources(initialPaths);
+  $('#add-library-source').onclick=()=>{
+    const paths=[...sourceList.querySelectorAll('[data-source-path]')].map(input=>input.value);
+    paths.push('');renderSources(paths);
+    const last=[...sourceList.querySelectorAll('[data-source-path]')].at(-1);if(last)openFolderBrowser(last);
+  };
+  $('#library-editor-close').onclick=()=>{$('#lib-form').innerHTML=''};
+  const updateHint=()=>{
+    const kind=$('#lib-kind').value;
+    const messages={mixed:'TMDB identifica filmes; AniList/AniDB/MyAnimeList complementam animes.',anime:'AniList é o agente principal; AniDB/MyAnimeList e AnimeAPI ajudam na identificação.',series:'TMDB organiza séries, temporadas e episódios.',movies:'TMDB + Fanart.tv para filmes.'};
+    $('#library-kind-hint').innerHTML=`<b>Estratégia:</b> ${messages[kind]||'Metadados conforme o tipo selecionado.'}`;
+  };
+  $('#lib-kind').addEventListener('change',updateHint);updateHint();
   const f=$('#library-editor');
   f.onsubmit=async e=>{
     e.preventDefault();
-    const body={name:$('#lib-name').value,kind:$('#lib-kind').value,path:$('#lib-path').value,enabled:$('#lib-enabled').checked};
+    const paths=[...sourceList.querySelectorAll('[data-source-path]')].map(input=>input.value.trim()).filter(Boolean);
+    if(!paths.length){notice('Adicione pelo menos uma origem para a biblioteca.');return}
+    const body={name:$('#lib-name').value.trim(),kind:$('#lib-kind').value,paths,path:paths[0],enabled:$('#lib-enabled').checked};
     try{
       await req(id?`/libraries/${id}`:'/libraries',{method:id?'PUT':'POST',body:JSON.stringify(body)});
-      notice('Biblioteca salva.',true);
-      loadLibraries();
+      notice('Biblioteca salva com '+paths.length+' origem(ns).',true);
+      $('#lib-form').innerHTML='';
+      await loadLibraries();
     }catch(err){notice(err.message)}
   };
 };

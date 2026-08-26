@@ -12,18 +12,23 @@ import (
 )
 
 type ManagedLibrary struct {
-	ID             int64   `json:"id"`
-	Name           string  `json:"name"`
-	Kind           string  `json:"kind"`
-	Path           string  `json:"path"`
-	Enabled        bool    `json:"enabled"`
-	LastScanAt     *string `json:"last_scan_at"`
-	LastScanStatus string  `json:"last_scan_status"`
-	LastError      string  `json:"last_error"`
-	Online         bool    `json:"online"`
-	MediaCount     int64   `json:"media_count"`
-	CreatedAt      string  `json:"created_at"`
-	UpdatedAt      string  `json:"updated_at"`
+	ID             int64           `json:"id"`
+	Name           string          `json:"name"`
+	Kind           string          `json:"kind"`
+	Path           string          `json:"path"`
+	Paths          []string        `json:"paths"`
+	Sources        []LibrarySource `json:"sources"`
+	SourceCount    int             `json:"source_count"`
+	OnlineSources  int             `json:"online_sources"`
+	OfflineSources int             `json:"offline_sources"`
+	Enabled        bool            `json:"enabled"`
+	LastScanAt     *string         `json:"last_scan_at"`
+	LastScanStatus string          `json:"last_scan_status"`
+	LastError      string          `json:"last_error"`
+	Online         bool            `json:"online"`
+	MediaCount     int64           `json:"media_count"`
+	CreatedAt      string          `json:"created_at"`
+	UpdatedAt      string          `json:"updated_at"`
 }
 
 func (s *Service) ManagedList(ctx context.Context) ([]ManagedLibrary, error) {
@@ -32,51 +37,66 @@ func (s *Service) ManagedList(ctx context.Context) ([]ManagedLibrary, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	out := []ManagedLibrary{}
 	for rows.Next() {
 		var v ManagedLibrary
 		if err := rows.Scan(&v.ID, &v.Name, &v.Kind, &v.Path, &v.Enabled, &v.LastScanAt, &v.LastScanStatus, &v.LastError, &v.CreatedAt, &v.UpdatedAt, &v.MediaCount); err != nil {
+			_ = rows.Close()
 			return nil, err
 		}
-		v.Online = dirOnline(v.Path)
 		out = append(out, v)
 	}
-	return out, rows.Err()
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	for i := range out {
+		if err := s.enrichManagedSources(ctx, &out[i]); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 func (s *Service) ManagedGet(ctx context.Context, id int64) (ManagedLibrary, error) {
 	var v ManagedLibrary
 	err := s.db.QueryRowContext(ctx, `SELECT l.id,l.name,l.kind,l.path,l.enabled,l.last_scan_at,l.last_scan_status,l.last_error,l.created_at,l.updated_at,(SELECT COUNT(*) FROM media m WHERE m.library_id=l.id AND m.available=1) FROM libraries l WHERE l.id=?`, id).Scan(&v.ID, &v.Name, &v.Kind, &v.Path, &v.Enabled, &v.LastScanAt, &v.LastScanStatus, &v.LastError, &v.CreatedAt, &v.UpdatedAt, &v.MediaCount)
-	if err == nil {
-		v.Online = dirOnline(v.Path)
+	if err != nil {
+		return v, err
 	}
-	return v, err
+	if err := s.enrichManagedSources(ctx, &v); err != nil {
+		return ManagedLibrary{}, err
+	}
+	return v, nil
+}
+
+func (s *Service) enrichManagedSources(ctx context.Context, v *ManagedLibrary) error {
+	sources, err := s.Sources(ctx, v.ID)
+	if err != nil {
+		return err
+	}
+	if len(sources) == 0 && strings.TrimSpace(v.Path) != "" {
+		sources = []LibrarySource{{LibraryID: v.ID, Path: v.Path, Label: "Origem 1", Enabled: true, Online: dirOnline(v.Path)}}
+	}
+	v.Sources = sources
+	v.Paths = make([]string, 0, len(sources))
+	v.OnlineSources = 0
+	for _, source := range sources {
+		v.Paths = append(v.Paths, source.Path)
+		if source.Online {
+			v.OnlineSources++
+		}
+	}
+	v.SourceCount = len(sources)
+	v.OfflineSources = v.SourceCount - v.OnlineSources
+	v.Online = v.OnlineSources > 0
+	if len(v.Paths) > 0 {
+		v.Path = v.Paths[0]
+	}
+	return nil
 }
 
 func (s *Service) AdminUpdate(ctx context.Context, id int64, name, kind, path string, enabled bool) (ManagedLibrary, error) {
-	name = strings.TrimSpace(name)
-	kind = strings.TrimSpace(strings.ToLower(kind))
-	path = strings.TrimSpace(path)
-	if name == "" || path == "" {
-		return ManagedLibrary{}, errors.New("name and path are required")
-	}
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return ManagedLibrary{}, err
-	}
-	if enabled && !dirOnline(abs) {
-		return ManagedLibrary{}, fmt.Errorf("library path is unavailable: %s", abs)
-	}
-	res, err := s.db.ExecContext(ctx, `UPDATE libraries SET name=?,kind=?,path=?,enabled=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, name, kind, abs, enabled, id)
-	if err != nil {
-		return ManagedLibrary{}, err
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return ManagedLibrary{}, sql.ErrNoRows
-	}
-	return s.ManagedGet(ctx, id)
+	return s.AdminUpdateMulti(ctx, id, name, kind, []string{path}, enabled)
 }
 
 func (s *Service) AdminDelete(ctx context.Context, id int64) error {
@@ -97,8 +117,8 @@ func (s *Service) AdminDelete(ctx context.Context, id int64) error {
 	return nil
 }
 
-// StartAdminScan validates the mount and starts a bounded background scan.
-// The HTTP request returns immediately so a slow rclone mount never holds the browser open.
+// StartAdminScan validates at least one source and starts a bounded background scan.
+// Offline sources are preserved instead of being interpreted as deleted media.
 func (s *Service) StartAdminScan(ctx context.Context, id int64) (ManagedLibrary, error) {
 	v, err := s.ManagedGet(ctx, id)
 	if err != nil {
@@ -107,8 +127,8 @@ func (s *Service) StartAdminScan(ctx context.Context, id int64) (ManagedLibrary,
 	if !v.Enabled {
 		return ManagedLibrary{}, errors.New("library is disabled")
 	}
-	if !dirOnline(v.Path) {
-		msg := "storage offline; catalog preserved"
+	if v.OnlineSources == 0 {
+		msg := "all library sources are offline; catalog preserved"
 		_, _ = s.db.ExecContext(ctx, `UPDATE libraries SET last_scan_status='offline',last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, msg, id)
 		return ManagedLibrary{}, errors.New(msg)
 	}
@@ -123,7 +143,8 @@ func (s *Service) StartAdminScan(ctx context.Context, id int64) (ManagedLibrary,
 	s.scanCancel[id] = cancel
 	s.scanMu.Unlock()
 
-	if _, err := s.db.ExecContext(ctx, `UPDATE libraries SET last_scan_status='running',last_error='queued',updated_at=CURRENT_TIMESTAMP WHERE id=?`, id); err != nil {
+	queued := fmt.Sprintf("queued · %d/%d sources online", v.OnlineSources, v.SourceCount)
+	if _, err := s.db.ExecContext(ctx, `UPDATE libraries SET last_scan_status='running',last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, queued, id); err != nil {
 		cancel()
 		s.clearScan(id)
 		return ManagedLibrary{}, err
@@ -131,7 +152,7 @@ func (s *Service) StartAdminScan(ctx context.Context, id int64) (ManagedLibrary,
 
 	go s.runAdminScan(id, scanCtx, cancel)
 	v.LastScanStatus = "running"
-	v.LastError = "queued"
+	v.LastError = queued
 	return v, nil
 }
 
@@ -139,13 +160,15 @@ func (s *Service) runAdminScan(id int64, ctx context.Context, cancel context.Can
 	defer cancel()
 	defer s.clearScan(id)
 
-	result, err := s.Scan(ctx, id)
+	result, err := s.ScanMulti(ctx, id)
 	if err != nil {
 		status := "error"
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
 			status = "timeout"
 		} else if errors.Is(ctx.Err(), context.Canceled) || errors.Is(err, context.Canceled) {
 			status = "cancelled"
+		} else if strings.Contains(strings.ToLower(err.Error()), "offline") {
+			status = "offline"
 		}
 		message := err.Error()
 		if status == "cancelled" {
@@ -154,7 +177,13 @@ func (s *Service) runAdminScan(id int64, ctx context.Context, cancel context.Can
 		_, _ = s.db.Exec(`UPDATE libraries SET last_scan_status=?,last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, status, message, id)
 		return
 	}
-	_, _ = s.db.Exec(`UPDATE libraries SET last_scan_at=CURRENT_TIMESTAMP,last_scan_status='ok',last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, fmt.Sprintf("%d files · %d ms", result.Files, result.DurationMS), id)
+	status := "ok"
+	message := fmt.Sprintf("%d files · %d/%d sources scanned · %d ms", result.Files, result.SourcesScanned, result.SourcesScanned+result.SourcesOffline, result.DurationMS)
+	if result.SourcesOffline > 0 {
+		status = "partial"
+		message += fmt.Sprintf(" · %d source(s) offline preserved", result.SourcesOffline)
+	}
+	_, _ = s.db.Exec(`UPDATE libraries SET last_scan_at=CURRENT_TIMESTAMP,last_scan_status=?,last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, status, message, id)
 }
 
 func (s *Service) CancelAdminScan(ctx context.Context, id int64) error {
@@ -222,19 +251,25 @@ func (s *Service) AdminScan(ctx context.Context, id int64) (ScanResult, error) {
 	if !v.Enabled {
 		return ScanResult{}, errors.New("library is disabled")
 	}
-	if !dirOnline(v.Path) {
-		msg := "storage offline; catalog preserved"
+	if v.OnlineSources == 0 {
+		msg := "all library sources are offline; catalog preserved"
 		_, _ = s.db.ExecContext(ctx, `UPDATE libraries SET last_scan_status='offline',last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, msg, id)
 		return ScanResult{}, errors.New(msg)
 	}
 	_, _ = s.db.ExecContext(ctx, `UPDATE libraries SET last_scan_status='running',last_error='',updated_at=CURRENT_TIMESTAMP WHERE id=?`, id)
-	result, err := s.Scan(ctx, id)
+	result, err := s.ScanMulti(ctx, id)
 	if err != nil {
 		_, _ = s.db.ExecContext(context.Background(), `UPDATE libraries SET last_scan_status='error',last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, err.Error(), id)
-		return result, err
+		return ScanResult{}, err
 	}
-	_, _ = s.db.ExecContext(context.Background(), `UPDATE libraries SET last_scan_at=CURRENT_TIMESTAMP,last_scan_status='ok',last_error='',updated_at=CURRENT_TIMESTAMP WHERE id=?`, id)
-	return result, nil
+	status := "ok"
+	message := ""
+	if result.SourcesOffline > 0 {
+		status = "partial"
+		message = fmt.Sprintf("%d source(s) offline preserved", result.SourcesOffline)
+	}
+	_, _ = s.db.ExecContext(context.Background(), `UPDATE libraries SET last_scan_at=CURRENT_TIMESTAMP,last_scan_status=?,last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, status, message, id)
+	return ScanResult{LibraryID: result.LibraryID, Files: result.Files, DurationMS: result.DurationMS}, nil
 }
 
 func (s *Service) clearScan(id int64) {
@@ -258,4 +293,12 @@ func (s *Service) setScanRunning(id int64, value bool) {
 func dirOnline(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
+}
+
+func cleanLibraryPath(path string) string {
+	abs, err := filepath.Abs(strings.TrimSpace(path))
+	if err != nil {
+		return strings.TrimSpace(path)
+	}
+	return filepath.Clean(abs)
 }

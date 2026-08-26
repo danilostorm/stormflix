@@ -40,25 +40,26 @@ func (s *server) listLibraries(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) createLibrary(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Name    string `json:"name"`
-		Kind    string `json:"kind"`
-		Path    string `json:"path"`
-		Enabled bool   `json:"enabled"`
+		Name    string   `json:"name"`
+		Kind    string   `json:"kind"`
+		Path    string   `json:"path"`
+		Paths   []string `json:"paths"`
+		Enabled bool     `json:"enabled"`
 	}
 	if decodeJSON(w, r, &in) != nil {
 		return
 	}
-	if err := s.libraries.ValidateLibraryPath(r.Context(), 0, in.Path); err != nil {
-		writeError(w, http.StatusConflict, err)
-		return
+	paths := in.Paths
+	if len(paths) == 0 && strings.TrimSpace(in.Path) != "" {
+		paths = []string{in.Path}
 	}
-	v, err := s.libraries.Create(r.Context(), in.Name, in.Kind, in.Path)
+	v, err := s.libraries.CreateMulti(r.Context(), in.Name, in.Kind, paths, in.Enabled)
 	if err != nil {
 		writeError(w, 400, err)
 		return
 	}
 	uid := currentUser(r).ID
-	s.admin.Log(r.Context(), "info", "library", "Library created", &uid, v.Path)
+	s.admin.Log(r.Context(), "info", "library", "Library created", &uid, strings.Join(v.Paths, " | "))
 	writeJSON(w, 201, v)
 }
 
@@ -69,19 +70,20 @@ func (s *server) updateLibrary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Name    string `json:"name"`
-		Kind    string `json:"kind"`
-		Path    string `json:"path"`
-		Enabled bool   `json:"enabled"`
+		Name    string   `json:"name"`
+		Kind    string   `json:"kind"`
+		Path    string   `json:"path"`
+		Paths   []string `json:"paths"`
+		Enabled bool     `json:"enabled"`
 	}
 	if decodeJSON(w, r, &in) != nil {
 		return
 	}
-	if err := s.libraries.ValidateLibraryPath(r.Context(), id, in.Path); err != nil {
-		writeError(w, http.StatusConflict, err)
-		return
+	paths := in.Paths
+	if len(paths) == 0 && strings.TrimSpace(in.Path) != "" {
+		paths = []string{in.Path}
 	}
-	v, err := s.libraries.AdminUpdate(r.Context(), id, in.Name, in.Kind, in.Path, in.Enabled)
+	v, err := s.libraries.AdminUpdateMulti(r.Context(), id, in.Name, in.Kind, paths, in.Enabled)
 	if err != nil {
 		writeError(w, 400, err)
 		return
@@ -107,7 +109,7 @@ func (s *server) deleteLibrary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uid := currentUser(r).ID
-	s.admin.Log(r.Context(), "info", "library", "Library removed from catalog; files untouched", &uid, v.Path)
+	s.admin.Log(r.Context(), "info", "library", "Library removed from catalog; files untouched", &uid, strings.Join(v.Paths, " | "))
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 
@@ -125,7 +127,7 @@ func (s *server) scanLibrary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.admin.Log(r.Context(), "info", "scanner", "Library scan started", &uid, lib.Name)
-	writeJSON(w, http.StatusAccepted, map[string]any{"status": "running", "library_id": id, "message": "scan started in background"})
+	writeJSON(w, http.StatusAccepted, map[string]any{"status": "running", "library_id": id, "message": "scan started in background", "sources": lib.SourceCount, "online_sources": lib.OnlineSources})
 }
 
 func (s *server) cancelLibraryScan(w http.ResponseWriter, r *http.Request) {

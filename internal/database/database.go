@@ -46,6 +46,10 @@ func Open(path string) (*sql.DB, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := migratePhase4(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return db, nil
 }
 
