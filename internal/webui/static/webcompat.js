@@ -46,7 +46,7 @@
       if(document.querySelector('#player-modal')?.classList.contains('hidden'))return plan;
       window.sfLastCompatibilityPlan=plan;
       if(plan.available&&plan.audio_transcode){
-        if(typeof sfToast==='function')sfToast('Áudio não-AAC detectado · ativando compatibilidade');
+        if(typeof sfToast==='function')sfToast('Áudio não-AAC detectado · preparando compatibilidade');
         await useCompatibility(item,false,plan);
       }
       return plan;
@@ -58,6 +58,18 @@
     const generation=++playbackGeneration;
     return autoAudioCompatibility(item,generation);
   };
+
+  async function prepareCompatibility(id,plan,manual){
+    setHelp(plan.audio_transcode
+      ?'Preparando áudio AAC compatível. O vídeo original será mantido sem reencode…'
+      :'Preparando MP4 compatível sem reencode…',true);
+    const prepared=await request(`/media/${id}/remux/prepare?audio=aac`,{method:'POST',body:'{}'});
+    if(!prepared?.ready)throw new Error('O arquivo de compatibilidade não ficou pronto.');
+    if(prepared.audio_transcode&&String(prepared.audio_codec||'').toLowerCase()!=='aac')throw new Error('O servidor não confirmou áudio AAC no arquivo preparado.');
+    if(!prepared.seekable)throw new Error('O arquivo preparado não ficou seekable.');
+    if(manual&&typeof sfToast==='function')sfToast('Compatibilidade pronta');
+    return prepared;
+  }
 
   async function useCompatibility(item,manual=false,knownPlan=null){
     if(!item?.id)throw new Error('Mídia não disponível');
@@ -72,8 +84,9 @@
     audioFallbackActive=Boolean(plan.audio_transcode);
     setPlaybackMode(audioFallbackActive?'direct_stream_audio_aac':'web_remux',plan);
 
+    const prepared=await prepareCompatibility(id,plan,manual);
     if(audioFallbackActive){
-      setHelp('Modo compatibilidade: vídeo original sem reencode; somente o áudio é convertido para AAC.',manual);
+      setHelp('Modo compatibilidade: vídeo original sem reencode; somente o áudio foi convertido para AAC.',manual);
       if(typeof sfToast==='function')sfToast('Áudio compatível AAC · vídeo original');
     }else{
       setHelp(plan.confidence==='conditional'
@@ -82,7 +95,8 @@
       if(typeof sfToast==='function')sfToast('Web Remux · vídeo original');
     }
 
-    player.src=`${api}/media/${id}/remux?audio=aac`;
+    const compatibilityURL=prepared.url||`/api/v1/media/${id}/remux?audio=aac`;
+    player.src=compatibilityURL.startsWith('/api/')?compatibilityURL:`${api}/media/${id}/remux?audio=aac`;
     player.load();
     player.addEventListener('loadedmetadata',function restore(){
       if(oldTime>0&&Number.isFinite(player.duration)&&oldTime<player.duration)player.currentTime=oldTime;
@@ -128,7 +142,7 @@
     const currentSrc=String(player.currentSrc||player.src||'');
     if(remuxActive||currentSrc.includes('/remux')){
       showCompatibilityError(audioFallbackActive
-        ?'O vídeo foi mantido e o áudio já foi convertido para AAC, mas este navegador ainda não conseguiu reproduzir o arquivo. O problema restante provavelmente é o codec de vídeo.'
+        ?'O vídeo foi mantido e o áudio foi convertido para AAC, mas este navegador ainda não conseguiu reproduzir o arquivo.'
         :'O remux foi tentado, mas o codec de vídeo ainda não é suportado pelo navegador.');
       return;
     }
