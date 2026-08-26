@@ -18,6 +18,9 @@ func (s *server) listSeries(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	if s.selectedProfileIsKids(r, u.ID) {
+		items = filterKidsSeries(items)
+	}
 	writeJSON(w, http.StatusOK, items)
 }
 
@@ -34,6 +37,10 @@ func (s *server) seriesDetails(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if s.selectedProfileIsKids(r, u.ID) && !kidsGenresAllowed(item.Genres) {
+		writeError(w, http.StatusForbidden, errKidsRestricted)
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
