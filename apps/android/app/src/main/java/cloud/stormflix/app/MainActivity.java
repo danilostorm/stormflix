@@ -26,8 +26,10 @@ import org.json.JSONObject;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -67,10 +69,11 @@ public class MainActivity extends Activity {
         top.setBackgroundColor(Color.rgb(7, 8, 12));
         TextView brand = Ui.title(this, "STORMFLIX", 22);
         top.addView(brand, Ui.margin(this, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 8, 0, 26, 0));
-        addNav(top, "Início", () -> loadHome());
+        addNav(top, "Início", this::loadHome);
         addNav(top, "Filmes", () -> loadCategory("Filmes", "movie"));
         addNav(top, "Séries", () -> loadCategory("Séries", "series"));
         addNav(top, "Animes", () -> loadCategory("Animes", "anime"));
+        addNav(top, "Música", () -> startActivity(new Intent(this, MusicActivity.class)));
         addNav(top, "Buscar", this::searchDialog);
         addNav(top, "Perfis", () -> startActivity(new Intent(this, ProfileActivity.class)));
         addNav(top, "Sair", this::logout);
@@ -112,13 +115,44 @@ public class MainActivity extends Activity {
         Ui.clear(content);
         Models.Media hero = visibleOnDevice(home.hero) ? home.hero : firstVisible(home.rows);
         if (hero != null) content.addView(hero(hero));
-        List<Models.Media> continueVisible = filterForDevice(continuing);
-        if (!continueVisible.isEmpty()) content.addView(row("Continuar assistindo", continueVisible));
-        for (Models.Row r : home.rows) {
-            if (!supports4k && looks4k(r.title)) continue;
-            List<Models.Media> visible = filterForDevice(r.items);
-            if (!visible.isEmpty()) content.addView(row(r.title, visible));
+
+        Set<String> renderedRows = new HashSet<>();
+        List<Models.Media> continueVisible = dedupeMedia(filterForDevice(continuing));
+        if (!continueVisible.isEmpty()) {
+            content.addView(row("Continuar assistindo", continueVisible));
+            renderedRows.add(normalizeRowTitle("Continuar assistindo"));
         }
+
+        for (Models.Row r : home.rows) {
+            String rowKey = normalizeRowTitle(r.title);
+            if (renderedRows.contains(rowKey)) continue;
+            if (!continueVisible.isEmpty() && isContinueWatchingTitle(r.title)) continue;
+            if (!supports4k && looks4k(r.title)) continue;
+            List<Models.Media> visible = dedupeMedia(filterForDevice(r.items));
+            if (!visible.isEmpty()) {
+                content.addView(row(r.title, visible));
+                renderedRows.add(rowKey);
+            }
+        }
+    }
+
+    private boolean isContinueWatchingTitle(String value) {
+        String normalized = normalizeRowTitle(value);
+        return normalized.contains("continuar assistindo") || normalized.contains("continue watching");
+    }
+
+    private String normalizeRowTitle(String value) {
+        return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private List<Models.Media> dedupeMedia(List<Models.Media> items) {
+        List<Models.Media> out = new ArrayList<>();
+        Set<Long> ids = new HashSet<>();
+        for (Models.Media item : items) {
+            if (item == null || item.id <= 0 || !ids.add(item.id)) continue;
+            out.add(item);
+        }
+        return out;
     }
 
     private Models.Media firstVisible(List<Models.Row> rows) {
@@ -176,7 +210,9 @@ public class MainActivity extends Activity {
 
     private View row(String title, List<Models.Media> items) {
         LinearLayout section = Ui.vertical(this, 0);
-        section.addView(Ui.title(this, title, 21), Ui.margin(this, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 22, 0, 10));
+        if (title != null && !title.trim().isEmpty()) {
+            section.addView(Ui.title(this, title, 21), Ui.margin(this, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 22, 0, 10));
+        }
         HorizontalScrollView scroll = new HorizontalScrollView(this);
         scroll.setHorizontalScrollBarEnabled(false);
         scroll.setFocusable(false);
@@ -224,7 +260,7 @@ public class MainActivity extends Activity {
                     boolean match = kind.equals("movie") ? type.equals("movie") || type.equals("film") : type.equals(kind);
                     if (match && visibleOnDevice(m)) filtered.add(m);
                 }
-                main.post(() -> renderGridLike(title, filtered));
+                main.post(() -> renderGridLike(title, dedupeMedia(filtered)));
             } catch (Exception e) { main.post(() -> error(e)); }
         });
     }
@@ -249,7 +285,7 @@ public class MainActivity extends Activity {
         io.submit(() -> {
             try {
                 String encoded = URLEncoder.encode(value, StandardCharsets.UTF_8.toString());
-                List<Models.Media> list = filterForDevice(parseMediaArray(api.get("/media?q=" + encoded + "&limit=200")));
+                List<Models.Media> list = dedupeMedia(filterForDevice(parseMediaArray(api.get("/media?q=" + encoded + "&limit=200"))));
                 main.post(() -> renderGridLike("Resultados para “" + value + "”", list));
             } catch (Exception e) { main.post(() -> error(e)); }
         });
