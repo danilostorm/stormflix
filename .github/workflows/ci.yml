@@ -41,6 +41,7 @@ jobs:
           node --check internal/webui/static/admin/admin-v4.js
           node --check internal/webui/static/admin/admin-catalog.js
           node --check internal/webui/static/admin/admin-music.js
+          node --check internal/webui/static/admin/admin-library-metadata.js
           node --check internal/webui/static/app.js
           node --check internal/webui/static/series-ui.js
           node --check internal/webui/static/series-rules.js
