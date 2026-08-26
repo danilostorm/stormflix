@@ -20,14 +20,14 @@ func (s *server) jellyfinCompatInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]any{
-		"LocalAddress":           "",
-		"ServerName":             name,
-		"Version":                jellyfinCompatibilityVersion,
-		"ProductName":            "Jellyfin Server",
-		"OperatingSystem":        "Linux",
+		"LocalAddress":              "",
+		"ServerName":                name,
+		"Version":                   jellyfinCompatibilityVersion,
+		"ProductName":               "Jellyfin Server",
+		"OperatingSystem":           "Linux",
 		"OperatingSystemDisplayName": "StormFlix",
-		"Id":                     s.jellyfinServerID(),
-		"StartupWizardCompleted": true,
+		"Id":                        s.jellyfinServerID(),
+		"StartupWizardCompleted":    true,
 	})
 }
 
@@ -38,17 +38,17 @@ func (s *server) jellyfinCompatSystemInfo(w http.ResponseWriter, r *http.Request
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]any{
-		"LocalAddress":             "",
-		"ServerName":               name,
-		"Version":                  jellyfinCompatibilityVersion,
-		"ProductName":              "Jellyfin Server",
-		"OperatingSystem":          "Linux",
+		"LocalAddress":              "",
+		"ServerName":                name,
+		"Version":                   jellyfinCompatibilityVersion,
+		"ProductName":               "Jellyfin Server",
+		"OperatingSystem":           "Linux",
 		"OperatingSystemDisplayName": "StormFlix",
-		"Id":                       s.jellyfinServerID(),
-		"StartupWizardCompleted":   true,
-		"WanAddress":               "",
-		"WebSocketPortNumber":      0,
-		"SupportsHttps":            true,
+		"Id":                        s.jellyfinServerID(),
+		"StartupWizardCompleted":    true,
+		"WanAddress":                "",
+		"WebSocketPortNumber":       0,
+		"SupportsHttps":             true,
 	})
 }
 
@@ -61,36 +61,38 @@ func (s *server) jellyfinBranding(w http.ResponseWriter, r *http.Request) {
 }
 
 // registerJellyfinRoutes exposes the same compatibility surface both under the
-// historical /jellyfin-api prefix and at the HTTP root. The official Android
-// TV client treats the user-supplied URL as a base URL, so root aliases allow
-// https://host itself to work while keeping /api/v1 untouched.
+// historical /jellyfin-api prefix and at the HTTP root. All protocol-facing
+// JSON goes through jellyfinCompatWrap so strict Jellyfin SDK UUID/DTO rules do
+// not leak into StormFlix's native integer/string ids.
 func (s *server) registerJellyfinRoutes(mux *http.ServeMux, prefix string) {
 	p := strings.TrimSuffix(prefix, "/")
 	route := func(path string) string { return p + path }
+	compat := func(h http.HandlerFunc) http.HandlerFunc { return s.jellyfinCompatWrap(h) }
+	authed := func(h http.HandlerFunc) http.HandlerFunc { return s.jellyfinCompatWrap(s.jellyfinRequireAuth(h)) }
 
-	mux.HandleFunc("GET "+route("/System/Info/Public"), s.jellyfinCompatInfo)
-	mux.HandleFunc("GET "+route("/Users/Public"), s.jellyfinPublicUsers)
-	mux.HandleFunc("GET "+route("/Branding/Configuration"), s.jellyfinBranding)
-	mux.HandleFunc("POST "+route("/Users/AuthenticateByName"), s.jellyfinAuthenticate)
-	mux.HandleFunc("GET "+route("/System/Info"), s.jellyfinRequireAuth(s.jellyfinCompatSystemInfo))
-	mux.HandleFunc("POST "+route("/Sessions/Logout"), s.jellyfinRequireAuth(s.jellyfinLogout))
-	mux.HandleFunc("GET "+route("/Users/{id}"), s.jellyfinRequireAuth(s.jellyfinCurrentUser))
-	mux.HandleFunc("GET "+route("/Users/{id}/Views"), s.jellyfinRequireAuth(s.jellyfinViews))
-	mux.HandleFunc("GET "+route("/Library/MediaFolders"), s.jellyfinRequireAuth(s.jellyfinViews))
-	mux.HandleFunc("GET "+route("/Users/{id}/Items"), s.jellyfinRequireAuth(s.jellyfinItems))
-	mux.HandleFunc("GET "+route("/Users/{id}/Items/Resume"), s.jellyfinRequireAuth(s.jellyfinResume))
-	mux.HandleFunc("GET "+route("/Items/{id}"), s.jellyfinRequireAuth(s.jellyfinItem))
-	mux.HandleFunc("GET "+route("/Items/{id}/Images/{kind}"), s.jellyfinRequireAuth(s.jellyfinImage))
-	mux.HandleFunc("GET "+route("/Items/{id}/PlaybackInfo"), s.jellyfinRequireAuth(s.jellyfinPlaybackInfo))
-	mux.HandleFunc("POST "+route("/Items/{id}/PlaybackInfo"), s.jellyfinRequireAuth(s.jellyfinPlaybackInfo))
-	mux.HandleFunc("GET "+route("/Shows/{id}/Seasons"), s.jellyfinRequireAuth(s.jellyfinSeasons))
-	mux.HandleFunc("GET "+route("/Shows/{id}/Episodes"), s.jellyfinRequireAuth(s.jellyfinEpisodes))
-	mux.HandleFunc("GET "+route("/Videos/{id}/stream"), s.jellyfinRequireAuth(s.jellyfinStream))
-	mux.HandleFunc("GET "+route("/Audio/{id}/stream"), s.jellyfinRequireAuth(s.jellyfinStream))
-	mux.HandleFunc("GET "+route("/Videos/{id}/{subtitle_id}/Subtitles/{index}/Stream.vtt"), s.jellyfinRequireAuth(s.jellyfinSubtitle))
-	mux.HandleFunc("POST "+route("/Sessions/Playing"), s.jellyfinRequireAuth(s.jellyfinProgress))
-	mux.HandleFunc("POST "+route("/Sessions/Playing/Progress"), s.jellyfinRequireAuth(s.jellyfinProgress))
-	mux.HandleFunc("POST "+route("/Sessions/Playing/Stopped"), s.jellyfinRequireAuth(s.jellyfinStopped))
+	mux.HandleFunc("GET "+route("/System/Info/Public"), compat(s.jellyfinCompatInfo))
+	mux.HandleFunc("GET "+route("/Users/Public"), compat(s.jellyfinPublicUsers))
+	mux.HandleFunc("GET "+route("/Branding/Configuration"), compat(s.jellyfinBranding))
+	mux.HandleFunc("POST "+route("/Users/AuthenticateByName"), compat(s.jellyfinTVAuthenticate))
+	mux.HandleFunc("GET "+route("/System/Info"), authed(s.jellyfinCompatSystemInfo))
+	mux.HandleFunc("POST "+route("/Sessions/Logout"), authed(s.jellyfinLogout))
+	mux.HandleFunc("GET "+route("/Users/{id}"), authed(s.jellyfinCurrentUser))
+	mux.HandleFunc("GET "+route("/Users/{id}/Views"), authed(s.jellyfinViews))
+	mux.HandleFunc("GET "+route("/Library/MediaFolders"), authed(s.jellyfinViews))
+	mux.HandleFunc("GET "+route("/Users/{id}/Items"), authed(s.jellyfinItems))
+	mux.HandleFunc("GET "+route("/Users/{id}/Items/Resume"), authed(s.jellyfinResume))
+	mux.HandleFunc("GET "+route("/Items/{id}"), authed(s.jellyfinItem))
+	mux.HandleFunc("GET "+route("/Items/{id}/Images/{kind}"), authed(s.jellyfinImage))
+	mux.HandleFunc("GET "+route("/Items/{id}/PlaybackInfo"), authed(s.jellyfinPlaybackInfo))
+	mux.HandleFunc("POST "+route("/Items/{id}/PlaybackInfo"), authed(s.jellyfinPlaybackInfo))
+	mux.HandleFunc("GET "+route("/Shows/{id}/Seasons"), authed(s.jellyfinSeasons))
+	mux.HandleFunc("GET "+route("/Shows/{id}/Episodes"), authed(s.jellyfinEpisodes))
+	mux.HandleFunc("GET "+route("/Videos/{id}/stream"), authed(s.jellyfinStream))
+	mux.HandleFunc("GET "+route("/Audio/{id}/stream"), authed(s.jellyfinStream))
+	mux.HandleFunc("GET "+route("/Videos/{id}/{subtitle_id}/Subtitles/{index}/Stream.vtt"), authed(s.jellyfinSubtitle))
+	mux.HandleFunc("POST "+route("/Sessions/Playing"), authed(s.jellyfinProgress))
+	mux.HandleFunc("POST "+route("/Sessions/Playing/Progress"), authed(s.jellyfinProgress))
+	mux.HandleFunc("POST "+route("/Sessions/Playing/Stopped"), authed(s.jellyfinStopped))
 }
 
 type jellyfinStatusRecorder struct {
