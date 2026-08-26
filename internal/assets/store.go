@@ -122,6 +122,24 @@ func (s *Store) Put(key string, r io.Reader) (assetPath, publicURL string, err e
 	return key, s.URL(key), nil
 }
 
+// RemoveTree removes one asset subtree without allowing callers to escape the
+// configured asset root. It is used when metadata is refreshed so superseded
+// posters, backdrops and logos do not accumulate on disk.
+func (s *Store) RemoveTree(key string) error {
+	root, _ := s.Snapshot()
+	key = filepath.ToSlash(strings.TrimSpace(key))
+	key = strings.TrimPrefix(key, "/")
+	if key == "" || key == "." || strings.Contains(key, "../") || key == ".." {
+		return errors.New("invalid asset key")
+	}
+	dest := filepath.Join(root, filepath.FromSlash(key))
+	rel, err := filepath.Rel(root, dest)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return errors.New("asset path escapes root")
+	}
+	return os.RemoveAll(dest)
+}
+
 func (s *Store) URL(key string) string {
 	_, base := s.Snapshot()
 	key = strings.TrimPrefix(filepath.ToSlash(key), "/")
