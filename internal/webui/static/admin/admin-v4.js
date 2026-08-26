@@ -1,7 +1,7 @@
 /* StormFlix Admin v4: dashboard + multi-source library cards. */
 (function(){
   const pollers=new Map();
-  const kindLabel=value=>({movies:'Filmes',series:'Séries',anime:'Animes',mixed:'Filmes + Anime',shows:'Shows',other:'Outros'})[value]||value||'Conteúdo';
+  const kindLabel=value=>({movies:'Filmes',series:'Séries',anime:'Animes',mixed:'Filmes + Anime',shows:'Shows',music:'Música',other:'Outros'})[value]||value||'Conteúdo';
   const statusClass=lib=>!lib.enabled?'offline':lib.online_sources<=0?'offline':lib.offline_sources>0?'partial':'';
   const statusText=lib=>!lib.enabled?'Desativada':lib.online_sources<=0?'Offline':lib.offline_sources>0?'Parcial':'Online';
 
@@ -35,22 +35,44 @@
 
   loadLibraries=async function(){
     libs=await req('/admin/storage');
+    const videoLibs=libs.filter(l=>l.kind!=='music');
+    const musicLibs=libs.filter(l=>l.kind==='music');
     const totalSources=libs.reduce((sum,l)=>sum+(l.source_count||1),0);
     const onlineSources=libs.reduce((sum,l)=>sum+(l.online_sources||0),0);
-    $('#libraries').innerHTML=`<div class="section-intro"><div><h2>Bibliotecas</h2><p>Cada biblioteca é uma coleção única. Dentro dela você pode adicionar vários Drives, remotes ou pastas como origens.</p></div><div class="v3-toolbar"><span class="status-chip">${libs.length} bibliotecas</span><span class="status-chip">${onlineSources}/${totalSources} origens online</span><button class="primary" onclick="editLibrary()">+ Nova biblioteca</button></div></div><div id="lib-form"></div><div class="library-grid">${libs.map(libraryCard).join('')||'<div class="v3-empty">Nenhuma biblioteca criada.</div>'}</div>`;
+    $('#libraries').innerHTML=`
+      <div class="section-intro library-page-intro"><div><p class="kicker">Coleções e origens</p><h2>Bibliotecas</h2><p>Vídeo e Música ficam separados para o painel continuar fácil de administrar mesmo com muitos Drives e coleções.</p></div><div class="v3-toolbar"><span class="status-chip">${videoLibs.length} vídeo</span><span class="status-chip">${musicLibs.length} música</span><span class="status-chip">${onlineSources}/${totalSources} origens online</span></div></div>
+      <div id="lib-form"></div>
+      <div class="library-groups">
+        ${libraryGroup('video','Bibliotecas de vídeo','Filmes, séries, animes e shows. Cada coleção pode reunir várias origens físicas.',videoLibs,`<button class="primary" onclick="editLibrary(null,'movies')">+ Nova biblioteca de vídeo</button>`)}
+        ${libraryGroup('music','Bibliotecas de música','Álbuns e faixas ficam isolados do catálogo de vídeo e usam organização musical própria.',musicLibs,`${musicLibs.length?'<button class="library-tool" onclick="organizeMusicNow()">Organizar música</button>':''}<button class="primary" onclick="editLibrary(null,'music')">+ Nova biblioteca de música</button>`)}
+      </div>`;
     libs.filter(l=>l.last_scan_status==='running'||l.last_scan_status==='cancelling').forEach(l=>pollScan(Number(l.id)));
   };
+
+  function libraryGroup(type,title,description,items,actions){
+    const empty=type==='music'
+      ?'<div class="library-group-empty"><span class="library-empty-icon">♫</span><div><b>Nenhuma biblioteca de música</b><p>Crie uma coleção Música e aponte para uma ou mais pastas do seu Drive/rclone.</p></div></div>'
+      :'<div class="library-group-empty"><span class="library-empty-icon">▶</span><div><b>Nenhuma biblioteca de vídeo</b><p>Crie Filmes, Séries ou Animes e adicione quantas origens precisar.</p></div></div>';
+    const countLabel=items.length===1?'1 biblioteca':`${items.length} bibliotecas`;
+    const mediaCount=items.reduce((sum,l)=>sum+Number(l.media_count||0),0);
+    const sources=items.reduce((sum,l)=>sum+Number(l.source_count||1),0);
+    return `<section class="library-group ${type}">
+      <div class="library-group-head"><div class="library-group-title"><span class="library-group-icon">${type==='music'?'♫':'▶'}</span><div><div class="library-group-heading"><h3>${esc(title)}</h3><span>${countLabel}</span></div><p>${esc(description)}</p><small>${mediaCount} mídias · ${sources} origens</small></div></div><div class="library-group-actions">${actions}</div></div>
+      <div class="library-grid">${items.map(libraryCard).join('')||empty}</div>
+    </section>`;
+  }
 
   function libraryCard(l){
     const sources=(Array.isArray(l.sources)&&l.sources.length?l.sources:(l.paths||[l.path]).filter(Boolean).map((path,index)=>({path,label:`Origem ${index+1}`,online:l.online})));
     const active=l.last_scan_status==='running'||l.last_scan_status==='cancelling';
     const health=statusClass(l);
-    return `<article class="library-card" data-library-card="${l.id}">
+    const isMusic=l.kind==='music';
+    return `<article class="library-card ${isMusic?'music-library-card':'video-library-card'}" data-library-card="${l.id}">
       <div class="library-card-top"><div><h3>${esc(l.name)}</h3><p>${l.enabled?'Biblioteca ativa':'Biblioteca desativada'} · ${esc(l.last_scan_at||'Nunca escaneada')}</p></div><span class="library-kind-badge">${esc(kindLabel(l.kind))}</span></div>
-      <div class="library-stats"><div class="library-stat"><strong>${l.media_count||0}</strong><span>Mídias</span></div><div class="library-stat"><strong>${l.source_count||sources.length||1}</strong><span>Origens</span></div><div class="library-stat"><strong>${l.online_sources||0}</strong><span>Online</span></div></div>
+      <div class="library-stats"><div class="library-stat"><strong>${l.media_count||0}</strong><span>${isMusic?'Faixas':'Mídias'}</span></div><div class="library-stat"><strong>${l.source_count||sources.length||1}</strong><span>Origens</span></div><div class="library-stat"><strong>${l.online_sources||0}</strong><span>Online</span></div></div>
       <div class="library-source-preview">${sources.map((s,index)=>`<div class="library-source-item ${s.online?'online':''}" title="${esc(s.path)}"><i class="source-led"></i><code>${esc(s.path)}</code><small>${s.online?'ONLINE':'OFFLINE'}</small></div>`).join('')}</div>
       <div class="library-scan-note"><span class="source-health ${health}">${statusText(l)}</span> · Scan: ${esc(l.last_scan_status||'never')}${l.last_error?` · ${esc(l.last_error)}`:''}</div>
-      <div class="library-actions"><button onclick="scanLib(${l.id})" ${active?'disabled':''}>${active?(l.last_scan_status==='cancelling'?'Cancelando…':'Escaneando…'):'Escanear agora'}</button>${active?`<button class="danger" onclick="cancelScan(${l.id})">Cancelar scan</button>`:''}<button onclick="editLibrary(${l.id})">Editar biblioteca</button>${(l.source_count||sources.length)>1?`<button onclick="consolidateLibrary(${l.id})">Consolidar cópias</button>`:''}<button class="danger" onclick="delLib(${l.id})">Excluir catálogo</button></div>
+      <div class="library-actions"><button onclick="scanLib(${l.id})" ${active?'disabled':''}>${active?(l.last_scan_status==='cancelling'?'Cancelando…':'Escaneando…'):'Escanear agora'}</button>${active?`<button class="danger" onclick="cancelScan(${l.id})">Cancelar scan</button>`:''}<button onclick="editLibrary(${l.id})">Editar biblioteca</button>${!isMusic&&(l.source_count||sources.length)>1?`<button onclick="consolidateLibrary(${l.id})">Consolidar cópias</button>`:''}${isMusic?`<button onclick="organizeMusicNow()">Organizar música</button>`:''}<button class="danger" onclick="delLib(${l.id})">Excluir catálogo</button></div>
     </article>`;
   }
 
