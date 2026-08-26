@@ -38,11 +38,13 @@ public class MainActivity extends Activity {
     private ImageLoader images;
     private LinearLayout page;
     private LinearLayout content;
+    private boolean supports4k;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         api = new ApiClient(this);
         images = new ImageLoader(this);
+        supports4k = DeviceCapabilities.supports4kVideo();
         if (!api.store().signedIn()) { startActivity(new Intent(this, LoginActivity.class)); finish(); return; }
         if (api.store().profileCookie().isEmpty()) { startActivity(new Intent(this, ProfileActivity.class)); finish(); return; }
         buildShell();
@@ -108,9 +110,40 @@ public class MainActivity extends Activity {
 
     private void renderHome(Models.Home home, List<Models.Media> continuing) {
         Ui.clear(content);
-        if (home.hero != null) content.addView(hero(home.hero));
-        if (!continuing.isEmpty()) content.addView(row("Continuar assistindo", continuing));
-        for (Models.Row r : home.rows) if (!r.items.isEmpty()) content.addView(row(r.title, r.items));
+        Models.Media hero = visibleOnDevice(home.hero) ? home.hero : firstVisible(home.rows);
+        if (hero != null) content.addView(hero(hero));
+        List<Models.Media> continueVisible = filterForDevice(continuing);
+        if (!continueVisible.isEmpty()) content.addView(row("Continuar assistindo", continueVisible));
+        for (Models.Row r : home.rows) {
+            if (!supports4k && looks4k(r.title)) continue;
+            List<Models.Media> visible = filterForDevice(r.items);
+            if (!visible.isEmpty()) content.addView(row(r.title, visible));
+        }
+    }
+
+    private Models.Media firstVisible(List<Models.Row> rows) {
+        for (Models.Row row : rows) {
+            if (!supports4k && looks4k(row.title)) continue;
+            for (Models.Media media : row.items) if (visibleOnDevice(media)) return media;
+        }
+        return null;
+    }
+
+    private List<Models.Media> filterForDevice(List<Models.Media> items) {
+        if (supports4k) return items;
+        List<Models.Media> out = new ArrayList<>();
+        for (Models.Media media : items) if (visibleOnDevice(media)) out.add(media);
+        return out;
+    }
+
+    private boolean visibleOnDevice(Models.Media media) {
+        if (media == null) return false;
+        return supports4k || !looks4k(media.libraryName);
+    }
+
+    private boolean looks4k(String value) {
+        String text = value == null ? "" : value.toLowerCase(Locale.ROOT);
+        return text.contains("4k") || text.contains("uhd") || text.contains("2160p");
     }
 
     private View hero(Models.Media media) {
@@ -189,7 +222,7 @@ public class MainActivity extends Activity {
                 for (Models.Media m : all) {
                     String type = m.mediaType.toLowerCase(Locale.ROOT);
                     boolean match = kind.equals("movie") ? type.equals("movie") || type.equals("film") : type.equals(kind);
-                    if (match) filtered.add(m);
+                    if (match && visibleOnDevice(m)) filtered.add(m);
                 }
                 main.post(() -> renderGridLike(title, filtered));
             } catch (Exception e) { main.post(() -> error(e)); }
@@ -216,7 +249,7 @@ public class MainActivity extends Activity {
         io.submit(() -> {
             try {
                 String encoded = URLEncoder.encode(value, StandardCharsets.UTF_8.toString());
-                List<Models.Media> list = parseMediaArray(api.get("/media?q=" + encoded + "&limit=200"));
+                List<Models.Media> list = filterForDevice(parseMediaArray(api.get("/media?q=" + encoded + "&limit=200")));
                 main.post(() -> renderGridLike("Resultados para “" + value + "”", list));
             } catch (Exception e) { main.post(() -> error(e)); }
         });
