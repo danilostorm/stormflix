@@ -111,11 +111,11 @@ func (s *server) registerJellyfinRoutes(mux *http.ServeMux, prefix string) {
 	authed := func(h http.HandlerFunc) http.HandlerFunc { return s.jellyfinCompatWrap(s.jellyfinRequireAuth(h)) }
 
 	mux.HandleFunc("GET "+route("/System/Info/Public"), compat(s.jellyfinCompatInfo))
-	mux.HandleFunc("GET "+route("/System/Ping"), s.jellyfinPing)
-	mux.HandleFunc("POST "+route("/System/Ping"), s.jellyfinPing)
+	mux.HandleFunc("GET "+route("/System/Ping"), s.jellyfinPingJSON)
+	mux.HandleFunc("POST "+route("/System/Ping"), s.jellyfinPingJSON)
 	mux.HandleFunc("GET "+route("/Users/Public"), compat(s.jellyfinPublicUsers))
 	mux.HandleFunc("GET "+route("/Branding/Configuration"), compat(s.jellyfinBranding))
-	mux.HandleFunc("POST "+route("/Users/AuthenticateByName"), compat(s.jellyfinTVAuthenticate))
+	mux.HandleFunc("POST "+route("/Users/AuthenticateByName"), compat(s.jellyfinTVAuthenticateMinimal))
 
 	// Critical Android/Android TV post-login startup sequence.
 	mux.HandleFunc("GET "+route("/System/Info"), authed(s.jellyfinCompatSystemInfo))
