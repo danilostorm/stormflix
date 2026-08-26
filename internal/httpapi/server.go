@@ -14,13 +14,14 @@ import (
 	"github.com/danilostorm/stormflix/internal/library"
 	"github.com/danilostorm/stormflix/internal/media"
 	"github.com/danilostorm/stormflix/internal/metadata"
+	"github.com/danilostorm/stormflix/internal/music"
 	appsettings "github.com/danilostorm/stormflix/internal/settings"
 	"github.com/danilostorm/stormflix/internal/subtitles"
 	"github.com/danilostorm/stormflix/internal/webui"
 )
 
 const sessionCookie = "stormflix_session"
-const version = "0.12.0-discovery-catalog"
+const version = "0.13.0-music"
 
 type contextKey string
 
@@ -30,6 +31,7 @@ type server struct {
 	db         *sql.DB
 	libraries  *library.Service
 	media      *media.Service
+	music      *music.Service
 	auth       *auth.Service
 	admin      *admin.Service
 	metadata   *metadata.Service
@@ -59,7 +61,7 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 		panic(err)
 	}
 	s := &server{
-		db: db, libraries: libraries, media: media.NewService(db), auth: auth.NewService(db), admin: admin.NewService(db),
+		db: db, libraries: libraries, media: media.NewService(db), music: music.NewService(db), auth: auth.NewService(db), admin: admin.NewService(db),
 		assets: assetStore, settings: settingsService, baseConfig: cfg, config: effective, startedAt: time.Now(),
 	}
 	s.metadata = metadata.NewService(db, effective, assetStore)
@@ -111,6 +113,14 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("POST /api/v1/media/{id}/playback", s.requireAuth(s.playbackHeartbeat))
 	mux.HandleFunc("DELETE /api/v1/media/{id}/playback", s.requireAuth(s.playbackStop))
 
+	mux.HandleFunc("GET /api/v1/music/home", s.requireAuth(s.musicHome))
+	mux.HandleFunc("GET /api/v1/music/tracks", s.requireAuth(s.musicTracks))
+	mux.HandleFunc("GET /api/v1/music/tracks/{id}", s.requireAuth(s.musicTrack))
+	mux.HandleFunc("GET /api/v1/music/tracks/{id}/stream", s.requireAuth(s.musicStream))
+	mux.HandleFunc("POST /api/v1/music/tracks/{id}/listening", s.requireAuth(s.musicListening))
+	mux.HandleFunc("POST /api/v1/music/tracks/{id}/favorite", s.requireAuth(s.musicFavorite))
+	mux.HandleFunc("GET /api/v1/music/tracks/{id}/lyrics", s.requireAuth(s.musicLyrics))
+
 	mux.HandleFunc("GET /api/v1/admin/dashboard", s.requireRole("operator", s.adminDashboard))
 	mux.HandleFunc("GET /api/v1/admin/users", s.requireRole("admin", s.listUsers))
 	mux.HandleFunc("POST /api/v1/admin/users", s.requireRole("admin", s.createUser))
@@ -130,6 +140,7 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("PUT /api/v1/admin/categories/{id}", s.requireRole("manager", s.updateCategory))
 	mux.HandleFunc("DELETE /api/v1/admin/categories/{id}", s.requireRole("manager", s.deleteCategory))
 	mux.HandleFunc("POST /api/v1/admin/libraries/{id}/consolidate", s.requireRole("manager", s.consolidateLibraryCopies))
+	mux.HandleFunc("POST /api/v1/admin/music/index", s.requireRole("operator", s.adminMusicIndex))
 
 	mux.HandleFunc("GET /api/v1/admin/cleanup", s.requireRole("admin", s.cleanupStatus))
 	mux.HandleFunc("POST /api/v1/admin/cleanup", s.requireRole("admin", s.runCleanup))
