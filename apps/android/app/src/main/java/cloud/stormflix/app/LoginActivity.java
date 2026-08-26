@@ -42,7 +42,8 @@ public class LoginActivity extends Activity {
 
         LinearLayout card = Ui.vertical(this, 22);
         card.setBackground(Ui.round(Ui.PANEL, 18));
-        int width = Ui.dp(this, 430);
+        int available = Math.max(Ui.dp(this, 280), getResources().getDisplayMetrics().widthPixels - Ui.dp(this, 32));
+        int width = Math.min(Ui.dp(this, 430), available);
         page.addView(card, new LinearLayout.LayoutParams(width, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextView brand = Ui.title(this, "STORMFLIX", 29);
@@ -66,6 +67,8 @@ public class LoginActivity extends Activity {
 
         message = Ui.muted(this, "", 12);
         card.addView(message, Ui.margin(this, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 12, 0, 0));
+
+        setContentView(page);
         username.requestFocus();
     }
 
