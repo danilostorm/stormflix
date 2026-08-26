@@ -1,0 +1,25 @@
+/* StormFlix Rail Navigation v2 */
+html,body{max-width:100%;overflow-x:hidden}
+#main,.catalog-view,.rows,.content-row,.music-view,.music-shell,.music-section,.detail-main,.detail-section{min-width:0;max-width:100%}
+.sf-scroll-rail{min-width:0;max-width:100%;overscroll-behavior-inline:contain;scroll-behavior:smooth}
+.sf-rail-host{position:relative}
+.sf-rail-arrow{position:absolute;z-index:80;width:58px;border:0;background:transparent;color:#fff;display:none;place-items:center;cursor:pointer;padding:0;transition:opacity .18s ease;opacity:.96}
+.sf-rail-host.sf-has-overflow>.sf-rail-arrow:not(:disabled){display:grid}
+.sf-rail-arrow.left{left:0;background:linear-gradient(90deg,rgba(5,6,9,.98) 0%,rgba(5,6,9,.82) 42%,rgba(5,6,9,0) 100%)}
+.sf-rail-arrow.right{right:0;background:linear-gradient(270deg,rgba(5,6,9,.98) 0%,rgba(5,6,9,.82) 42%,rgba(5,6,9,0) 100%)}
+.sf-rail-arrow span{width:40px;height:58px;border-radius:12px;display:grid;place-items:center;background:rgba(14,17,24,.92);border:1px solid rgba(255,255,255,.2);box-shadow:0 14px 34px rgba(0,0,0,.5);font-size:43px;line-height:1;font-weight:300;backdrop-filter:blur(12px)}
+.sf-rail-arrow:hover span,.sf-rail-arrow:focus-visible span{background:rgba(34,39,50,.98);border-color:rgba(255,255,255,.58);transform:scale(1.05)}
+.sf-rail-arrow:focus-visible{outline:none}
+.sf-rail-arrow:disabled{display:none!important;pointer-events:none;opacity:0}
+.sf-rail-host.sf-has-overflow:not(.sf-at-end):after{content:'';position:absolute;z-index:65;right:0;top:0;bottom:0;width:34px;pointer-events:none;background:linear-gradient(90deg,transparent,rgba(5,6,9,.35))}
+.music-section.sf-rail-host:after{top:44px}
+.music-section.sf-rail-host>.sf-rail-arrow{width:64px}
+.music-section.sf-rail-host>.sf-rail-arrow span{transform:none}
+.detail-section.sf-rail-host>.sf-rail-arrow{width:54px}
+/* Old row arrows are replaced visually by the unified controller to avoid two arrow layers. */
+.content-row.sf-rail-host>.row-nav{display:none!important}
+@media(max-width:800px){
+  .sf-rail-arrow{display:none!important}
+  .sf-rail-host:after{display:none!important}
+  .sf-scroll-rail{-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity}
+}
