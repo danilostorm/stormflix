@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -11,6 +12,20 @@ import (
 )
 
 const profileCookie = "stormflix_profile"
+
+type profileInput struct {
+	Name              string `json:"name"`
+	AvatarKey         string `json:"avatar_key"`
+	AvatarURL         string `json:"avatar_url"`
+	IsKids            bool   `json:"is_kids"`
+	Active            *bool  `json:"active,omitempty"`
+	PIN               string `json:"pin,omitempty"`
+	ClearPIN          bool   `json:"clear_pin,omitempty"`
+	AutoplayNext      *bool  `json:"autoplay_next,omitempty"`
+	AutoplayPreviews  *bool  `json:"autoplay_previews,omitempty"`
+	PreferredAudio    string `json:"preferred_audio,omitempty"`
+	PreferredSubtitle string `json:"preferred_subtitle,omitempty"`
+}
 
 func (s *server) listProfiles(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
@@ -80,6 +95,19 @@ func (s *server) selectProfile(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, 500, err)
 		return
+	}
+	var in struct {
+		PIN string `json:"pin"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, 400, err)
+		return
+	}
+	if p.PINEnabled {
+		if err := s.auth.VerifyProfilePIN(r.Context(), u.ID, id, in.PIN); err != nil {
+			writeError(w, http.StatusUnauthorized, err)
+			return
+		}
 	}
 	http.SetCookie(w, &http.Cookie{Name: profileCookie, Value: strconv.FormatInt(p.ID, 10), Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: isHTTPS(r), MaxAge: 365 * 24 * 3600})
 	writeJSON(w, 200, p)
@@ -151,30 +179,54 @@ func (s *server) adminDeleteProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) decodeCreateProfile(r *http.Request, userID int64) (auth.Profile, error) {
-	var in struct {
-		Name      string `json:"name"`
-		AvatarKey string `json:"avatar_key"`
-		AvatarURL string `json:"avatar_url"`
-		IsKids    bool   `json:"is_kids"`
-	}
+	var in profileInput
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		return auth.Profile{}, err
 	}
-	return s.auth.CreateProfile(r.Context(), userID, in.Name, in.AvatarKey, in.AvatarURL, in.IsKids)
+	p, err := s.auth.CreateProfile(r.Context(), userID, in.Name, in.AvatarKey, in.AvatarURL, in.IsKids)
+	if err != nil {
+		return auth.Profile{}, err
+	}
+	if in.PIN != "" || in.ClearPIN || in.AutoplayNext != nil || in.AutoplayPreviews != nil || in.PreferredAudio != "" || in.PreferredSubtitle != "" {
+		next := p.AutoplayNext
+		previews := p.AutoplayPreviews
+		if in.AutoplayNext != nil {
+			next = *in.AutoplayNext
+		}
+		if in.AutoplayPreviews != nil {
+			previews = *in.AutoplayPreviews
+		}
+		p, err = s.auth.UpdateProfilePreferences(r.Context(), userID, p.ID, in.PIN, in.ClearPIN, next, previews, in.PreferredAudio, in.PreferredSubtitle)
+	}
+	return p, err
 }
 
 func (s *server) decodeUpdateProfile(r *http.Request, userID, profileID int64) (auth.Profile, error) {
-	var in struct {
-		Name      string `json:"name"`
-		AvatarKey string `json:"avatar_key"`
-		AvatarURL string `json:"avatar_url"`
-		IsKids    bool   `json:"is_kids"`
-		Active    bool   `json:"active"`
-	}
+	var in profileInput
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		return auth.Profile{}, err
 	}
-	return s.auth.UpdateProfile(r.Context(), userID, profileID, in.Name, in.AvatarKey, in.AvatarURL, in.IsKids, in.Active)
+	current, err := s.auth.Profile(r.Context(), userID, profileID)
+	if err != nil {
+		return auth.Profile{}, err
+	}
+	active := current.Active
+	if in.Active != nil {
+		active = *in.Active
+	}
+	p, err := s.auth.UpdateProfile(r.Context(), userID, profileID, in.Name, in.AvatarKey, in.AvatarURL, in.IsKids, active)
+	if err != nil {
+		return auth.Profile{}, err
+	}
+	next := current.AutoplayNext
+	previews := current.AutoplayPreviews
+	if in.AutoplayNext != nil {
+		next = *in.AutoplayNext
+	}
+	if in.AutoplayPreviews != nil {
+		previews = *in.AutoplayPreviews
+	}
+	return s.auth.UpdateProfilePreferences(r.Context(), userID, profileID, in.PIN, in.ClearPIN, next, previews, in.PreferredAudio, in.PreferredSubtitle)
 }
 
 func (s *server) selectedProfileID(r *http.Request, userID int64) int64 {
