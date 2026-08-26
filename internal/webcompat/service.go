@@ -31,6 +31,7 @@ type Plan struct {
 	SourceAudioCodec string `json:"source_audio_codec,omitempty"`
 	AudioLanguage    string `json:"audio_language,omitempty"`
 	AudioTitle       string `json:"audio_title,omitempty"`
+	AudioTrackCount  int    `json:"audio_track_count"`
 	VideoStream      int    `json:"video_stream"`
 	AudioStream      int    `json:"audio_stream"`
 	AudioTranscode   bool   `json:"audio_transcode"`
@@ -81,6 +82,7 @@ func Probe(ctx context.Context, path string) (Plan, error) {
 			audios = append(audios, stream)
 		}
 	}
+	plan.AudioTrackCount = len(audios)
 	if len(videos) == 0 {
 		plan.Reason = "no video stream was found"
 		return plan, nil
