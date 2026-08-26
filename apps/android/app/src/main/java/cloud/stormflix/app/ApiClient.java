@@ -41,6 +41,7 @@ public final class ApiClient {
 
     public String get(String path) throws IOException { return request("GET", path, null); }
     public String post(String path, JSONObject body) throws IOException { return request("POST", path, body == null ? "{}" : body.toString()); }
+    public String delete(String path) throws IOException { return request("DELETE", path, null); }
 
     private String request(String method, String path, String body) throws IOException {
         HttpURLConnection c = open(apiUrl(path));
@@ -81,7 +82,7 @@ public final class ApiClient {
         c.setConnectTimeout(15000);
         c.setReadTimeout(45000);
         c.setInstanceFollowRedirects(true);
-        c.setRequestProperty("User-Agent", "StormFlix-Android/0.1");
+        c.setRequestProperty("User-Agent", "StormFlix-Android/0.1.6");
         String cookies = store.cookieHeader();
         if (!cookies.isEmpty()) c.setRequestProperty("Cookie", cookies);
         return c;
