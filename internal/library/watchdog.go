@@ -2,12 +2,13 @@ package library
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
 func (s *Service) watchScanProgress(libraryID int64, ctx context.Context, cancel context.CancelFunc, maxIdle time.Duration) {
 	if maxIdle <= 0 {
-		maxIdle = 3 * time.Minute
+		maxIdle = 6 * time.Minute
 	}
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -25,7 +26,9 @@ func (s *Service) watchScanProgress(libraryID int64, ctx context.Context, cancel
 			if time.Duration(idleSeconds)*time.Second <= maxIdle {
 				continue
 			}
-			_, _ = s.db.Exec(`UPDATE libraries SET last_scan_status='timeout',last_error='scan ficou sem progresso por mais de 3 minutos; catálogo anterior preservado',updated_at=CURRENT_TIMESTAMP WHERE id=? AND last_scan_status IN ('running','cancelling')`, libraryID)
+			minutes := int(maxIdle.Round(time.Minute) / time.Minute)
+			message := fmt.Sprintf("scan ficou sem progresso por mais de %d minutos; catálogo anterior preservado", minutes)
+			_, _ = s.db.Exec(`UPDATE libraries SET last_scan_status='timeout',last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND last_scan_status IN ('running','cancelling')`, message, libraryID)
 			cancel()
 			return
 		}
