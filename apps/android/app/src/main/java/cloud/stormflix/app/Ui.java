@@ -71,8 +71,9 @@ public final class Ui {
             GradientDrawable d = round(focused ? Color.rgb(255, 105, 123) : (primary ? RED : Color.rgb(37, 42, 52)), 10);
             if (focused) d.setStroke(dp(c, 2), Color.WHITE);
             v.setBackground(d);
-            v.setScaleX(focused ? 1.06f : 1f);
-            v.setScaleY(focused ? 1.06f : 1f);
+            v.setScaleX(focused ? 1.035f : 1f);
+            v.setScaleY(focused ? 1.035f : 1f);
+            if (focused) RemoteUi.keepVisible(v);
         });
         return b;
     }
