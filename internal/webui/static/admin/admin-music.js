@@ -1,5 +1,8 @@
-/* StormFlix Admin: music library support without mixing it with the video catalog. */
+/* StormFlix Admin: music library support + live organizer progress. */
 (function(){
+  let progressTimer=null;
+  let lastStatus=null;
+
   const baseEdit=window.editLibrary;
   if(typeof baseEdit==='function'){
     window.editLibrary=function(id,preferredKind){
@@ -25,6 +28,12 @@
     };
   }
 
+  const baseLoadLibraries=window.loadLibraries;
+  if(typeof baseLoadLibraries==='function')window.loadLibraries=async function(){
+    await baseLoadLibraries();
+    await decorateMusicLibraryProgress();
+  };
+
   const baseMetadata=window.loadMetadataPhase2;
   if(typeof baseMetadata==='function')window.loadMetadataPhase2=async function(){await baseMetadata();await decorateMusicMetadata()};
 
@@ -37,9 +46,26 @@
     if(button)button.disabled=true;
     try{
       const r=await req('/admin/music/index',{method:'POST',body:'{}'});
-      notice(r.started?'Organização da biblioteca de música iniciada.':'A biblioteca de música já está sendo organizada.',true);
+      notice(r.started?'Organização da biblioteca de música iniciada. Acompanhe o progresso abaixo.':'A biblioteca de música já está sendo organizada.',true);
+      await refreshMusicStatus(true);
     }catch(err){notice(err.message)}finally{if(button)button.disabled=false}
   };
+
+  async function decorateMusicLibraryProgress(){
+    if(!musicLibraries().length){stopProgressPoll();return}
+    const group=document.querySelector('#libraries .library-group.music');
+    if(!group)return;
+    let panel=group.querySelector('[data-music-progress-panel]');
+    if(!panel){
+      panel=document.createElement('div');
+      panel.className='music-index-panel';
+      panel.dataset.musicProgressPanel='1';
+      panel.innerHTML='<div data-music-status>'+statusLoadingHTML()+'</div>';
+      const head=group.querySelector('.library-group-head');
+      if(head)head.after(panel);else group.prepend(panel);
+    }
+    await refreshMusicStatus(false);
+  }
 
   async function decorateMusicMetadata(){
     const page=document.querySelector('#metadata');if(!page)return;
@@ -47,9 +73,11 @@
     page.querySelectorAll('[data-music-agents]').forEach(x=>x.remove());
     try{
       const agents=await req('/admin/agents');
+      lastStatus=agents.music_status||lastStatus;
       const panel=document.createElement('div');panel.className='panel';panel.dataset.musicAgents='1';
-      panel.innerHTML=`<div class="panel-head"><div><h2>Agentes de Música</h2><small>Separados dos agentes de filmes e séries para não misturar TMDB com sua discoteca.</small></div><button class="primary" data-music-index-now>Organizar música</button></div><div class="agent-grid">${(agents.music||[]).map(renderAgent).join('')}</div>`;
+      panel.innerHTML=`<div class="panel-head"><div><h2>Agentes de Música</h2><small>Separados dos agentes de filmes e séries para não misturar TMDB com sua discoteca.</small></div><button class="primary" data-music-index-now>Organizar música</button></div><div class="agent-grid">${(agents.music||[]).map(renderAgent).join('')}</div><div class="music-index-panel metadata" data-music-status>${musicStatusHTML(lastStatus)}</div>`;
       const first=page.querySelector('.panel');if(first)first.after(panel);else page.prepend(panel);bindIndexButtons(panel);
+      scheduleProgressPoll(lastStatus);
     }catch{}
     for(const l of music){
       const button=page.querySelector(`[data-meta-scan="${l.id}"]`);const row=button?.closest('tr');if(!row)continue;
@@ -68,8 +96,53 @@
 
   function bindIndexButtons(scope){scope.querySelectorAll('[data-music-index-now]').forEach(button=>button.onclick=()=>organizeMusicNow(button))}
 
+  async function refreshMusicStatus(forcePoll){
+    try{
+      const agents=await req('/admin/agents');
+      lastStatus=agents.music_status||{};
+      document.querySelectorAll('[data-music-status]').forEach(el=>el.innerHTML=musicStatusHTML(lastStatus));
+      scheduleProgressPoll(lastStatus,forcePoll);
+      return lastStatus;
+    }catch(err){
+      document.querySelectorAll('[data-music-status]').forEach(el=>el.innerHTML=`<div class="music-index-error">Não foi possível consultar o progresso: ${esc(err.message)}</div>`);
+      return null;
+    }
+  }
+
+  function scheduleProgressPoll(status,force){
+    if(progressTimer){clearTimeout(progressTimer);progressTimer=null}
+    if(status?.indexing||force){
+      progressTimer=setTimeout(async()=>{
+        const next=await refreshMusicStatus(false);
+        if(next?.indexing)scheduleProgressPoll(next,false);
+      },1600);
+    }
+  }
+
+  function stopProgressPoll(){if(progressTimer){clearTimeout(progressTimer);progressTimer=null}}
+
+  function musicStatusHTML(s){
+    if(!s)return statusLoadingHTML();
+    const pct=Math.max(0,Math.min(100,Number(s.progress||0)));
+    const tags=`${Number(s.indexed_tracks||0).toLocaleString('pt-BR')} / ${Number(s.total_tracks||0).toLocaleString('pt-BR')}`;
+    const albums=`${Number(s.enriched_albums||0).toLocaleString('pt-BR')} / ${Number(s.total_albums||0).toLocaleString('pt-BR')}`;
+    const state=s.indexing?'running':s.phase==='completed'?'done':s.phase==='waiting'||s.phase==='waiting_albums'?'waiting':'idle';
+    const stateLabel=s.indexing?'EM ANDAMENTO':s.phase==='completed'?'CONCLUÍDO':s.phase==='waiting'||s.phase==='waiting_albums'?'PENDENTE':'PARADO';
+    const activity=s.phase==='tags'?`Faixas processadas: <b>${tags}</b>`:s.phase==='albums'||s.phase==='waiting_albums'?`Álbuns enriquecidos: <b>${albums}</b>`:`Faixas organizadas: <b>${tags}</b>`;
+    const secondary=s.phase==='tags'?`Depois: MusicBrainz + capas · ${Number(s.pending_albums||0).toLocaleString('pt-BR')} álbum(ns) pendentes`:`Capas encontradas: <b>${Number(s.albums_with_cover||0).toLocaleString('pt-BR')}</b> · faixas com fallback: <b>${Number(s.fallback_tracks||0).toLocaleString('pt-BR')}</b>`;
+    const updated=s.phase==='tags'?s.last_track_update_at:s.last_album_update_at;
+    return `<div class="music-index-status ${state}">
+      <div class="music-index-status-head"><div><span class="music-index-live"><i></i>${stateLabel}</span><h3>${esc(s.phase_label||'Organização de música')}</h3><p>${esc(s.message||'')}</p></div><strong>${Math.round(pct)}%</strong></div>
+      <div class="music-index-progress"><span style="width:${pct}%"></span></div>
+      <div class="music-index-stats"><span>${activity}</span><span>${secondary}</span>${updated?`<span>Última atualização: <b>${esc(updated)}</b></span>`:''}</div>
+    </div>`;
+  }
+
+  function statusLoadingHTML(){return '<div class="music-index-status idle"><div class="music-index-status-head"><div><span class="music-index-live"><i></i>CONSULTANDO</span><h3>Progresso da organização</h3><p>Carregando estado do FFprobe, MusicBrainz e capas…</p></div></div></div>'}
+
   document.addEventListener('click',e=>{
     const button=e.target.closest('button[data-page]');if(!button)return;
+    if(button.dataset.page==='libraries')setTimeout(()=>decorateMusicLibraryProgress(),250);
     if(button.dataset.page==='metadata')setTimeout(decorateMusicMetadata,350);
     if(button.dataset.page==='subtitles')setTimeout(decorateMusicSubtitleRows,350);
   });
