@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -280,13 +279,21 @@ func (s *Service) ScanMulti(ctx context.Context, libraryID int64) (MultiScanResu
 			offline++
 			continue
 		}
+		if len(discovered) == 0 {
+			previous, countErr := s.existingAvailableUnderRoot(ctx, libraryID, root)
+			if countErr == nil && previous > 0 {
+				offline++
+				_, _ = s.db.ExecContext(ctx, `UPDATE libraries SET last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, fmt.Sprintf("source %d/%d returned 0 files but previously had %d; preserving catalog", i+1, len(sources), previous), libraryID)
+				continue
+			}
+		}
 		scannedRoots = append(scannedRoots, root)
 		for _, file := range discovered {
 			filesByPath[filepath.Clean(file.path)] = file
 		}
 	}
 	if len(scannedRoots) == 0 {
-		return MultiScanResult{}, errors.New("all library sources are offline or unavailable; previous catalog preserved")
+		return MultiScanResult{}, errors.New("all library sources are offline, timed out or returned suspicious empty results; previous catalog preserved")
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -351,6 +358,25 @@ ON CONFLICT(library_id,path) DO UPDATE SET
 	return MultiScanResult{LibraryID: libraryID, Files: len(filesByPath), DurationMS: time.Since(started).Milliseconds(), SourcesScanned: len(scannedRoots), SourcesOffline: offline}, nil
 }
 
+func (s *Service) existingAvailableUnderRoot(ctx context.Context, libraryID int64, root string) (int, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT path FROM media WHERE library_id=? AND available=1`, libraryID)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	count := 0
+	for rows.Next() {
+		var path string
+		if err := rows.Scan(&path); err != nil {
+			return 0, err
+		}
+		if sameOrInside(filepath.Clean(path), filepath.Clean(root)) {
+			count++
+		}
+	}
+	return count, rows.Err()
+}
+
 func normalizeSourcePaths(paths []string) ([]string, error) {
 	seen := map[string]bool{}
 	out := []string{}
@@ -376,8 +402,7 @@ func normalizeSourcePaths(paths []string) ([]string, error) {
 func onlineSourceCount(paths []string) int {
 	count := 0
 	for _, path := range paths {
-		info, err := os.Stat(path)
-		if err == nil && info.IsDir() {
+		if dirOnline(path) {
 			count++
 		}
 	}
