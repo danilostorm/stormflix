@@ -1,4 +1,4 @@
-// StormFlix Android 0.1.5
+// StormFlix Android 0.1.5 - CI validation
 plugins {
     id 'com.android.application'
 }
