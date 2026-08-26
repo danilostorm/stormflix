@@ -5,8 +5,12 @@
 
   function media(){return typeof sfCurrentMedia!=='undefined'?sfCurrentMedia:null}
   function mode(){
-    const text=(document.querySelector('#player-modal .direct-badge')?.textContent||'').toLowerCase();
-    return text.includes('remux')?'web_remux':'direct_play';
+    const explicit=String(window.sfPlaybackMode||'').trim();
+    if(explicit)return explicit;
+    const src=String(player.currentSrc||player.src||'').toLowerCase();
+    if(src.includes('/remux')&&src.includes('audio=aac'))return'direct_stream_audio_aac';
+    if(src.includes('/remux'))return'web_remux';
+    return'direct_play';
   }
   function state(){return player.paused?'paused':'playing'}
   function resolution(){return player.videoWidth&&player.videoHeight?`${player.videoWidth}x${player.videoHeight}`:''}
@@ -20,8 +24,9 @@
   async function loadTechnical(id){
     technical={};
     try{
-      const plan=await request(`/media/${id}/compatibility`);
-      technical={video_codec:plan.video_codec||'',audio_codec:plan.audio_codec||''};
+      const suffix=mode()==='direct_stream_audio_aac'?'?audio=aac':'';
+      const plan=await request(`/media/${id}/compatibility${suffix}`);
+      technical={video_codec:plan.video_codec||'',audio_codec:plan.audio_codec||'',source_audio_codec:plan.source_audio_codec||''};
     }catch{}
   }
 
