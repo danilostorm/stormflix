@@ -229,8 +229,7 @@ func (s *server) decodeUpdateProfile(r *http.Request, userID, profileID int64) (
 	if in.Active != nil {
 		active = *in.Active
 	}
-	p, err := s.auth.UpdateProfile(r.Context(), userID, profileID, in.Name, in.AvatarKey, in.AvatarURL, in.IsKids, active)
-	if err != nil {
+	if _, err = s.auth.UpdateProfile(r.Context(), userID, profileID, in.Name, in.AvatarKey, in.AvatarURL, in.IsKids, active); err != nil {
 		return auth.Profile{}, err
 	}
 	limit := current.ContentRatingLimit
@@ -241,8 +240,7 @@ func (s *server) decodeUpdateProfile(r *http.Request, userID, profileID int64) (
 	} else if !in.IsKids && current.IsKids && current.ContentRatingLimit <= 10 {
 		limit = 18
 	}
-	p, err = s.auth.SetProfileRatingLimit(r.Context(), userID, profileID, limit)
-	if err != nil {
+	if _, err = s.auth.SetProfileRatingLimit(r.Context(), userID, profileID, limit); err != nil {
 		return auth.Profile{}, err
 	}
 	next := current.AutoplayNext
