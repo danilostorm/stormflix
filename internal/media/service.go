@@ -27,6 +27,7 @@ type Item struct {
 	Rating         float64  `json:"rating"`
 	RuntimeMinutes int      `json:"runtime_minutes"`
 	MetadataStatus string   `json:"metadata_status"`
+	TMDBID         int64    `json:"tmdb_id,omitempty"`
 	PosterURL      string   `json:"poster_url"`
 	BackdropURL    string   `json:"backdrop_url"`
 	LogoURL        string   `json:"logo_url"`
@@ -57,7 +58,7 @@ func (s *Service) List(ctx context.Context, libraryID int64, query string, limit
 	}
 	args := []any{}
 	sqlText := `SELECT m.id,m.library_id,l.name,m.title,m.extension,m.size_bytes,m.modified_unix,m.available,
-COALESCE(mm.media_type,''),COALESCE(mm.year,0),COALESCE(mm.season_number,0),COALESCE(mm.episode_number,0),COALESCE(mm.overview,''),COALESCE(mm.genres_json,'[]'),COALESCE(mm.rating,0),COALESCE(mm.runtime_minutes,0),COALESCE(mm.status,'pending'),
+COALESCE(mm.media_type,''),COALESCE(mm.year,0),COALESCE(mm.season_number,0),COALESCE(mm.episode_number,0),COALESCE(mm.overview,''),COALESCE(mm.genres_json,'[]'),COALESCE(mm.rating,0),COALESCE(mm.runtime_minutes,0),COALESCE(mm.status,'pending'),COALESCE(mm.tmdb_id,0),
 COALESCE((SELECT a.public_url FROM media_artwork a WHERE a.media_id=m.id AND a.kind='poster' AND a.selected=1 ORDER BY a.score DESC LIMIT 1),''),
 COALESCE((SELECT a.public_url FROM media_artwork a WHERE a.media_id=m.id AND a.kind='backdrop' AND a.selected=1 ORDER BY a.score DESC LIMIT 1),''),
 COALESCE((SELECT a.public_url FROM media_artwork a WHERE a.media_id=m.id AND a.kind='logo' AND a.selected=1 ORDER BY a.score DESC LIMIT 1),'')
@@ -78,8 +79,17 @@ FROM media m JOIN libraries l ON l.id=m.library_id LEFT JOIN media_metadata mm O
 		sqlText += ` AND m.title LIKE ?`
 		args = append(args, "%"+query+"%")
 	}
+	// Pull a little more than the requested page because multiple physical
+	// sources can collapse into one logical title after the query.
+	rawLimit := limit * 4
+	if rawLimit < limit {
+		rawLimit = limit
+	}
+	if rawLimit > 2000 {
+		rawLimit = 2000
+	}
 	sqlText += ` ORDER BY m.title COLLATE NOCASE LIMIT ? OFFSET ?`
-	args = append(args, limit, offset)
+	args = append(args, rawLimit, offset)
 	rows, err := s.db.QueryContext(ctx, sqlText, args...)
 	if err != nil {
 		return nil, err
@@ -90,13 +100,20 @@ FROM media m JOIN libraries l ON l.id=m.library_id LEFT JOIN media_metadata mm O
 		var v Item
 		var genres string
 		if err := rows.Scan(&v.ID, &v.LibraryID, &v.LibraryName, &v.Title, &v.Extension, &v.SizeBytes, &v.ModifiedUnix, &v.Available,
-			&v.MediaType, &v.Year, &v.SeasonNumber, &v.EpisodeNumber, &v.Overview, &genres, &v.Rating, &v.RuntimeMinutes, &v.MetadataStatus, &v.PosterURL, &v.BackdropURL, &v.LogoURL); err != nil {
+			&v.MediaType, &v.Year, &v.SeasonNumber, &v.EpisodeNumber, &v.Overview, &genres, &v.Rating, &v.RuntimeMinutes, &v.MetadataStatus, &v.TMDBID, &v.PosterURL, &v.BackdropURL, &v.LogoURL); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(genres), &v.Genres)
 		out = append(out, v)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out = DedupeItems(out)
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
 }
 
 func (s *Service) GetStreamItem(ctx context.Context, id int64) (StreamItem, error) {
