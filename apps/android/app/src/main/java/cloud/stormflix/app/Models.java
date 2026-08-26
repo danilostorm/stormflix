@@ -79,6 +79,9 @@ public final class Models {
         public String avatarUrl = "";
         public boolean kids;
         public boolean pinEnabled;
+        public String preferredAudio = "pt-BR";
+        public String preferredSubtitle = "pt-BR";
+
         public static Profile from(JSONObject o) {
             Profile p = new Profile();
             p.id = o.optLong("id");
@@ -86,6 +89,8 @@ public final class Models {
             p.avatarUrl = o.optString("avatar_url", "");
             p.kids = o.optBoolean("is_kids", false);
             p.pinEnabled = o.optBoolean("pin_enabled", false);
+            p.preferredAudio = o.optString("preferred_audio", "pt-BR");
+            p.preferredSubtitle = o.optString("preferred_subtitle", "pt-BR");
             return p;
         }
     }
