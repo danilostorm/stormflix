@@ -20,7 +20,7 @@ import (
 )
 
 const sessionCookie = "stormflix_session"
-const version = "0.9.0-logical-media-admin"
+const version = "0.10.0-profiles-cast-scan"
 
 type contextKey string
 
@@ -77,6 +77,7 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("GET /api/v1/auth/me", s.requireAuth(s.me))
 
 	mux.HandleFunc("GET /api/v1/profiles", s.requireAuth(s.listProfiles))
+	mux.HandleFunc("GET /api/v1/profiles/continue", s.requireAuth(s.continueWatching))
 	mux.HandleFunc("POST /api/v1/profiles", s.requireAuth(s.createOwnProfile))
 	mux.HandleFunc("PUT /api/v1/profiles/{id}", s.requireAuth(s.updateOwnProfile))
 	mux.HandleFunc("DELETE /api/v1/profiles/{id}", s.requireAuth(s.deleteOwnProfile))
@@ -92,6 +93,7 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("GET /api/v1/categories", s.requireAuth(s.listCategories))
 	mux.HandleFunc("GET /api/v1/categories/{slug}", s.requireAuth(s.browseCategory))
 	mux.HandleFunc("GET /api/v1/home", s.requireAuth(s.homeFeed))
+	mux.HandleFunc("GET /api/v1/people", s.requireAuth(s.personTitles))
 	mux.HandleFunc("GET /api/v1/series", s.requireAuth(s.listSeries))
 	mux.HandleFunc("GET /api/v1/series/{id}", s.requireAuth(s.seriesDetails))
 	mux.HandleFunc("GET /api/v1/media", s.requireAuth(s.listMedia))
