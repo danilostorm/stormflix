@@ -1,4 +1,4 @@
-// StormFlix Android 0.2.0 - TV/Fire TV navigation, resume and music redesign
+// StormFlix Android 0.2.1 - seekable AAC fallback, ordered resume and Fire TV seek feedback
 plugins {
     id 'com.android.application'
 }
@@ -11,8 +11,8 @@ android {
         applicationId 'cloud.stormflix.app'
         minSdk 23
         targetSdk 36
-        versionCode 7
-        versionName '0.2.0'
+        versionCode 8
+        versionName '0.2.1'
     }
 
     buildTypes {
