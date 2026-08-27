@@ -14,7 +14,7 @@
     root.innerHTML='<div class="catalog-admin-loading">Carregando catálogo…</div>';
     try{
       if(!Array.isArray(libs)||!libs.length)libs=await req('/admin/storage');
-      root.innerHTML=`<div class="catalog-admin-head"><div><p class="kicker">Controle de correspondência</p><h2>Catálogo</h2><span>Corrija títulos, capas e metadados associados ao resultado errado.</span></div><div class="catalog-admin-tools"><input id="catalog-admin-search" placeholder="Buscar título, arquivo ou TMDB ID"><select id="catalog-admin-library"><option value="">Todas as bibliotecas</option>${libs.map(l=>`<option value="${l.id}">${esc(l.name)}</option>`).join('')}</select><button id="catalog-admin-refresh">Atualizar</button></div></div><div id="catalog-admin-results"></div>`;
+      root.innerHTML=`<div class="catalog-admin-head"><div><p class="kicker">Controle de correspondência</p><h2>Catálogo</h2><span>Em séries, corrija a obra principal uma única vez e o StormFlix aplica o resultado a temporadas, episódios atuais e futuros.</span></div><div class="catalog-admin-tools"><input id="catalog-admin-search" placeholder="Buscar série, título, arquivo ou TMDB ID"><select id="catalog-admin-library"><option value="">Todas as bibliotecas</option>${libs.map(l=>`<option value="${l.id}">${esc(l.name)}</option>`).join('')}</select><button id="catalog-admin-refresh">Atualizar</button></div></div><div id="catalog-admin-results"></div>`;
       $('#catalog-admin-search').oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(fetchCatalog,300)};
       $('#catalog-admin-library').onchange=fetchCatalog;
       $('#catalog-admin-refresh').onclick=fetchCatalog;
@@ -37,17 +37,21 @@
     if(!items.length){root.innerHTML='<div class="catalog-admin-empty">Nenhum item encontrado.</div>';return}
     root.innerHTML=`<div class="catalog-admin-grid">${items.map(item=>{
       const poster=item.poster_url?`<img src="${esc(item.poster_url)}" alt="" loading="lazy">`:'<div class="catalog-admin-poster-fallback">SF</div>';
-      const status=item.manual_match?'<span class="catalog-match-badge manual">MANUAL · PROTEGIDO</span>':item.metadata_status==='matched'?'<span class="catalog-match-badge ok">AUTOMÁTICO</span>':`<span class="catalog-match-badge error">${esc(item.metadata_status||'PENDENTE').toUpperCase()}</span>`;
-      return `<article class="catalog-admin-card"><div class="catalog-admin-poster">${poster}</div><div class="catalog-admin-info"><div class="catalog-admin-title"><div><h3>${esc(item.title)}</h3><p>${esc(item.library_name)} · ${esc(item.media_type||'sem tipo')} ${item.year?`· ${item.year}`:''}</p></div>${status}</div><div class="catalog-admin-meta"><span>TMDB <b>${item.tmdb_id||'—'}</b></span><span>Classificação <b>${esc(item.content_rating||'—')}</b></span><span>Lançamento <b>${esc(item.release_date||'—')}</b></span></div><code title="${esc(item.path)}">${esc(item.path)}</code>${item.last_error?`<p class="catalog-admin-error">${esc(item.last_error)}</p>`:''}<div class="catalog-admin-actions"><button class="primary" data-fix-match="${item.id}">Corrigir correspondência</button>${item.manual_match?`<button data-auto-match="${item.id}">Voltar ao automático</button>`:''}</div></div></article>`}).join('')}</div>`;
+      const status=item.manual_series?'<span class="catalog-match-badge manual">SÉRIE MANUAL · PROTEGIDA</span>':item.manual_match?'<span class="catalog-match-badge manual">ITEM MANUAL · PROTEGIDO</span>':item.metadata_status==='matched'?'<span class="catalog-match-badge ok">AUTOMÁTICO</span>':`<span class="catalog-match-badge error">${esc(item.metadata_status||'PENDENTE').toUpperCase()}</span>`;
+      const series=item.series_key?`<p><b>${esc(item.series_title||'Série detectada')}</b> · identidade da série</p>`:'';
+      return `<article class="catalog-admin-card"><div class="catalog-admin-poster">${poster}</div><div class="catalog-admin-info"><div class="catalog-admin-title"><div><h3>${esc(item.title)}</h3><p>${esc(item.library_name)} · ${esc(item.media_type||'sem tipo')} ${item.year?`· ${item.year}`:''}</p>${series}</div>${status}</div><div class="catalog-admin-meta"><span>TMDB <b>${item.tmdb_id||'—'}</b></span><span>Classificação <b>${esc(item.content_rating||'—')}</b></span><span>Lançamento <b>${esc(item.release_date||'—')}</b></span></div><code title="${esc(item.path)}">${esc(item.path)}</code>${item.last_error?`<p class="catalog-admin-error">${esc(item.last_error)}</p>`:''}<div class="catalog-admin-actions"><button class="primary" data-fix-match="${item.id}">Corrigir correspondência</button>${item.manual_series?`<button data-auto-series="${item.id}">Série → automático</button>`:item.manual_match?`<button data-auto-match="${item.id}">Item → automático</button>`:''}</div></div></article>`}).join('')}</div>`;
     root.querySelectorAll('[data-fix-match]').forEach(b=>b.onclick=()=>openMatch(Number(b.dataset.fixMatch)));
-    root.querySelectorAll('[data-auto-match]').forEach(b=>b.onclick=()=>resetAuto(Number(b.dataset.autoMatch)));
+    root.querySelectorAll('[data-auto-match]').forEach(b=>b.onclick=()=>resetAuto(Number(b.dataset.autoMatch),false));
+    root.querySelectorAll('[data-auto-series]').forEach(b=>b.onclick=()=>resetAuto(Number(b.dataset.autoSeries),true));
   }
 
   async function openMatch(id){
     activeMedia=catalogItems.find(x=>Number(x.id)===Number(id));if(!activeMedia)return;
+    const hasSeries=!!activeMedia.series_key;
+    const hint=(activeMedia.series_title||'').trim()||filenameHint(activeMedia.path);
     let overlay=$('#catalog-match-overlay');
     if(!overlay){overlay=document.createElement('div');overlay.id='catalog-match-overlay';overlay.className='catalog-match-overlay';document.body.appendChild(overlay)}
-    overlay.innerHTML=`<div class="catalog-match-dialog"><header><div><p class="kicker">CORRESPONDÊNCIA MANUAL</p><h2>${esc(activeMedia.title)}</h2><span>${esc(activeMedia.path)}</span></div><button id="catalog-match-close">✕</button></header><div class="catalog-match-search"><input id="catalog-match-query" value="${esc(filenameHint(activeMedia.path))}" placeholder="Pesquisar no TMDB"><button id="catalog-match-search-button" class="primary">Pesquisar</button></div><label class="catalog-copy-option"><input type="checkbox" id="catalog-match-copies" checked><span>Aplicar também às cópias deste mesmo título nos outros servidores/origens desta biblioteca</span></label><div id="catalog-match-results" class="catalog-match-results"></div></div>`;
+    overlay.innerHTML=`<div class="catalog-match-dialog"><header><div><p class="kicker">CORRESPONDÊNCIA MANUAL</p><h2>${esc(hasSeries?(activeMedia.series_title||activeMedia.title):activeMedia.title)}</h2><span>${hasSeries?'Identidade detectada pelo scanner: '+esc(activeMedia.series_title||activeMedia.title):esc(activeMedia.path)}</span></div><button id="catalog-match-close">✕</button></header><div class="catalog-match-search"><input id="catalog-match-query" value="${esc(hint)}" placeholder="Pesquisar no TMDB"><button id="catalog-match-search-button" class="primary">Pesquisar</button></div>${hasSeries?`<label class="catalog-copy-option"><input type="checkbox" id="catalog-match-series" checked><span><b>Aplicar à série inteira (recomendado)</b><br>Como no Plex: salva esta correspondência na série, atualiza todos os episódios atuais em segundo plano e novos episódios herdam esta identidade.</span></label>`:`<label class="catalog-copy-option"><input type="checkbox" id="catalog-match-copies" checked><span>Aplicar também às cópias deste mesmo título nos outros servidores/origens desta biblioteca</span></label>`}<div id="catalog-match-results" class="catalog-match-results"></div></div>`;
     overlay.classList.remove('hidden');
     $('#catalog-match-close').onclick=()=>overlay.classList.add('hidden');
     overlay.onclick=e=>{if(e.target===overlay)overlay.classList.add('hidden')};
@@ -70,19 +74,23 @@
 
   async function applyMatch(tmdbID,mediaType,button){
     if(!activeMedia)return;
-    if(!confirm('Usar este resultado? Metadados, capas e legendas ligados à correspondência anterior serão limpos.'))return;
+    const seriesScope=mediaType==='tv'&&!!activeMedia.series_key&&$('#catalog-match-series')?.checked!==false;
+    const confirmation=seriesScope?'Usar este resultado para a SÉRIE INTEIRA? O StormFlix salvará a decisão e corrigirá temporadas/episódios em segundo plano.':'Usar este resultado? Metadados, capas e legendas ligados à correspondência anterior serão limpos.';
+    if(!confirm(confirmation))return;
     button.disabled=true;button.textContent='Aplicando…';
     try{
-      const result=await req(`/admin/catalog/${activeMedia.id}/match`,{method:'POST',body:JSON.stringify({tmdb_id:tmdbID,media_type:mediaType,apply_copies:$('#catalog-match-copies')?.checked!==false})});
-      notice(`Correspondência corrigida em ${result.updated||1} arquivo(s).`,true);
+      const result=await req(`/admin/catalog/${activeMedia.id}/match`,{method:'POST',body:JSON.stringify({tmdb_id:tmdbID,media_type:mediaType,scope:seriesScope?'series':'item',apply_copies:!seriesScope&&($('#catalog-match-copies')?.checked!==false)})});
+      if(seriesScope)notice(`Série corrigida. ${result.updated||1} episódio(s) serão atualizados em segundo plano.`,true);
+      else notice(`Correspondência corrigida em ${result.updated||1} arquivo(s).`,true);
       $('#catalog-match-overlay')?.classList.add('hidden');
       await fetchCatalog();
     }catch(err){notice(err.message);button.disabled=false;button.textContent='Usar este resultado'}
   }
 
-  async function resetAuto(id){
-    if(!confirm('Remover a proteção manual e voltar a procurar metadados automaticamente para este item?'))return;
-    try{await req(`/admin/catalog/${id}/auto`,{method:'POST'});notice('Item voltou ao modo automático.',true);await fetchCatalog()}catch(err){notice(err.message)}
+  async function resetAuto(id,series){
+    const label=series?'a série inteira':'este item';
+    if(!confirm(`Remover a proteção manual e voltar ao modo automático para ${label}?`))return;
+    try{const r=await req(`/admin/catalog/${id}/auto${series?'?scope=series':''}`,{method:'POST'});notice(series?`${r.updated||0} episódio(s) voltaram ao modo automático.`:'Item voltou ao modo automático.',true);await fetchCatalog()}catch(err){notice(err.message)}
   }
 
   function filenameHint(path){
