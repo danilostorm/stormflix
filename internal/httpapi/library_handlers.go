@@ -119,15 +119,15 @@ func (s *server) scanLibrary(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, err)
 		return
 	}
-	lib, err := s.libraries.StartAdminScan(r.Context(), id)
+	lib, job, err := s.libraries.EnqueueAdminScan(r.Context(), id)
 	uid := currentUser(r).ID
 	if err != nil {
-		s.admin.Log(r.Context(), "error", "scanner", "Library scan could not start", &uid, err.Error())
+		s.admin.Log(r.Context(), "error", "scanner", "Library scan could not be queued", &uid, err.Error())
 		writeError(w, 400, err)
 		return
 	}
-	s.admin.Log(r.Context(), "info", "scanner", "Library scan started", &uid, lib.Name)
-	writeJSON(w, http.StatusAccepted, map[string]any{"status": "running", "library_id": id, "message": "scan started in background", "sources": lib.SourceCount, "online_sources": lib.OnlineSources})
+	s.admin.Log(r.Context(), "info", "scanner", "Library scan queued", &uid, lib.Name)
+	writeJSON(w, http.StatusAccepted, map[string]any{"status": job.Status, "job_id": job.ID, "library_id": id, "message": job.Message, "sources": lib.SourceCount, "online_sources": lib.OnlineSources})
 }
 
 func (s *server) cancelLibraryScan(w http.ResponseWriter, r *http.Request) {
@@ -137,7 +137,7 @@ func (s *server) cancelLibraryScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uid := currentUser(r).ID
-	if err := s.libraries.CancelAdminScan(r.Context(), id); err != nil {
+	if err := s.libraries.CancelQueuedOrRunningAdminScan(r.Context(), id); err != nil {
 		s.admin.Log(r.Context(), "error", "scanner", "Library scan cancel failed", &uid, err.Error())
 		writeError(w, 409, err)
 		return
