@@ -143,7 +143,10 @@ func (s *server) registerJellyfinRoutes(mux *http.ServeMux, prefix string) {
 	mux.HandleFunc("GET "+route("/Users/{id}/Items/Latest"), authed(s.jellyfinLatestCatalog))
 	mux.HandleFunc("GET "+route("/Shows/NextUp"), authed(s.jellyfinNextUp))
 	mux.HandleFunc("GET "+route("/Items/{id}"), authed(s.jellyfinCatalogItem))
-	mux.HandleFunc("GET "+route("/Items/{id}/Images/{kind}"), authed(s.jellyfinCatalogImage))
+	// Android TV's image pipeline intentionally performs these GETs without
+	// the session token. Only read-only artwork is public; everything else stays
+	// behind jellyfinRequireAuth.
+	mux.HandleFunc("GET "+route("/Items/{id}/Images/{kind}"), compat(s.jellyfinPublicCatalogImage))
 	mux.HandleFunc("GET "+route("/Items/{id}/PlaybackInfo"), authed(s.jellyfinPlaybackInfo))
 	mux.HandleFunc("POST "+route("/Items/{id}/PlaybackInfo"), authed(s.jellyfinPlaybackInfo))
 	mux.HandleFunc("GET "+route("/Shows/{id}/Seasons"), authed(s.jellyfinSeasons))
