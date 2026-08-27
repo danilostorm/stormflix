@@ -21,8 +21,9 @@ var (
 	junkParenRE               = regexp.MustCompile(`(?i)\((?:vhs|dvd|bdrip|bluray|blu-ray|dublado|dual[ ._-]*audio|legendado|webrip|web-dl|remux)\)`)
 	emptyGroupRE              = regexp.MustCompile(`\(\s*\)|\[\s*\]|\{\s*\}`)
 	movieIndexRE              = regexp.MustCompile(`(?i)\b(?:filme|movie)\s*[-_. ]*\d{1,3}\b`)
-	seasonDirRE               = regexp.MustCompile(`(?i)^(?:season|temporada)\s*\d{1,3}$`)
-	seasonDirNumberRE         = regexp.MustCompile(`(?i)^(?:season|temporada)\s*(\d{1,3})$`)
+	seasonDirRE               = regexp.MustCompile(`(?i)^(?:(?:season|temporada)[ ._-]*\d{1,3}|\d{1,3}[ºª°]?[ ._-]*(?:season|temporada))(?:[ ._-].*)?$`)
+	seasonDirNumberRE         = regexp.MustCompile(`(?i)^(?:season|temporada)[ ._-]*(\d{1,3})(?:[ ._-].*)?$`)
+	seasonLeadingNumberRE     = regexp.MustCompile(`(?i)^(\d{1,3})[ºª°]?[ ._-]*(?:season|temporada)(?:[ ._-].*)?$`)
 	wordNumberEndRE           = regexp.MustCompile(`(?i)([[:alpha:]])(\d{1,2})(?:$|[ ._-])`)
 	technicalSeriesDirRE      = regexp.MustCompile(`(?i)^(?:remux(?:es)?|blu[ ._-]?ray|bdrip|brrip|web[ ._-]?dl|webrip|hdtv|uhd|4k|2160p|1080p|720p|480p|disc(?:o)?[ ._-]*\d+|disk[ ._-]*\d+|cd[ ._-]*\d+|volume[ ._-]*\d+|vol[ ._-]*\d+|parte[ ._-]*\d+|part[ ._-]*\d+)$`)
 )
@@ -224,9 +225,13 @@ func ParseFilename(path, libraryKind string) ParsedName {
 }
 
 func seasonFromDirectory(path string) int {
-	for depth, dir := 0, filepath.Dir(path); depth < 4; depth, dir = depth+1, filepath.Dir(dir) {
+	for depth, dir := 0, filepath.Dir(path); depth < 5; depth, dir = depth+1, filepath.Dir(dir) {
 		name := cleanMetadataText(filepath.Base(dir))
 		if match := seasonDirNumberRE.FindStringSubmatch(name); len(match) == 2 {
+			n, _ := strconv.Atoi(match[1])
+			return n
+		}
+		if match := seasonLeadingNumberRE.FindStringSubmatch(name); len(match) == 2 {
 			n, _ := strconv.Atoi(match[1])
 			return n
 		}
