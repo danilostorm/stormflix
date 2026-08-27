@@ -15,7 +15,7 @@ import (
 var scannerSeriesIdentity sync.Map
 
 var (
-	scannerSeasonDirRE = regexp.MustCompile(`(?i)(?:^|[ ._-])(?:season|temporada)[ ._-]*(\d{1,3})(?:$|[ ._-])`)
+	scannerSeasonDirRE   = regexp.MustCompile(`(?i)(?:^|[ ._-])(?:season|temporada)[ ._-]*(\d{1,3})(?:$|[ ._-])`)
 	scannerLeadingSeasonRE = regexp.MustCompile(`(?i)^(\d{1,3})[ºª°]?[ ._-]*(?:season|temporada)(?:$|[ ._-])`)
 )
 
@@ -36,7 +36,9 @@ type scannerIdentityRow struct {
 
 // RebuildSeriesIdentities is the scanner stage for episodic libraries. It uses
 // the configured library roots and directory hierarchy as authoritative input;
-// external providers are deliberately not involved here.
+// external providers are deliberately not involved here. A previously chosen
+// manual series match may replace only the display/search title, never the
+// scanner-owned series key, season or episode identity.
 func (s *Service) RebuildSeriesIdentities(ctx context.Context, libraryID int64) error {
 	var kind, fallbackRoot string
 	if err := s.db.QueryRowContext(ctx, `SELECT kind,path FROM libraries WHERE id=?`, libraryID).Scan(&kind, &fallbackRoot); err != nil {
@@ -83,6 +85,26 @@ func (s *Service) RebuildSeriesIdentities(ctx context.Context, libraryID int64) 
 	}
 	if err := mediaRows.Close(); err != nil {
 		return err
+	}
+
+	// Plex-like series matching: a manual choice belongs to the logical show,
+	// not one episode. Reuse its canonical provider title after every rescan so
+	// newly discovered episodes search for the already-approved show.
+	manualTitles := map[string]string{}
+	overrideRows, overrideErr := s.db.QueryContext(ctx, `SELECT series_key,title FROM series_metadata_overrides WHERE library_id=? AND manual=1`, libraryID)
+	if overrideErr == nil {
+		for overrideRows.Next() {
+			var key, title string
+			if overrideRows.Scan(&key, &title) == nil && strings.TrimSpace(key) != "" && strings.TrimSpace(title) != "" {
+				manualTitles[key] = strings.TrimSpace(title)
+			}
+		}
+		_ = overrideRows.Close()
+	}
+	for i := range items {
+		if title := manualTitles[items[i].SeriesKey]; title != "" {
+			items[i].SeriesTitle = title
+		}
 	}
 
 	// Files without explicit numbering still need deterministic episode order.
