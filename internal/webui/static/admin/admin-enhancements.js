@@ -23,7 +23,7 @@
     document.querySelectorAll('#metadata tbody tr').forEach(row=>{
       const name=row.querySelector('td b')?.textContent||'';const lib=libs.find(x=>x.name===name);if(!lib)return;
       const typeCell=row.children[1];if(!typeCell)return;
-      const strategy=lib.kind==='mixed'?'TMDB → AniDB → MyAnimeList → AnimeAPI → Fanart':lib.kind==='anime_series'?'TMDB Séries → AniDB → MyAnimeList → AnimeAPI → Fanart':lib.kind==='animation_series'?'Pasta da série → TMDB TV → Fanart':lib.kind==='anime'?'AniList → AniDB → MyAnimeList → AnimeAPI → TMDB':lib.kind==='series'?'TMDB (séries/episódios)':'TMDB + Fanart';
+      const strategy=lib.kind==='mixed'?'TMDB → AniDB → MyAnimeList → HAMA/Anime-Lists → Fanart':lib.kind==='anime_series'?'Scanner de pasta → TMDB Séries → TheTVDB → AniList/AniDB/MAL → HAMA/Anime-Lists → Fanart':lib.kind==='animation_series'?'Scanner de pasta → TMDB TV → TheTVDB → Fanart':lib.kind==='anime'?'AniList → HAMA/Anime-Lists → TMDB/TheTVDB → Fanart':lib.kind==='series'?'Scanner de pasta → TMDB TV → TheTVDB':'TMDB + Fanart';
       if(!typeCell.querySelector('.agent-strategy'))typeCell.insertAdjacentHTML('beforeend',`<small class="agent-strategy">${esc(strategy)}</small>`);
     });
   };
