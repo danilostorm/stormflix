@@ -23,7 +23,7 @@
     document.querySelectorAll('#metadata tbody tr').forEach(row=>{
       const name=row.querySelector('td b')?.textContent||'';const lib=libs.find(x=>x.name===name);if(!lib)return;
       const typeCell=row.children[1];if(!typeCell)return;
-      const strategy=lib.kind==='mixed'?'TMDB → AniDB → MyAnimeList → AnimeAPI → Fanart':lib.kind==='anime'?'AniList → AniDB → MyAnimeList → AnimeAPI → TMDB':lib.kind==='series'?'TMDB (séries/episódios)':'TMDB + Fanart';
+      const strategy=lib.kind==='mixed'?'TMDB → AniDB → MyAnimeList → AnimeAPI → Fanart':lib.kind==='anime_series'?'TMDB Séries → AniDB → MyAnimeList → AnimeAPI → Fanart':lib.kind==='anime'?'AniList → AniDB → MyAnimeList → AnimeAPI → TMDB':lib.kind==='series'?'TMDB (séries/episódios)':'TMDB + Fanart';
       if(!typeCell.querySelector('.agent-strategy'))typeCell.insertAdjacentHTML('beforeend',`<small class="agent-strategy">${esc(strategy)}</small>`);
     });
   };
