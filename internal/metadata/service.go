@@ -168,6 +168,11 @@ func (s *Service) lookup(ctx context.Context, item SourceItem, parsed ParsedName
 	if strings.TrimSpace(parsed.Title) == "" {
 		return Result{}, errors.New("could not derive a title from filename")
 	}
+	// Western cartoons use TMDB's TV surface and Fanart. They intentionally do
+	// not enter AniList/AniDB/MAL, even though they share the episodic series UI.
+	if strings.EqualFold(item.LibraryKind, "animation_series") {
+		item.LibraryKind = "series"
+	}
 	s.providerMu.RLock()
 	cfg := s.cfg
 	tmdb := s.tmdb
