@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"sync"
 
 	"github.com/danilostorm/stormflix/internal/media"
 )
@@ -14,27 +15,47 @@ func (s *server) homeFeed(w http.ResponseWriter, r *http.Request) {
 	if roleLevel(u.Role) < 2 {
 		allowed = u.LibraryIDs
 	}
-	feed, err := s.media.HomeGrouped(r.Context(), allowed, s.config.HomeHeroMode, s.config.ServerName, s.config.ThemePreviewEnabled, s.config.ThemePreviewVolume, s.config.ThemePreviewAutoplay)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
+	profileID := s.selectedProfileID(r, u.ID)
+
+	// The Home used to do all of these independent reads sequentially. As the
+	// catalog grows that makes latency additive. SQLite WAL supports concurrent
+	// readers, so execute the independent rails together. The expensive static
+	// grouped catalog is additionally cached for 20 seconds inside media.Service.
+	var feed media.HomeFeed
+	var feedErr error
+	var continueItems, trendingNow, trendingWeek, releases []media.Item
+	var wg sync.WaitGroup
+	wg.Add(5)
+	go func() {
+		defer wg.Done()
+		feed, feedErr = s.media.HomeGroupedCached(r.Context(), allowed, s.config.HomeHeroMode, s.config.ServerName, s.config.ThemePreviewEnabled, s.config.ThemePreviewVolume, s.config.ThemePreviewAutoplay)
+	}()
+	go func() {
+		defer wg.Done()
+		if profileID > 0 {
+			continueItems, _ = s.media.ContinueWatching(r.Context(), profileID, allowed, 24)
+		}
+	}()
+	go func() { defer wg.Done(); trendingNow, _ = s.media.Trending(r.Context(), allowed, 2, 24) }()
+	go func() { defer wg.Done(); trendingWeek, _ = s.media.Trending(r.Context(), allowed, 7, 24) }()
+	go func() { defer wg.Done(); releases, _ = s.media.Releases(r.Context(), allowed, 24) }()
+	wg.Wait()
+	if feedErr != nil {
+		writeError(w, http.StatusInternalServerError, feedErr)
 		return
 	}
 
 	frontRows := []media.HomeRow{}
-	profileID := s.selectedProfileID(r, u.ID)
-	if profileID > 0 {
-		items, progressErr := s.media.ContinueWatching(r.Context(), profileID, allowed, 24)
-		if progressErr == nil && len(items) > 0 {
-			frontRows = append(frontRows, media.HomeRow{ID: "continue-watching", Title: "Continuar assistindo", Items: items})
-		}
+	if len(continueItems) > 0 {
+		frontRows = append(frontRows, media.HomeRow{ID: "continue-watching", Title: "Continuar assistindo", Items: continueItems})
 	}
-	if trending, trendErr := s.media.Trending(r.Context(), allowed, 2, 24); trendErr == nil && len(trending) > 0 {
-		frontRows = append(frontRows, media.HomeRow{ID: "trending-now", Title: "Em alta agora", Items: trending})
+	if len(trendingNow) > 0 {
+		frontRows = append(frontRows, media.HomeRow{ID: "trending-now", Title: "Em alta agora", Items: trendingNow})
 	}
-	if weekly, trendErr := s.media.Trending(r.Context(), allowed, 7, 24); trendErr == nil && len(weekly) > 0 {
-		frontRows = append(frontRows, media.HomeRow{ID: "trending-week", Title: "Em alta nesta semana", Items: weekly})
+	if len(trendingWeek) > 0 {
+		frontRows = append(frontRows, media.HomeRow{ID: "trending-week", Title: "Em alta nesta semana", Items: trendingWeek})
 	}
-	if releases, releaseErr := s.media.Releases(r.Context(), allowed, 24); releaseErr == nil && len(releases) > 0 {
+	if len(releases) > 0 {
 		frontRows = append(frontRows, media.HomeRow{ID: "releases", Title: "Lançamentos", Items: releases})
 	}
 	feed.Rows = append(frontRows, feed.Rows...)
