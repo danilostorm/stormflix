@@ -92,18 +92,20 @@ func (s *Service) SearchTMDB(ctx context.Context, query, mediaType string, year 
 }
 
 func (s *Service) SearchForMedia(ctx context.Context, mediaID int64, query string) ([]CatalogCandidate, error) {
-	var path, kind string
-	if err := s.db.QueryRowContext(ctx, `SELECT m.path,l.kind FROM media m JOIN libraries l ON l.id=m.library_id WHERE m.id=? AND m.available=1`, mediaID).Scan(&path, &kind); err != nil {
+	var source SourceItem
+	if err := s.db.QueryRowContext(ctx, `SELECT m.id,m.library_id,l.kind,m.title,m.path FROM media m JOIN libraries l ON l.id=m.library_id WHERE m.id=? AND m.available=1`, mediaID).
+		Scan(&source.ID, &source.LibraryID, &source.LibraryKind, &source.Title, &source.Path); err != nil {
 		return nil, err
 	}
-	parsed := ParseFilename(path, kind)
+	loadSourceItemIdentity(ctx, s.db, &source)
+	parsed := source.Parsed()
 	if strings.TrimSpace(query) == "" {
 		query = parsed.Title
 	}
 	mediaType := ""
-	if kind == "movies" {
+	if source.LibraryKind == "movies" {
 		mediaType = "movie"
-	} else if kind == "series" || kind == "animation_series" || kind == "anime_series" {
+	} else if source.LibraryKind == "series" || source.LibraryKind == "animation_series" || source.LibraryKind == "anime_series" {
 		mediaType = "tv"
 	}
 	return s.SearchTMDB(ctx, query, mediaType, parsed.Year)
@@ -118,6 +120,7 @@ func (s *Service) ManualMatch(ctx context.Context, mediaID, tmdbID int64, mediaT
 		Scan(&source.ID, &source.LibraryID, &source.LibraryKind, &source.Title, &source.Path); err != nil {
 		return 0, err
 	}
+	loadSourceItemIdentity(ctx, s.db, &source)
 	s.providerMu.RLock()
 	tmdb := s.tmdb
 	fanart := s.fanart
@@ -127,7 +130,7 @@ func (s *Service) ManualMatch(ctx context.Context, mediaID, tmdbID int64, mediaT
 	if tmdb == nil || !tmdb.Ready() {
 		return 0, errors.New("TMDB is not configured")
 	}
-	parsed := ParseFilename(source.Path, source.LibraryKind)
+	parsed := source.Parsed()
 	var result Result
 	var err error
 	if mediaType == "movie" {
@@ -165,8 +168,6 @@ func (s *Service) ManualMatch(ctx context.Context, mediaID, tmdbID int64, mediaT
 		if _, err := s.db.ExecContext(ctx, `UPDATE media_metadata SET manual_match=1,last_error='',updated_at=CURRENT_TIMESTAMP WHERE media_id=?`, target); err != nil {
 			return updated, err
 		}
-		// Subtitles and artwork associated with the wrong title are invalid. The
-		// artwork tree was already replaced by saveResult; clean subtitles too.
 		_, _ = s.db.ExecContext(ctx, `DELETE FROM subtitles WHERE media_id=?`, target)
 		_ = s.assets.RemoveTree(fmt.Sprintf("subtitles/%d", target))
 		updated++
@@ -175,7 +176,10 @@ func (s *Service) ManualMatch(ctx context.Context, mediaID, tmdbID int64, mediaT
 }
 
 func (s *Service) logicalCopies(ctx context.Context, source SourceItem, parsed ParsedName) ([]int64, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT m.id,m.path,l.kind FROM media m JOIN libraries l ON l.id=m.library_id WHERE m.library_id=? AND m.available=1 ORDER BY m.id`, source.LibraryID)
+	rows, err := s.db.QueryContext(ctx, `SELECT m.id,m.path,l.kind,
+COALESCE(si.source_root,''),COALESCE(si.series_key,''),COALESCE(si.series_title,''),COALESCE(si.season_number,0),COALESCE(si.episode_number,0),COALESCE(si.absolute_number,0)
+FROM media m JOIN libraries l ON l.id=m.library_id LEFT JOIN media_series_identity si ON si.media_id=m.id
+WHERE m.library_id=? AND m.available=1 ORDER BY m.id`, source.LibraryID)
 	if err != nil {
 		return nil, err
 	}
@@ -183,25 +187,25 @@ func (s *Service) logicalCopies(ctx context.Context, source SourceItem, parsed P
 	want := normalizeTitle(parsed.Title)
 	out := []int64{}
 	for rows.Next() {
-		var id int64
-		var path, kind string
-		if err := rows.Scan(&id, &path, &kind); err != nil {
+		var candidate SourceItem
+		if err := rows.Scan(&candidate.ID, &candidate.Path, &candidate.LibraryKind,
+			&candidate.SourceRoot, &candidate.SeriesKey, &candidate.SeriesTitle, &candidate.Season, &candidate.Episode, &candidate.Absolute); err != nil {
 			return nil, err
 		}
-		candidate := ParseFilename(path, kind)
-		if normalizeTitle(candidate.Title) != want {
+		candidateParsed := candidate.Parsed()
+		if normalizeTitle(candidateParsed.Title) != want {
 			continue
 		}
-		if parsed.Year > 0 && candidate.Year > 0 && parsed.Year != candidate.Year {
+		if parsed.Year > 0 && candidateParsed.Year > 0 && parsed.Year != candidateParsed.Year {
 			continue
 		}
-		if parsed.Season > 0 && candidate.Season != parsed.Season {
+		if parsed.Season > 0 && candidateParsed.Season != parsed.Season {
 			continue
 		}
-		if parsed.Episode > 0 && candidate.Episode != parsed.Episode {
+		if parsed.Episode > 0 && candidateParsed.Episode != parsed.Episode {
 			continue
 		}
-		out = append(out, id)
+		out = append(out, candidate.ID)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
