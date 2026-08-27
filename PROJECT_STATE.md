@@ -21,7 +21,7 @@ Server HTTP port: **8090** behind the user's HTTPS reverse proxy. Public StormFl
 
 ## Current versions
 
-- Server version constant: `0.16.1-player-state-jellyfin`.
+- Server version constant: `0.16.2-queue-categories`.
 - Native Android application: `cloud.stormflix.app`, version **0.2.3**, versionCode 10, minSdk 23, targetSdk 36, Java 17, Media3 1.11.0.
 - SQLite is the supported database. It uses WAL, synchronous=NORMAL, busy timeout, bounded connection pool and targeted indexes.
 
@@ -109,7 +109,7 @@ TheTVDB v4 client is implemented and optional. Configuration is available in Adm
 
 ## Manual matching — principal series only
 
-The intended behavior is now strictly Plex-style for episodic libraries.
+The intended behavior is strictly Plex-style for episodic libraries.
 
 Admin → Catálogo defaults to **Obras principais**. For `series`, `anime_series` and `animation_series`, `/api/v1/admin/catalog/works` groups every scanner-owned `series_key` into one principal card showing season/episode counts. Movies and other standalone items remain individual works.
 
@@ -118,43 +118,77 @@ For an episodic work:
 1. the operator chooses **Corrigir obra principal** once;
 2. the TMDB TV choice is stored in `series_metadata_overrides` for `(library_id, series_key)`;
 3. `RebuildSeriesIdentities` runs immediately, preserving scanner-owned season/episode numbering while applying the approved canonical show title;
-4. every current episode is refreshed in the background from that one series decision;
-5. future episodes discovered by later scans inherit the same series override automatically.
+4. the episode refresh is inserted into `metadata_jobs` as `job_type=series_refresh` and becomes visible in **Admin → Fila & atividades**;
+5. current episodes are refreshed from that one principal decision with live processed/matched/error counts;
+6. future episodes discovered by later scans inherit the same series override automatically.
 
-Individual episodes do **not** expose a normal manual-match action anymore. Admin → Catálogo → **Arquivos / diagnóstico** can still inspect files, but an episodic file only links back to its principal work.
+Individual episodes do **not** expose a normal manual-match action. Admin → Catálogo → **Arquivos / diagnóstico** can inspect files, but an episodic file only links back to its principal work.
 
 Important semantic rule: `media_metadata.manual_match` is for standalone item-level manual matches. Series protection lives only in `series_metadata_overrides`; episodes refreshed from a protected series remain automatic children. Phase 11 clears legacy episode `manual_match=1` flags left by the earlier implementation.
 
-## Categories and subcategories
+## Persistent scan queue and Admin job tracking
 
-Phase 10 adds `parent_id` to `library_categories`.
+Phase 12 introduces `scan_jobs` and extends `metadata_jobs` with job type/series/provider fields.
+
+### Scan queue
+
+- Clicking **Escanear agora** queues a library instead of starting an uncontrolled parallel scan.
+- **Bibliotecas → Escanear todas** queues all active libraries.
+- Scan jobs are processed in persistent FIFO order **one library at a time**. This is deliberate to avoid several rclone/FUSE sources and SQLite catalog writers competing at once.
+- Duplicate active queue entries for the same library are avoided.
+- A queued scan can be removed; a running scan can be cancelled through the same control.
+- Running scan state uses one shared cancellable timeout context, so Admin cancellation always targets the actual scan.
+- On server restart, unfinished scan jobs are safely returned to `queued` and resume from the queue.
+- The existing mount-protection behavior remains: an unreachable source preserves its previous catalog instead of being treated as deletion.
+
+### Fila & atividades
+
+Admin has a dedicated **Fila & atividades** page backed by `GET /api/v1/admin/jobs`.
+
+It merges operational visibility for:
+
+- library scans;
+- library metadata jobs;
+- principal-series episode reorganization (`series_refresh`).
+
+The UI shows running/queued/history status, progress, current message, matched/success count, errors and cancellation for scans. Bibliotecas also shows a compact queue strip with **Escanear todas** and **Ver fila completa**.
+
+Principal-series refresh jobs persist enough information (`series_key`, `series_title`, `provider_id`) to resume after a server restart. Older full-library metadata jobs are not silently resumed after restart; they are marked failed with an instruction to restart them from the panel.
+
+## Categories and subcategories — visible site layout
+
+Phase 10 added `parent_id` to `library_categories`; phase 12 makes the hierarchy visibly useful in the main site.
 
 - System categories Filmes, Séries and Animes remain top-level roots.
 - Custom categories can be top-level or children of another category.
 - Parent browsing aggregates libraries from active descendants.
 - Child browsing stays scoped to that branch.
-- The client top navigation shows roots; subcategories appear in a secondary horizontal navigation instead of crowding the main menu.
-- Admin has a hierarchical category manager with parent selector and library assignment.
+- The main site now has a visible **Explorar por categoria** area showing roots and child chips.
+- Clicking a root with children renders **one content rail per subcategory**, instead of one large mixed rail.
+- A sticky secondary navigation lets the user switch between child categories, the split subcategory view, or **Tudo em <raiz>**.
+- Admin → Categorias contains **Organizar estrutura recomendada**, which creates/updates managed recommended child categories without deleting custom categories.
+- Recommended automatic assignments are exclusive among sibling categories where possible, avoiding the same library appearing twice just because it matches two broad labels.
 
-Recommended organization examples:
+Current recommended layout:
 
 ```text
 Filmes
 ├── 4K / UHD
 ├── Animação
-├── Clássicos
-└── Outros
+└── Outros filmes
 
 Séries
+├── Séries de TV
 ├── Desenhos
-├── Novelas
-└── TV
+└── Animes com temporadas
 
 Animes
 ├── Dublados
-├── Legendados
-└── Filmes de Anime
+├── Séries
+└── Filmes
 ```
+
+Operators can still create arbitrary custom categories/subcategories and assign libraries manually.
 
 ## Home / SQLite performance
 
@@ -175,25 +209,29 @@ If Home later becomes slow again, profile with SQL timing before replacing SQLit
 
 - Metadata & Capas music-agent decoration is guarded against concurrent duplicate rendering. The previous race could render two identical **Agentes de Música** panels.
 - Catalog principal-work view is the default. File-level episodic matching is deliberately removed from the normal workflow.
+- Bibliotecas exposes queue state directly on library cards and a global **Escanear todas** action.
+- A dedicated **Fila & atividades** page provides live operational tracking.
 
 ## Schema history relevant to current work
 
 - Phase 9: scanner-owned `media_series_identity`.
 - Phase 10: `series_metadata_overrides`, category `parent_id`, category/series/artwork/home indexes.
 - Phase 11: index for ordered series children and cleanup of legacy per-episode manual flags when a principal series override exists.
+- Phase 12: persistent `scan_jobs`; metadata job type/series/provider fields used for observable principal-series refresh and restart recovery.
 
 ## Current admin behavior
 
-Catalog now distinguishes two views:
+Catalog distinguishes two views:
 
 - **Obras principais** (default): one card per logical series plus standalone works; this is where manual matching happens.
 - **Arquivos / diagnóstico**: low-level media rows; episodic rows do not offer manual matching and instead link back to the principal work.
 
-For series, default manual search uses the scanner/canonical series title instead of the release filename.
+For series, default manual search uses the scanner/canonical series title instead of the release filename. After a principal match, follow the episode reorganization in **Fila & atividades** instead of manually fixing episodes.
 
 ## Known pending / next work
 
-- Validate real-world principal-series matching against the user's problematic cartoons and dubbed anime after deployment.
+- Validate the new scan queue/scan-all workflow against the user's real rclone/Drive libraries and tune timeout/progress text if a specific mount behaves differently.
+- Validate real-world principal-series matching against problematic cartoons and dubbed anime while watching `series_refresh` in the queue.
 - Continue cleaning metadata edge cases where provider episode ordering differs (air/DVD/absolute). Consider explicit TVDB ordering/provider selection at principal-series level when needed.
 - Continue Jellyfin Android TV/Fire validation after the native catalog is correct; do not diagnose Jellyfin using corrupted native metadata.
 - If Home timing remains high after phase10, add server-side timing metrics per Home rail and inspect query plans before changing database engines.
