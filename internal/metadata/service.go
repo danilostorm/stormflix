@@ -114,6 +114,15 @@ func (s *Service) runJob(jobID, libraryID int64, refresh bool) {
 	ctx := context.Background()
 	_, _ = s.db.ExecContext(ctx, `UPDATE metadata_jobs SET status='running',started_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`, jobID)
 
+	if refresh {
+		if repaired, err := s.PrepareAnimationLibraryRepair(ctx, libraryID); err != nil {
+			s.finishJob(ctx, jobID, "failed", "falha ao reparar metadados de desenhos: "+err.Error())
+			return
+		} else if repaired > 0 {
+			_, _ = s.db.ExecContext(ctx, `UPDATE metadata_jobs SET message=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, fmt.Sprintf("reparando %d itens de desenhos antes do refresh", repaired), jobID)
+		}
+	}
+
 	items, err := s.libraryItems(ctx, libraryID)
 	if err != nil {
 		s.finishJob(ctx, jobID, "failed", err.Error())
