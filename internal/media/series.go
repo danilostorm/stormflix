@@ -14,11 +14,14 @@ import (
 )
 
 var (
-	seriesSeasonEpisodeRE = regexp.MustCompile(`(?i)\bS(\d{1,2})[ ._-]*E(\d{1,3})\b`)
-	seriesXEpisodeRE      = regexp.MustCompile(`(?i)\b(\d{1,2})x(\d{1,3})\b`)
-	seriesSeasonDirRE     = regexp.MustCompile(`(?i)^(?:season|temporada)[ ._-]*(\d{1,3})$`)
-	seriesTitleSuffixRE   = regexp.MustCompile(`(?i)\s+S\d{1,2}E\d{1,3}(?:\s*[·:\-].*)?$`)
-	seriesYearRE          = regexp.MustCompile(`\s*[\(\[]?(?:19\d{2}|20\d{2})[\)\]]?\s*$`)
+	seriesSeasonEpisodeRE  = regexp.MustCompile(`(?i)\bS(\d{1,2})[ ._-]*E(\d{1,3})\b`)
+	seriesXEpisodeRE       = regexp.MustCompile(`(?i)\b(\d{1,2})x(\d{1,3})\b`)
+	seriesSeasonDirRE      = regexp.MustCompile(`(?i)^(?:season|temporada)[ ._-]*(\d{1,3})$`)
+	seriesLooseSeasonDirRE = regexp.MustCompile(`(?i)^(?:\d{1,3}[ºª°]?[ ._-]*(?:season|temporada)|(?:season|temporada)[ ._-]*\d{1,3})(?:[ ._-].*)?$`)
+	seriesTechnicalDirRE   = regexp.MustCompile(`(?i)^(?:remux(?:es)?|blu[ ._-]?ray|bdrip|brrip|web[ ._-]?dl|webrip|hdtv|uhd|4k|2160p|1080p|720p|480p|disc(?:o)?[ ._-]*\d+|disk[ ._-]*\d+|cd[ ._-]*\d+|volume[ ._-]*\d+|vol[ ._-]*\d+|parte[ ._-]*\d+|part[ ._-]*\d+)$`)
+	seriesCompactEpisodeRE = regexp.MustCompile(`(?i)^(\d{1,3})[[:alpha:]]{1,6}(?:[ ._-]|$)`)
+	seriesTitleSuffixRE    = regexp.MustCompile(`(?i)\s+S\d{1,2}E\d{1,3}(?:\s*[·:\-].*)?$`)
+	seriesYearRE           = regexp.MustCompile(`\s*[\(\[]?(?:19\d{2}|20\d{2})[\)\]]?\s*$`)
 )
 
 type SeriesSummary struct {
@@ -114,12 +117,12 @@ func (s *Service) RecentEpisodes(ctx context.Context, allowedLibraryIDs []int64,
 }
 
 func isSeriesLikeLibraryKind(kind string) bool {
-	return kind == "series" || kind == "anime_series"
+	return kind == "series" || kind == "anime_series" || kind == "animation_series"
 }
 
 func (s *Service) seriesGroups(ctx context.Context, allowedLibraryIDs []int64) ([]SeriesDetail, error) {
 	args := []any{}
-	where := `m.available=1 AND (l.kind='series' OR l.kind='anime_series' OR l.kind='anime' OR l.kind='mixed' OR COALESCE(mm.season_number,0)>0 OR COALESCE(mm.episode_number,0)>0)`
+	where := `m.available=1 AND (l.kind='series' OR l.kind='anime_series' OR l.kind='animation_series' OR l.kind='anime' OR l.kind='mixed' OR COALESCE(mm.season_number,0)>0 OR COALESCE(mm.episode_number,0)>0)`
 	if allowedLibraryIDs != nil {
 		if len(allowedLibraryIDs) == 0 {
 			return []SeriesDetail{}, nil
@@ -157,8 +160,8 @@ FROM media m JOIN libraries l ON l.id=m.library_id LEFT JOIN media_metadata mm O
 			season, episode = episodeFromPath(path)
 		}
 		// Anime/mixed movie libraries must not become fake series just because
-		// they live inside folders. Explicit series/anime-series libraries are
-		// allowed to group poorly named episodes and assign deterministic order.
+		// they live inside folders. Explicit series/anime/cartoon-series
+		// libraries are allowed to group poorly named episodes and assign order.
 		if !isSeriesLikeLibraryKind(libraryKind) && episode == 0 {
 			continue
 		}
@@ -263,11 +266,22 @@ func mergeSeriesMetadata(summary *SeriesSummary, item Item, folderTitle string) 
 
 func deriveSeriesIdentity(path string) (string, string) {
 	dir := filepath.Dir(path)
-	base := filepath.Base(dir)
-	if seriesSeasonDirRE.MatchString(base) {
-		dir = filepath.Dir(dir)
-		base = filepath.Base(dir)
+	// Skip technical storage folders and season containers. They organize files
+	// but are not separate shows. This is common in old cartoon archives:
+	// Desenhos/Pica-Pau e seus Amigos/Remux/002PP-BD1080pRemux.mkv.
+	for depth := 0; depth < 6; depth++ {
+		base := strings.TrimSpace(filepath.Base(dir))
+		if seriesSeasonDirRE.MatchString(base) || seriesLooseSeasonDirRE.MatchString(base) || seriesTechnicalDirRE.MatchString(base) {
+			next := filepath.Dir(dir)
+			if next == dir {
+				break
+			}
+			dir = next
+			continue
+		}
+		break
 	}
+	base := filepath.Base(dir)
 	name := strings.NewReplacer(".", " ", "_", " ").Replace(base)
 	name = seriesYearRE.ReplaceAllString(name, "")
 	name = strings.TrimSpace(strings.Join(strings.Fields(name), " "))
@@ -289,11 +303,40 @@ func episodeFromPath(path string) (int, int) {
 		e, _ := strconv.Atoi(m[2])
 		return s, e
 	}
+	if m := seriesCompactEpisodeRE.FindStringSubmatch(name); len(m) == 2 {
+		e, _ := strconv.Atoi(m[1])
+		return seasonNumberFromPath(path), e
+	}
 	if m := seriesSeasonDirRE.FindStringSubmatch(filepath.Base(filepath.Dir(path))); len(m) == 2 {
 		s, _ := strconv.Atoi(m[1])
 		return s, 0
 	}
 	return 0, 0
+}
+
+func seasonNumberFromPath(path string) int {
+	for depth, dir := 0, filepath.Dir(path); depth < 5; depth, dir = depth+1, filepath.Dir(dir) {
+		base := strings.TrimSpace(filepath.Base(dir))
+		if m := seriesSeasonDirRE.FindStringSubmatch(base); len(m) == 2 {
+			s, _ := strconv.Atoi(m[1])
+			if s > 0 {
+				return s
+			}
+		}
+		// Brazilian archives also use "5ª Temporada - Stormbrasil".
+		loose := regexp.MustCompile(`(?i)^(\d{1,3})[ºª°]?[ ._-]*(?:season|temporada)`).FindStringSubmatch(base)
+		if len(loose) == 2 {
+			s, _ := strconv.Atoi(loose[1])
+			if s > 0 {
+				return s
+			}
+		}
+		next := filepath.Dir(dir)
+		if next == dir {
+			break
+		}
+	}
+	return 1
 }
 
 func seriesKey(libraryID int64, path string) string {
