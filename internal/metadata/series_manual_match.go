@@ -9,10 +9,9 @@ import (
 	"time"
 )
 
-// ManualMatchSeries stores one provider decision for the whole logical show and
-// refreshes every current episode in the background. Future scanner passes keep
-// the canonical series title from this override, so newly added episodes do not
-// need to be matched one-by-one.
+// ManualMatchSeries stores one provider decision for the whole logical show.
+// The manual decision belongs to the principal series, never to individual
+// episodes. Scanner-owned season/episode numbering remains authoritative.
 func (s *Service) ManualMatchSeries(ctx context.Context, mediaID, tmdbID int64) (int, error) {
 	if tmdbID <= 0 {
 		return 0, errors.New("valid TMDB series id is required")
@@ -53,6 +52,17 @@ ON CONFLICT(library_id,series_key) DO UPDATE SET provider='tmdb',provider_id=exc
 	if err != nil {
 		return 0, err
 	}
+
+	// Rebuild the logical series immediately so all current episodes inherit the
+	// approved principal title while keeping scanner-owned season/episode order.
+	if err := s.RebuildSeriesIdentities(ctx, source.LibraryID); err != nil {
+		return 0, fmt.Errorf("rebuild series identities after manual match: %w", err)
+	}
+
+	// Older builds marked every episode as an item-level manual match. Clear that
+	// legacy flag: only series_metadata_overrides is protected for this show.
+	_, _ = s.db.ExecContext(ctx, `UPDATE media_metadata SET manual_match=0,updated_at=CURRENT_TIMESTAMP
+WHERE media_id IN (SELECT media_id FROM media_series_identity WHERE library_id=? AND series_key=?)`, source.LibraryID, source.SeriesKey)
 
 	var count int
 	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM media_series_identity si JOIN media m ON m.id=si.media_id WHERE si.library_id=? AND si.series_key=? AND m.available=1`, source.LibraryID, source.SeriesKey).Scan(&count); err != nil {
@@ -105,7 +115,8 @@ WHERE si.library_id=? AND si.series_key=? AND m.available=1 ORDER BY si.season_n
 			_ = s.saveError(ctx, item.ID, parsed, err)
 			continue
 		}
-		_, _ = s.db.ExecContext(ctx, `UPDATE media_metadata SET manual_match=1,last_error='',updated_at=CURRENT_TIMESTAMP WHERE media_id=?`, item.ID)
+		// Do not set media_metadata.manual_match here. Episode metadata is derived
+		// automatically from the one protected series-level provider decision.
 		select {
 		case <-ctx.Done():
 			return
@@ -130,6 +141,7 @@ func (s *Service) ResetSeriesManualMatch(ctx context.Context, mediaID int64) (in
 	if err != nil {
 		return 0, err
 	}
+	_ = s.RebuildSeriesIdentities(ctx, libraryID)
 	count64, _ := res.RowsAffected()
 	return int(count64), nil
 }
