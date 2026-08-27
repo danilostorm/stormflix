@@ -24,3 +24,13 @@ func TestParseAnimationSeriesExplicitSeasonFolder(t *testing.T) {
 		t.Fatalf("season/episode=%d/%d want 2/7", parsed.Season, parsed.Episode)
 	}
 }
+
+func TestParseAnimationSeriesLooseBrazilianSeasonFolder(t *testing.T) {
+	parsed := ParseFilename("/media/Desenhos/X-Men 97/5ª Temporada - Stormbrasil/03XM-BD1080pRemux.mkv", "animation_series")
+	if parsed.Title != "X-Men 97" {
+		t.Fatalf("Title=%q want X-Men 97", parsed.Title)
+	}
+	if parsed.Season != 5 || parsed.Episode != 3 {
+		t.Fatalf("season/episode=%d/%d want 5/3", parsed.Season, parsed.Episode)
+	}
+}
