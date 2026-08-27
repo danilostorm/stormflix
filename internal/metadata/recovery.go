@@ -25,6 +25,11 @@ func (s *Service) ValidateLibraryJob(ctx context.Context, libraryID int64) error
 	if mediaCount == 0 {
 		return errors.New("library has no cataloged media; scan the library first")
 	}
+	// Build scanner-owned show/season/episode identity before providers run.
+	// Movies/non-episodic libraries simply clear stale identity rows.
+	if err := s.RebuildSeriesIdentities(ctx, libraryID); err != nil {
+		return fmt.Errorf("prepare episodic identity: %w", err)
+	}
 	return nil
 }
 
