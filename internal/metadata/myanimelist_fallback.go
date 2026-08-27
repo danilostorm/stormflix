@@ -16,7 +16,7 @@ var metadataRapturaRE = regexp.MustCompile(`(?i)\braptura\b`)
 
 // RefreshMediaSmart keeps the regular provider chain first, then tries a small
 // set of safe filename corrections, and only then falls back to MyAnimeList for
-// anime/mixed libraries.
+// anime/mixed/episodic-anime libraries.
 func (s *Service) RefreshMediaSmart(ctx context.Context, mediaID int64) error {
 	var item SourceItem
 	if err := s.db.QueryRowContext(ctx, `SELECT m.id,m.library_id,l.kind,m.title,m.path FROM media m JOIN libraries l ON l.id=m.library_id WHERE m.id=? AND m.available=1`, mediaID).
@@ -40,8 +40,8 @@ func (s *Service) RefreshMediaSmart(ctx context.Context, mediaID int64) error {
 }
 
 // RetryLibraryErrorsWithMyAnimeList is a smart second pass. It first retries
-// safe title aliases for every failed library item (including western movies),
-// then uses MyAnimeList only when the library is anime/mixed.
+// safe title aliases for every failed library item, then uses AniDB +
+// MyAnimeList + AnimeAPI when the library is anime-capable.
 func (s *Service) RetryLibraryErrorsWithMyAnimeList(ctx context.Context, libraryID int64) {
 	rows, err := s.db.QueryContext(ctx, `SELECT m.id,m.library_id,l.kind,m.title,m.path
 FROM media m JOIN libraries l ON l.id=m.library_id JOIN media_metadata mm ON mm.media_id=m.id
@@ -118,8 +118,8 @@ func safeMetadataParsedAlternates(parsed ParsedName) []ParsedName {
 
 func (s *Service) lookupMyAnimeListFallback(ctx context.Context, item SourceItem, parsed ParsedName) (Result, error) {
 	kind := strings.ToLower(strings.TrimSpace(item.LibraryKind))
-	if kind != "anime" && kind != "mixed" {
-		return Result{}, errors.New("MyAnimeList fallback skipped: library is not anime/mixed")
+	if kind != "anime" && kind != "mixed" && kind != "anime_series" {
+		return Result{}, errors.New("MyAnimeList fallback skipped: library is not anime-capable")
 	}
 	resolved := parsed
 	if match, err := stormflixAniDB.Resolve(ctx, parsed.SearchTitles()); err == nil && strings.TrimSpace(match.Title) != "" {
@@ -139,10 +139,6 @@ func (s *Service) lookupMyAnimeListFallback(ctx context.Context, item SourceItem
 	result.Season = parsed.Season
 	result.Episode = parsed.Episode
 
-	// AnimeAPI is a relation mapper, not a primary metadata provider. Once MAL
-	// has identified the title, use AnimeAPI to bridge MAL/AniList to TMDB/TVDB/
-	// IMDb. It is intentionally best-effort because the public project is being
-	// refactored and StormFlix must keep working if it is unavailable.
 	_ = stormflixAnimeAPI.Enrich(ctx, &result)
 
 	s.providerMu.RLock()
