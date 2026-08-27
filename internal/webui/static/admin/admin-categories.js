@@ -19,8 +19,9 @@
 
   function render(root){
     const roots=categoryItems.filter(c=>!c.parent_id).sort(sortCategory);
-    root.innerHTML=`<div class="panel"><div class="panel-head"><div><h2>Categorias e subcategorias</h2><small>Use categorias principais para navegação ampla e subcategorias para separar bibliotecas sem lotar o menu.</small></div><button class="primary" id="category-new">+ Nova categoria</button></div><div id="category-form"></div><div class="category-tree-admin">${roots.map(c=>renderNode(c,0)).join('')||'<p>Nenhuma categoria.</p>'}</div></div>`;
+    root.innerHTML=`<div class="panel"><div class="panel-head"><div><h2>Categorias e subcategorias</h2><small>O menu principal fica só com as categorias raiz; as subcategorias organizam o conteúdo abaixo delas no site.</small></div><div class="actions"><button id="category-organize">Organizar estrutura recomendada</button><button class="primary" id="category-new">+ Nova categoria</button></div></div><div class="phase2-hint"><b>Estrutura recomendada:</b> Filmes → 4K / UHD, Animação, Outros · Séries → Séries de TV, Desenhos, Animes com temporadas · Animes → Dublados, Séries, Filmes. O organizador usa os tipos e nomes das bibliotecas atuais e não apaga categorias personalizadas.</div><div id="category-form"></div><div class="category-tree-admin">${roots.map(c=>renderNode(c,0)).join('')||'<p>Nenhuma categoria.</p>'}</div></div>`;
     $('#category-new').onclick=()=>editCategory();
+    $('#category-organize').onclick=organizeRecommended;
     root.querySelectorAll('[data-category-edit]').forEach(b=>b.onclick=()=>editCategory(Number(b.dataset.categoryEdit)));
     root.querySelectorAll('[data-category-child]').forEach(b=>b.onclick=()=>editCategory(0,Number(b.dataset.categoryChild)));
     root.querySelectorAll('[data-category-delete]').forEach(b=>b.onclick=()=>deleteCategory(Number(b.dataset.categoryDelete)));
@@ -34,11 +35,21 @@
 
   function sortCategory(a,b){return Number(a.sort_order||0)-Number(b.sort_order||0)||Number(a.id)-Number(b.id)}
 
+  async function organizeRecommended(){
+    if(!confirm('Criar/atualizar a estrutura recomendada de subcategorias com base nas bibliotecas atuais? Categorias personalizadas não serão apagadas.'))return;
+    try{
+      const result=await req('/admin/categories/organize',{method:'POST',body:'{}'});
+      notice(`Categorias organizadas · ${result.created||0} criada(s) · ${result.assignments||0} associação(ões).`,true);
+      await loadCategoryAdmin();
+      if(window.sfCategories?.reload)window.sfCategories.reload().catch(()=>{});
+    }catch(err){notice(err.message)}
+  }
+
   function editCategory(id=0,parentPreset=0){
     const root=$('#category-form');if(!root)return;
     const c=categoryItems.find(x=>Number(x.id)===Number(id))||{id:0,name:'',slug:'',kind:'mixed',parent_id:parentPreset||null,sort_order:0,active:true,system:false,library_ids:[]};
     const possibleParents=categoryItems.filter(x=>Number(x.id)!==Number(c.id));
-    root.innerHTML=`<form id="category-editor" class="form"><input value="${esc(c.name)}" placeholder="Nome (ex.: Clássicos, Dublados)" required><input value="${esc(c.slug)}" placeholder="slug-sem-espacos" ${c.system?'disabled':''} required><select>${['movie','series','anime','mixed','other'].map(k=>`<option value="${k}">${k}</option>`).join('')}</select><select><option value="">Sem categoria principal</option>${possibleParents.map(p=>`<option value="${p.id}">${esc(parentLabel(p))}</option>`).join('')}</select><input type="number" value="${Number(c.sort_order||0)}" placeholder="Ordem"><label><input type="checkbox" ${c.active?'checked':''}> Ativa</label><button class="primary">Salvar</button><button type="button" id="category-cancel">Cancelar</button><div class="wide checklist"><b>Bibliotecas diretamente nesta categoria</b>${libs.map(l=>`<label><input type="checkbox" data-category-lib="${l.id}" ${(c.library_ids||[]).includes(l.id)?'checked':''}> ${esc(l.name)}</label>`).join('')}</div><div class="wide phase2-hint">Uma categoria principal também mostra automaticamente o conteúdo das subcategorias. Por exemplo: <b>Filmes → 4K / Animação / Clássicos</b>.</div></form>`;
+    root.innerHTML=`<form id="category-editor" class="form"><input value="${esc(c.name)}" placeholder="Nome (ex.: Clássicos, Dublados)" required><input value="${esc(c.slug)}" placeholder="slug-sem-espacos" ${c.system?'disabled':''} required><select>${['movie','series','anime','mixed','other'].map(k=>`<option value="${k}">${k}</option>`).join('')}</select><select><option value="">Sem categoria principal</option>${possibleParents.map(p=>`<option value="${p.id}">${esc(parentLabel(p))}</option>`).join('')}</select><input type="number" value="${Number(c.sort_order||0)}" placeholder="Ordem"><label><input type="checkbox" ${c.active?'checked':''}> Ativa</label><button class="primary">Salvar</button><button type="button" id="category-cancel">Cancelar</button><div class="wide checklist"><b>Bibliotecas diretamente nesta categoria</b>${libs.map(l=>`<label><input type="checkbox" data-category-lib="${l.id}" ${(c.library_ids||[]).includes(l.id)?'checked':''}> ${esc(l.name)}</label>`).join('')}</div><div class="wide phase2-hint">Uma categoria principal mostra automaticamente o conteúdo das subcategorias. No site, cada subcategoria vira uma fileira própria em vez de misturar tudo.</div></form>`;
     const f=$('#category-editor');
     f.elements[2].value=c.kind||'mixed';
     f.elements[3].value=c.parent_id||'';
