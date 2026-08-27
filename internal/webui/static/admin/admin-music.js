@@ -4,6 +4,7 @@
   let lastStatus=null;
   let organizeChain=false;
   let chaining=false;
+  let metadataDecorating=false;
 
   const baseEdit=window.editLibrary;
   if(typeof baseEdit==='function'){
@@ -71,22 +72,26 @@
   }
 
   async function decorateMusicMetadata(){
-    const page=document.querySelector('#metadata');if(!page)return;
-    const music=musicLibraries();if(!music.length)return;
-    page.querySelectorAll('[data-music-agents]').forEach(x=>x.remove());
+    if(metadataDecorating)return;
+    metadataDecorating=true;
     try{
-      const agents=await req('/admin/agents');
-      lastStatus=agents.music_status||lastStatus;
-      const panel=document.createElement('div');panel.className='panel';panel.dataset.musicAgents='1';
-      panel.innerHTML=`<div class="panel-head"><div><h2>Agentes de Música</h2><small>Separados dos agentes de filmes e séries: tags locais, nome do arquivo, Last.fm, MusicBrainz, capas e letras.</small></div><button class="primary" data-music-index-now>Organizar música</button></div><div class="agent-grid">${(agents.music||[]).map(renderAgent).join('')}</div><div class="music-index-panel metadata" data-music-status>${musicStatusHTML(lastStatus)}</div>`;
-      const first=page.querySelector('.panel');if(first)first.after(panel);else page.prepend(panel);bindIndexButtons(panel);
-      scheduleProgressPoll(lastStatus);
-    }catch{}
-    for(const l of music){
-      const button=page.querySelector(`[data-meta-scan="${l.id}"]`);const row=button?.closest('tr');if(!row)continue;
-      const actions=row.querySelector('td:last-child');if(actions)actions.innerHTML=`<button data-music-index-now>Organizar música</button>`;
-    }
-    bindIndexButtons(page);
+      const page=document.querySelector('#metadata');if(!page)return;
+      const music=musicLibraries();if(!music.length)return;
+      page.querySelectorAll('[data-music-agents]').forEach(x=>x.remove());
+      try{
+        const agents=await req('/admin/agents');
+        lastStatus=agents.music_status||lastStatus;
+        const panel=document.createElement('div');panel.className='panel';panel.dataset.musicAgents='1';
+        panel.innerHTML=`<div class="panel-head"><div><h2>Agentes de Música</h2><small>Separados dos agentes de filmes e séries: tags locais, nome do arquivo, Last.fm, MusicBrainz, capas e letras.</small></div><button class="primary" data-music-index-now>Organizar música</button></div><div class="agent-grid">${(agents.music||[]).map(renderAgent).join('')}</div><div class="music-index-panel metadata" data-music-status>${musicStatusHTML(lastStatus)}</div>`;
+        const first=page.querySelector('.panel');if(first)first.after(panel);else page.prepend(panel);bindIndexButtons(panel);
+        scheduleProgressPoll(lastStatus);
+      }catch{}
+      for(const l of music){
+        const button=page.querySelector(`[data-meta-scan="${l.id}"]`);const row=button?.closest('tr');if(!row)continue;
+        const actions=row.querySelector('td:last-child');if(actions)actions.innerHTML=`<button data-music-index-now>Organizar música</button>`;
+      }
+      bindIndexButtons(page);
+    }finally{metadataDecorating=false}
   }
 
   function decorateMusicSubtitleRows(){
