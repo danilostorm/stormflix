@@ -138,8 +138,9 @@ func (s *Service) seriesGroups(ctx context.Context, allowedLibraryIDs []int64) (
 COALESCE(mm.media_type,''),COALESCE(mm.year,0),COALESCE(mm.season_number,0),COALESCE(mm.episode_number,0),COALESCE(mm.overview,''),COALESCE(mm.genres_json,'[]'),COALESCE(mm.rating,0),COALESCE(mm.runtime_minutes,0),COALESCE(mm.status,'pending'),
 COALESCE((SELECT a.public_url FROM media_artwork a WHERE a.media_id=m.id AND a.kind='poster' AND a.selected=1 ORDER BY a.score DESC LIMIT 1),''),
 COALESCE((SELECT a.public_url FROM media_artwork a WHERE a.media_id=m.id AND a.kind='backdrop' AND a.selected=1 ORDER BY a.score DESC LIMIT 1),''),
-COALESCE((SELECT a.public_url FROM media_artwork a WHERE a.media_id=m.id AND a.kind='logo' AND a.selected=1 ORDER BY a.score DESC LIMIT 1),'')
-FROM media m JOIN libraries l ON l.id=m.library_id LEFT JOIN media_metadata mm ON mm.media_id=m.id WHERE `+where+` ORDER BY m.library_id,m.path`, args...)
+COALESCE((SELECT a.public_url FROM media_artwork a WHERE a.media_id=m.id AND a.kind='logo' AND a.selected=1 ORDER BY a.score DESC LIMIT 1),''),
+COALESCE(si.source_root,''),COALESCE(si.series_key,''),COALESCE(si.series_title,''),COALESCE(si.season_number,0),COALESCE(si.episode_number,0),COALESCE(si.absolute_number,0)
+FROM media m JOIN libraries l ON l.id=m.library_id LEFT JOIN media_metadata mm ON mm.media_id=m.id LEFT JOIN media_series_identity si ON si.media_id=m.id WHERE `+where+` ORDER BY m.library_id,m.path`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -150,18 +151,30 @@ FROM media m JOIN libraries l ON l.id=m.library_id LEFT JOIN media_metadata mm O
 	for rows.Next() {
 		var item Item
 		var libraryKind, path, genresJSON string
+		var scannerSourceRoot, scannerKey, scannerTitle string
+		var scannerSeason, scannerEpisode, scannerAbsolute int
 		if err := rows.Scan(&item.ID, &item.LibraryID, &item.LibraryName, &libraryKind, &item.Title, &path, &item.Extension, &item.SizeBytes, &item.ModifiedUnix, &item.Available,
-			&item.MediaType, &item.Year, &item.SeasonNumber, &item.EpisodeNumber, &item.Overview, &genresJSON, &item.Rating, &item.RuntimeMinutes, &item.MetadataStatus, &item.PosterURL, &item.BackdropURL, &item.LogoURL); err != nil {
+			&item.MediaType, &item.Year, &item.SeasonNumber, &item.EpisodeNumber, &item.Overview, &genresJSON, &item.Rating, &item.RuntimeMinutes, &item.MetadataStatus, &item.PosterURL, &item.BackdropURL, &item.LogoURL,
+			&scannerSourceRoot, &scannerKey, &scannerTitle, &scannerSeason, &scannerEpisode, &scannerAbsolute); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(genresJSON), &item.Genres)
 		season, episode := item.SeasonNumber, item.EpisodeNumber
-		if season == 0 || episode == 0 {
-			season, episode = episodeFromPath(path)
+		if scannerSeason > 0 {
+			season = scannerSeason
 		}
-		// Anime/mixed movie libraries must not become fake series just because
-		// they live inside folders. Explicit series/anime/cartoon-series
-		// libraries are allowed to group poorly named episodes and assign order.
+		if scannerEpisode > 0 {
+			episode = scannerEpisode
+		}
+		if season == 0 || episode == 0 {
+			fallbackSeason, fallbackEpisode := episodeFromPath(path)
+			if season == 0 {
+				season = fallbackSeason
+			}
+			if episode == 0 {
+				episode = fallbackEpisode
+			}
+		}
 		if !isSeriesLikeLibraryKind(libraryKind) && episode == 0 {
 			continue
 		}
@@ -172,6 +185,15 @@ FROM media m JOIN libraries l ON l.id=m.library_id LEFT JOIN media_metadata mm O
 		item.MediaType = seriesMediaType(libraryKind, item.MediaType)
 		seriesPath, seriesName := deriveSeriesIdentity(path)
 		key := seriesKey(item.LibraryID, seriesPath)
+		if scannerTitle != "" {
+			seriesName = scannerTitle
+		}
+		if scannerKey != "" {
+			key = seriesKeyFromScanner(item.LibraryID, scannerKey)
+			if scannerSourceRoot != "" {
+				seriesPath = scannerSourceRoot
+			}
+		}
 		group := byKey[key]
 		if group == nil {
 			group = &SeriesDetail{SeriesSummary: SeriesSummary{
@@ -266,9 +288,6 @@ func mergeSeriesMetadata(summary *SeriesSummary, item Item, folderTitle string) 
 
 func deriveSeriesIdentity(path string) (string, string) {
 	dir := filepath.Dir(path)
-	// Skip technical storage folders and season containers. They organize files
-	// but are not separate shows. This is common in old cartoon archives:
-	// Desenhos/Pica-Pau e seus Amigos/Remux/002PP-BD1080pRemux.mkv.
 	for depth := 0; depth < 6; depth++ {
 		base := strings.TrimSpace(filepath.Base(dir))
 		if seriesSeasonDirRE.MatchString(base) || seriesLooseSeasonDirRE.MatchString(base) || seriesTechnicalDirRE.MatchString(base) {
@@ -323,7 +342,6 @@ func seasonNumberFromPath(path string) int {
 				return s
 			}
 		}
-		// Brazilian archives also use "5ª Temporada - Stormbrasil".
 		loose := regexp.MustCompile(`(?i)^(\d{1,3})[ºª°]?[ ._-]*(?:season|temporada)`).FindStringSubmatch(base)
 		if len(loose) == 2 {
 			s, _ := strconv.Atoi(loose[1])
@@ -342,6 +360,12 @@ func seasonNumberFromPath(path string) int {
 func seriesKey(libraryID int64, path string) string {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(strings.ToLower(filepath.Clean(path))))
+	return fmt.Sprintf("lib%d-%x", libraryID, h.Sum64())
+}
+
+func seriesKeyFromScanner(libraryID int64, identity string) string {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(strings.ToLower(strings.TrimSpace(identity))))
 	return fmt.Sprintf("lib%d-%x", libraryID, h.Sum64())
 }
 
