@@ -10,7 +10,7 @@ window.editLibrary=id=>{
     </div>
     <div class="library-main-fields">
       <label class="field"><span>Nome da biblioteca</span><input id="lib-name" value="${esc(l.name)}" placeholder="Ex.: Filmes Animação" required></label>
-      <label class="field"><span>Tipo de conteúdo</span><select id="lib-kind"><option value="movies">Filmes</option><option value="series">Séries</option><option value="anime">Animes</option><option value="anime_series">Séries + Anime (temporadas)</option><option value="mixed">Filmes + Anime misto</option><option value="shows">Shows</option><option value="other">Outros</option><option value="music">Música</option></select></label>
+      <label class="field"><span>Tipo de conteúdo</span><select id="lib-kind"><option value="movies">Filmes</option><option value="series">Séries</option><option value="animation_series">Desenhos / Séries de animação</option><option value="anime">Animes</option><option value="anime_series">Séries + Anime (temporadas)</option><option value="mixed">Filmes + Anime misto</option><option value="shows">Shows</option><option value="other">Outros</option><option value="music">Música</option></select></label>
       <label class="toggle-field"><input id="lib-enabled" type="checkbox" ${l.enabled?'checked':''}><span><b>Biblioteca ativa</b><small>Permite scan e exibição no catálogo.</small></span></label>
     </div>
     <div class="library-sources-block">
@@ -46,7 +46,7 @@ window.editLibrary=id=>{
   $('#library-editor-close').onclick=()=>{$('#lib-form').innerHTML=''};
   const updateHint=()=>{
     const kind=$('#lib-kind').value;
-    const messages={mixed:'TMDB identifica filmes; AniList/AniDB/MyAnimeList complementam animes.',anime:'AniList é o agente principal; AniDB/MyAnimeList e AnimeAPI ajudam na identificação.',anime_series:'Para animes com temporadas: TMDB procura como série primeiro; AniDB, MyAnimeList, AnimeAPI e Fanart recuperam e enriquecem os títulos que faltarem.',series:'TMDB organiza séries, temporadas e episódios.',movies:'TMDB + Fanart.tv para filmes.',music:'FFprobe + tags locais + MusicBrainz + Cover Art Archive.'};
+    const messages={mixed:'TMDB identifica filmes; AniList/AniDB/MyAnimeList complementam animes.',anime:'AniList é o agente principal; AniDB/MyAnimeList e AnimeAPI ajudam na identificação.',anime_series:'Para animes com temporadas: TMDB procura como série primeiro; AniDB, MyAnimeList, AnimeAPI e Fanart recuperam e enriquecem os títulos que faltarem.',animation_series:'Para desenhos e animações episódicas: a pasta do desenho define a série; TMDB TV + Fanart cuidam dos metadados. AniList/MAL não são usados. Ao usar Atualizar metadados, correspondências automáticas antigas são reparadas.',series:'TMDB organiza séries, temporadas e episódios.',movies:'TMDB + Fanart.tv para filmes.',music:'FFprobe + tags locais + MusicBrainz + Cover Art Archive.'};
     $('#library-kind-hint').innerHTML=`<b>Estratégia:</b> ${messages[kind]||'Metadados conforme o tipo selecionado.'}`;
   };
   $('#lib-kind').addEventListener('change',updateHint);updateHint();
