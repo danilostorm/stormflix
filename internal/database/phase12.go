@@ -38,6 +38,7 @@ CREATE INDEX IF NOT EXISTS idx_scan_jobs_library_status ON scan_jobs(library_id,
 		{"metadata_jobs", "job_type", "TEXT NOT NULL DEFAULT 'library_metadata'"},
 		{"metadata_jobs", "series_key", "TEXT NOT NULL DEFAULT ''"},
 		{"metadata_jobs", "series_title", "TEXT NOT NULL DEFAULT ''"},
+		{"metadata_jobs", "provider_id", "INTEGER NOT NULL DEFAULT 0"},
 	} {
 		if err := ensureColumn(db, column.table, column.name, column.definition); err != nil {
 			return err
