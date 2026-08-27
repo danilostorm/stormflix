@@ -8,6 +8,36 @@ type SourceItem struct {
 	LibraryKind string
 	Title       string
 	Path        string
+	SourceRoot  string
+	SeriesKey   string
+	SeriesTitle string
+	Season      int
+	Episode     int
+	Absolute    int
+}
+
+// Parsed returns filename metadata enriched by the scanner-owned series
+// identity. Providers never have to infer the show from release noise when the
+// library structure already told StormFlix which series/season/episode it is.
+func (s SourceItem) Parsed() ParsedName {
+	parsed := ParseFilename(s.Path, s.LibraryKind)
+	if s.SeriesTitle != "" {
+		if parsed.Title != "" && normalizeTitle(parsed.Title) != normalizeTitle(s.SeriesTitle) {
+			parsed.Alternates = append([]string{parsed.Title}, parsed.Alternates...)
+		}
+		parsed.Title = s.SeriesTitle
+	}
+	if s.Season > 0 {
+		parsed.Season = s.Season
+	}
+	if s.Episode > 0 {
+		parsed.Episode = s.Episode
+	}
+	if parsed.Season == 0 && parsed.Episode > 0 && isSeriesLibraryKind(s.LibraryKind) {
+		parsed.Season = 1
+	}
+	parsed.Alternates = uniqueTitles(parsed.Title, parsed.Alternates)
+	return parsed
 }
 
 type Artwork struct {
