@@ -32,12 +32,12 @@ func (s *server) jellyfinCatalogItems(w http.ResponseWriter, r *http.Request) {
 				query.Set(key, value)
 			}
 		}
+	}
 	r.URL.RawQuery = query.Encode()
 
 	if libID, ok := jfParsePrefixedID(strings.TrimSpace(query.Get("ParentId")), "lib"); ok {
 		var kind string
 		if s.db.QueryRowContext(r.Context(), `SELECT kind FROM libraries WHERE id=? AND enabled=1`, libID).Scan(&kind) == nil && strings.EqualFold(kind, "anime_series") {
-			u := currentUser(r)
 			series, err := s.media.SeriesList(r.Context(), []int64{libID}, strings.TrimSpace(query.Get("SearchTerm")))
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, err)
@@ -47,7 +47,6 @@ func (s *server) jellyfinCatalogItems(w http.ResponseWriter, r *http.Request) {
 			for _, show := range series {
 				items = append(items, s.jellyfinSeriesItem(show))
 			}
-			_ = u
 			writeJSON(w, http.StatusOK, map[string]any{"Items": items, "TotalRecordCount": len(items), "StartIndex": 0})
 			return
 		}
