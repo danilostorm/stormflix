@@ -114,7 +114,7 @@ func (s *Service) ScanJobs(ctx context.Context, limit int) ([]ScanJob, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT j.id,j.library_id,l.name,j.status,j.progress,j.files,j.sources_total,j.sources_scanned,j.sources_offline,CASE WHEN j.status='running' AND l.last_error<>'' THEN l.last_error ELSE j.message END,j.created_at,j.started_at,j.finished_at,j.updated_at FROM scan_jobs j JOIN libraries l ON l.id=j.library_id ORDER BY CASE j.status WHEN 'running' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END,j.id DESC LIMIT ?`, limit)
+	rows, err := s.db.QueryContext(ctx, `SELECT j.id,j.library_id,l.name,j.status,j.progress,j.files,j.sources_total,j.sources_scanned,j.sources_offline,CASE WHEN j.status='running' AND l.last_error<>'' THEN l.last_error ELSE j.message END,j.created_at,j.started_at,j.finished_at,j.updated_at FROM scan_jobs j JOIN libraries l ON l.id=j.library_id ORDER BY CASE j.status WHEN 'running' THEN 0 WHEN 'cancelling' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END,j.id DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -140,6 +140,7 @@ func (s *Service) CancelQueuedOrRunningAdminScan(ctx context.Context, libraryID 
 		_, _ = s.db.ExecContext(ctx, `UPDATE libraries SET last_scan_status='cancelled',last_error='scan removido da fila; catálogo preservado',updated_at=CURRENT_TIMESTAMP WHERE id=? AND last_scan_status='queued'`, libraryID)
 		return nil
 	}
+	_, _ = s.db.ExecContext(ctx, `UPDATE scan_jobs SET status='cancelling',message='cancelamento solicitado; parando com segurança',updated_at=CURRENT_TIMESTAMP WHERE library_id=? AND status='running'`, libraryID)
 	return s.CancelAdminScan(ctx, libraryID)
 }
 
@@ -177,56 +178,53 @@ func (s *Service) drainScanQueue() {
 		if err != nil {
 			return
 		}
-		if !s.claimQueuedScan(jobID, libraryID) {
+		scanCtx, cancel, ok := s.claimQueuedScan(jobID, libraryID)
+		if !ok {
+			time.Sleep(250 * time.Millisecond)
 			continue
 		}
-		s.runQueuedScan(jobID, libraryID)
+		s.runQueuedScan(jobID, libraryID, scanCtx, cancel)
 	}
 }
 
-func (s *Service) claimQueuedScan(jobID, libraryID int64) bool {
-	res, err := s.db.Exec(`UPDATE scan_jobs SET status='running',progress=5,started_at=COALESCE(started_at,CURRENT_TIMESTAMP),message='iniciando scan',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='queued'`, jobID)
-	if err != nil {
-		return false
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return false
-	}
+func (s *Service) claimQueuedScan(jobID, libraryID int64) (context.Context, context.CancelFunc, bool) {
 	s.scanMu.Lock()
 	if s.running[libraryID] {
 		s.scanMu.Unlock()
-		_, _ = s.db.Exec(`UPDATE scan_jobs SET status='queued',progress=0,message='aguardando outro scan da biblioteca terminar',updated_at=CURRENT_TIMESTAMP WHERE id=?`, jobID)
-		return false
+		_, _ = s.db.Exec(`UPDATE scan_jobs SET message='aguardando outro scan da biblioteca terminar',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='queued'`, jobID)
+		return nil, nil, false
+	}
+	s.scanMu.Unlock()
+
+	res, err := s.db.Exec(`UPDATE scan_jobs SET status='running',progress=3,started_at=COALESCE(started_at,CURRENT_TIMESTAMP),message='iniciando scan',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='queued'`, jobID)
+	if err != nil {
+		return nil, nil, false
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return nil, nil, false
 	}
 	scanCtx, cancel := context.WithTimeout(context.Background(), 45*time.Minute)
+	s.scanMu.Lock()
+	// Recheck while holding the lock to avoid a direct legacy scan claiming the
+	// same library between the first check and the database claim.
+	if s.running[libraryID] {
+		s.scanMu.Unlock()
+		cancel()
+		_, _ = s.db.Exec(`UPDATE scan_jobs SET status='queued',progress=0,started_at=NULL,message='aguardando outro scan da biblioteca terminar',updated_at=CURRENT_TIMESTAMP WHERE id=?`, jobID)
+		return nil, nil, false
+	}
 	s.running[libraryID] = true
 	s.scanCancel[libraryID] = cancel
 	s.scanMu.Unlock()
 	_, _ = s.db.Exec(`UPDATE libraries SET last_scan_status='running',last_error='iniciando scan da fila',updated_at=CURRENT_TIMESTAMP WHERE id=?`, libraryID)
 	go s.watchScanProgress(libraryID, scanCtx, cancel, 6*time.Minute)
-	return true
+	return scanCtx, cancel, true
 }
 
-func (s *Service) runQueuedScan(jobID, libraryID int64) {
-	s.scanMu.Lock()
-	cancel := s.scanCancel[libraryID]
-	s.scanMu.Unlock()
-	ctx := context.Background()
-	if cancel != nil {
-		// The timeout context is held by the cancel map; ScanMulti obtains it from
-		// the active scan by creating the same bounded context here.
-		var scanCtx context.Context
-		scanCtx, cancel = context.WithTimeout(context.Background(), 45*time.Minute)
-		s.scanMu.Lock()
-		s.scanCancel[libraryID] = cancel
-		s.scanMu.Unlock()
-		ctx = scanCtx
-	}
+func (s *Service) runQueuedScan(jobID, libraryID int64, ctx context.Context, cancel context.CancelFunc) {
 	defer func() {
-		if cancel != nil {
-			cancel()
-		}
+		cancel()
 		s.clearScan(libraryID)
 	}()
 
@@ -254,4 +252,18 @@ func (s *Service) runQueuedScan(jobID, libraryID int64) {
 	}
 	_, _ = s.db.Exec(`UPDATE scan_jobs SET status=?,progress=100,files=?,sources_scanned=?,sources_offline=?,message=?,finished_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`, status, result.Files, result.SourcesScanned, result.SourcesOffline, message, jobID)
 	_, _ = s.db.Exec(`UPDATE libraries SET last_scan_at=CURRENT_TIMESTAMP,last_scan_status=?,last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, libraryStatus, message, libraryID)
+}
+
+// updateActiveScanJob mirrors the already-throttled scanner status into the
+// queue table. It keeps the queue UI informative without adding a second scan
+// traversal or expensive polling query inside the scanner.
+func (s *Service) updateActiveScanJob(ctx context.Context, libraryID, files, sourcesDone, sourcesTotal, sourcesOffline int, message string) {
+	progress := 3
+	if sourcesTotal > 0 {
+		progress = 5 + (sourcesDone * 85 / sourcesTotal)
+		if progress > 92 {
+			progress = 92
+		}
+	}
+	_, _ = s.db.ExecContext(ctx, `UPDATE scan_jobs SET progress=?,files=?,sources_scanned=?,sources_offline=?,message=?,updated_at=CURRENT_TIMESTAMP WHERE library_id=? AND status IN ('running','cancelling')`, progress, files, sourcesDone, sourcesOffline, message, libraryID)
 }
