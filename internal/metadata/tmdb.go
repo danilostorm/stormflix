@@ -31,7 +31,7 @@ func NewTMDBProvider(token, apiKey, language string) *TMDBProvider {
 func (p *TMDBProvider) Name() string { return "tmdb" }
 func (p *TMDBProvider) Ready() bool { return p.token != "" || p.apiKey != "" }
 func (p *TMDBProvider) Supports(kind string) bool {
-	return kind == "movies" || kind == "series" || kind == "anime" || kind == "mixed"
+	return kind == "movies" || kind == "series" || kind == "anime" || kind == "mixed" || kind == "anime_series"
 }
 
 func (p *TMDBProvider) Lookup(ctx context.Context, item SourceItem, parsed ParsedName) (Result, error) {
@@ -43,8 +43,8 @@ func (p *TMDBProvider) Lookup(ctx context.Context, item SourceItem, parsed Parse
 	if len(titles) == 0 {
 		titles = []string{parsed.Title}
 	}
-	animeResolved := item.LibraryKind == "anime"
-	if item.LibraryKind == "anime" || item.LibraryKind == "mixed" {
+	animeResolved := item.LibraryKind == "anime" || item.LibraryKind == "anime_series"
+	if item.LibraryKind == "anime" || item.LibraryKind == "mixed" || item.LibraryKind == "anime_series" {
 		if match, err := defaultAniDBResolver.Resolve(ctx, titles); err == nil && strings.TrimSpace(match.Title) != "" {
 			animeResolved = true
 			titles = prependSearchTitle(match.Title, titles)
@@ -55,7 +55,9 @@ func (p *TMDBProvider) Lookup(ctx context.Context, item SourceItem, parsed Parse
 	switch item.LibraryKind {
 	case "movies":
 		mediaTypes = []string{"movie"}
-	case "series":
+	case "series", "anime_series":
+		// Dubbed anime with seasons behaves like a television series for TMDB
+		// matching. Anime providers are still available in the fallback pass.
 		mediaTypes = []string{"tv"}
 	case "anime":
 		if parsed.LikelyMovie {
@@ -64,11 +66,7 @@ func (p *TMDBProvider) Lookup(ctx context.Context, item SourceItem, parsed Parse
 			mediaTypes = []string{"tv", "movie"}
 		}
 	case "mixed":
-		if parsed.LikelyMovie || animeResolved {
-			mediaTypes = []string{"movie", "tv"}
-		} else {
-			mediaTypes = []string{"movie", "tv"}
-		}
+		mediaTypes = []string{"movie", "tv"}
 	default:
 		mediaTypes = []string{"movie", "tv"}
 	}
