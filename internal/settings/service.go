@@ -51,6 +51,8 @@ type Update struct {
 	HomeHeroMode               *string `json:"home_hero_mode"`
 	TMDBToken                  *string `json:"tmdb_token"`
 	TMDBAPIKey                 *string `json:"tmdb_api_key"`
+	TVDBAPIKey                 *string `json:"tvdb_api_key"`
+	TVDBPIN                    *string `json:"tvdb_pin"`
 	FanartAPIKey               *string `json:"fanart_api_key"`
 	FanartClientKey            *string `json:"fanart_client_key"`
 	LastFMAPIKey               *string `json:"lastfm_api_key"`
@@ -62,7 +64,8 @@ type Update struct {
 }
 
 var secretKeys = map[string]bool{
-	"tmdb_token": true, "tmdb_api_key": true, "fanart_api_key": true, "fanart_client_key": true,
+	"tmdb_token": true, "tmdb_api_key": true, "tvdb_api_key": true, "tvdb_pin": true,
+	"fanart_api_key": true, "fanart_client_key": true,
 	"lastfm_api_key": true, "subdl_api_key": true, "opensubtitles_api_key": true, "opensubtitles_password": true,
 }
 
@@ -124,6 +127,8 @@ func (s *Service) Apply(ctx context.Context, base config.Config) (config.Config,
 		{"home_hero_mode", &base.HomeHeroMode},
 		{"tmdb_token", &base.TMDBToken},
 		{"tmdb_api_key", &base.TMDBAPIKey},
+		{"tvdb_api_key", &base.TVDBAPIKey},
+		{"tvdb_pin", &base.TVDBPIN},
 		{"fanart_api_key", &base.FanartAPIKey},
 		{"fanart_client_key", &base.FanartClientKey},
 		{"lastfm_api_key", &base.LastFMAPIKey},
@@ -190,8 +195,10 @@ func (s *Service) Update(ctx context.Context, in Update) error {
 		}
 	}
 	for key, value := range map[string]*string{
-		"tmdb_token": in.TMDBToken, "tmdb_api_key": in.TMDBAPIKey, "fanart_api_key": in.FanartAPIKey,
-		"fanart_client_key": in.FanartClientKey, "lastfm_api_key": in.LastFMAPIKey, "subdl_api_key": in.SubDLAPIKey,
+		"tmdb_token": in.TMDBToken, "tmdb_api_key": in.TMDBAPIKey,
+		"tvdb_api_key": in.TVDBAPIKey, "tvdb_pin": in.TVDBPIN,
+		"fanart_api_key": in.FanartAPIKey, "fanart_client_key": in.FanartClientKey,
+		"lastfm_api_key": in.LastFMAPIKey, "subdl_api_key": in.SubDLAPIKey,
 		"opensubtitles_api_key": in.OpenSubtitlesAPIKey, "opensubtitles_password": in.OpenSubtitlesPassword,
 	} {
 		if value == nil {
