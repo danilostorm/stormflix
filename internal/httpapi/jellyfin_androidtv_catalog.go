@@ -21,7 +21,9 @@ func jellyfinQueryValue(r *http.Request, wanted string) string {
 }
 
 // jellyfinCatalogItems normalizes the camelCase query names emitted by the
-// Kotlin SDK to the names the original compatibility handler expects.
+// Kotlin SDK to the names the original compatibility handler expects. The
+// anime_series kind is handled here as a TV-show collection without changing
+// StormFlix's older Jellyfin handler surface.
 func (s *server) jellyfinCatalogItems(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	for _, key := range []string{"ParentId", "SearchTerm", "IncludeItemTypes"} {
@@ -30,8 +32,26 @@ func (s *server) jellyfinCatalogItems(w http.ResponseWriter, r *http.Request) {
 				query.Set(key, value)
 			}
 		}
-	}
 	r.URL.RawQuery = query.Encode()
+
+	if libID, ok := jfParsePrefixedID(strings.TrimSpace(query.Get("ParentId")), "lib"); ok {
+		var kind string
+		if s.db.QueryRowContext(r.Context(), `SELECT kind FROM libraries WHERE id=? AND enabled=1`, libID).Scan(&kind) == nil && strings.EqualFold(kind, "anime_series") {
+			u := currentUser(r)
+			series, err := s.media.SeriesList(r.Context(), []int64{libID}, strings.TrimSpace(query.Get("SearchTerm")))
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err)
+				return
+			}
+			items := make([]any, 0, len(series))
+			for _, show := range series {
+				items = append(items, s.jellyfinSeriesItem(show))
+			}
+			_ = u
+			writeJSON(w, http.StatusOK, map[string]any{"Items": items, "TotalRecordCount": len(items), "StartIndex": 0})
+			return
+		}
+	}
 	s.jellyfinItems(w, r)
 }
 
@@ -61,12 +81,16 @@ func (s *server) jellyfinRichViews(w http.ResponseWriter, r *http.Request) {
 func (s *server) jellyfinLibraryItem(ctx context.Context, profileID int64, lib jellyfinLibrary) map[string]any {
 	var childCount int
 	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM media WHERE library_id=? AND available=1`, lib.ID).Scan(&childCount)
+	collectionType := jfCollectionType(lib.Kind)
+	if strings.EqualFold(lib.Kind, "anime_series") {
+		collectionType = "tvshows"
+	}
 	out := map[string]any{
 		"Name":                    lib.Name,
 		"ServerId":                s.jellyfinServerID(),
 		"Id":                      jfLibraryID(lib.ID),
 		"Type":                    "CollectionFolder",
-		"CollectionType":          jfCollectionType(lib.Kind),
+		"CollectionType":          collectionType,
 		"IsFolder":                true,
 		"ChildCount":              childCount,
 		"RecursiveItemCount":      childCount,
@@ -132,8 +156,9 @@ func (s *server) jellyfinCatalogItem(w http.ResponseWriter, r *http.Request) {
 	s.jellyfinItem(w, r)
 }
 
-// jellyfinCatalogImage adds artwork support for library CollectionFolder
-// items and falls back to the existing media/series/season image handler.
+// jellyfinCatalogImage is retained for authenticated clients. Android TV's
+// dedicated image loader does not attach the session token, so the registered
+// route uses jellyfinPublicCatalogImage instead.
 func (s *server) jellyfinCatalogImage(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.PathValue("id"))
 	if libID, ok := jfParsePrefixedID(id, "lib"); ok {
@@ -162,9 +187,9 @@ func (s *server) jellyfinCatalogImage(w http.ResponseWriter, r *http.Request) {
 	s.jellyfinImage(w, r)
 }
 
-// jellyfinLatestCatalog replaces the temporary empty /Items/Latest response
-// with real recently-added items. Android TV requests this endpoint once per
-// library while composing the default Home screen.
+// jellyfinLatestCatalog returns actual recently-added content. Episodic anime
+// libraries return recent episodes, while movie and music collections retain
+// their native behavior.
 func (s *server) jellyfinLatestCatalog(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
 	profileID := s.jellyfinDefaultProfileID(r.Context(), u)
@@ -202,6 +227,19 @@ func (s *server) jellyfinLatestCatalog(w http.ResponseWriter, r *http.Request) {
 			items := make([]any, 0, len(tracks))
 			for _, track := range tracks {
 				items = append(items, s.jellyfinAudioItem(profileID, track))
+			}
+			writeJSON(w, http.StatusOK, items)
+			return
+		}
+		if strings.EqualFold(kind, "anime_series") {
+			episodes, err := s.media.RecentEpisodes(r.Context(), []int64{libID}, limit)
+			if err != nil {
+				writeJSON(w, http.StatusOK, []any{})
+				return
+			}
+			items := make([]any, 0, len(episodes))
+			for _, episode := range episodes {
+				items = append(items, s.jellyfinMediaItem(profileID, episode))
 			}
 			writeJSON(w, http.StatusOK, items)
 			return
