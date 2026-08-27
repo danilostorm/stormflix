@@ -16,6 +16,8 @@ type categoryLibraryCandidate struct {
 // organizeRecommendedCategories creates a useful first hierarchy from the
 // library kinds/names already configured. It only manages the recommended child
 // slugs below the three system roots; custom categories are left untouched.
+// Rules are intentionally exclusive inside each root so a library does not
+// appear twice in sibling rails after automatic organization.
 func (s *server) organizeRecommendedCategories(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.db.QueryContext(r.Context(), `SELECT id,name,kind FROM libraries WHERE enabled=1 ORDER BY name,id`)
 	if err != nil {
@@ -75,16 +77,21 @@ func (s *server) organizeRecommendedCategories(w http.ResponseWriter, r *http.Re
 		}
 		return false
 	}
+	isMovieLib := func(l categoryLibraryCandidate) bool { return l.Kind == "movies" || l.Kind == "mixed" }
+	isAnimeLib := func(l categoryLibraryCandidate) bool { return l.Kind == "anime" || l.Kind == "anime_series" || l.Kind == "mixed" }
+	is4K := func(l categoryLibraryCandidate) bool { return containsAny(lowerName(l), "4k", "uhd", "2160") }
+	isAnimationMovie := func(l categoryLibraryCandidate) bool { return containsAny(lowerName(l), "anima", "desenho", "cartoon") }
+	isDubbedAnime := func(l categoryLibraryCandidate) bool { return containsAny(lowerName(l), "dubl") }
 	specs := []spec{
-		{movieRoot, "4K / UHD", "filmes-4k", "movie", 10, func(l categoryLibraryCandidate) bool { n:=lowerName(l); return (l.Kind=="movies"||l.Kind=="mixed") && containsAny(n,"4k","uhd","2160") }},
-		{movieRoot, "Animação", "filmes-animacao", "movie", 20, func(l categoryLibraryCandidate) bool { n:=lowerName(l); return (l.Kind=="movies"||l.Kind=="mixed") && containsAny(n,"anima","desenho","cartoon") }},
-		{movieRoot, "Outros filmes", "filmes-outros", "movie", 90, func(l categoryLibraryCandidate) bool { n:=lowerName(l); return (l.Kind=="movies"||l.Kind=="mixed") && !containsAny(n,"4k","uhd","2160","anima","desenho","cartoon","anime") }},
-		{seriesRoot, "Séries de TV", "series-tv", "series", 10, func(l categoryLibraryCandidate) bool { return l.Kind=="series" }},
-		{seriesRoot, "Desenhos", "series-desenhos", "series", 20, func(l categoryLibraryCandidate) bool { return l.Kind=="animation_series" }},
-		{seriesRoot, "Animes com temporadas", "series-animes", "anime", 30, func(l categoryLibraryCandidate) bool { return l.Kind=="anime_series" }},
-		{animeRoot, "Dublados", "animes-dublados", "anime", 10, func(l categoryLibraryCandidate) bool { n:=lowerName(l); return (l.Kind=="anime"||l.Kind=="anime_series"||l.Kind=="mixed") && containsAny(n,"dubl") }},
-		{animeRoot, "Séries", "animes-series", "anime", 20, func(l categoryLibraryCandidate) bool { return l.Kind=="anime_series" }},
-		{animeRoot, "Filmes", "animes-filmes", "anime", 30, func(l categoryLibraryCandidate) bool { n:=lowerName(l); return (l.Kind=="anime"||l.Kind=="mixed") && !containsAny(n,"serie","temporada") }},
+		{movieRoot, "4K / UHD", "filmes-4k", "movie", 10, func(l categoryLibraryCandidate) bool { return isMovieLib(l) && is4K(l) }},
+		{movieRoot, "Animação", "filmes-animacao", "movie", 20, func(l categoryLibraryCandidate) bool { return isMovieLib(l) && !is4K(l) && isAnimationMovie(l) }},
+		{movieRoot, "Outros filmes", "filmes-outros", "movie", 90, func(l categoryLibraryCandidate) bool { return isMovieLib(l) && !is4K(l) && !isAnimationMovie(l) && !strings.Contains(lowerName(l), "anime") }},
+		{seriesRoot, "Séries de TV", "series-tv", "series", 10, func(l categoryLibraryCandidate) bool { return l.Kind == "series" }},
+		{seriesRoot, "Desenhos", "series-desenhos", "series", 20, func(l categoryLibraryCandidate) bool { return l.Kind == "animation_series" }},
+		{seriesRoot, "Animes com temporadas", "series-animes", "anime", 30, func(l categoryLibraryCandidate) bool { return l.Kind == "anime_series" }},
+		{animeRoot, "Dublados", "animes-dublados", "anime", 10, func(l categoryLibraryCandidate) bool { return isAnimeLib(l) && isDubbedAnime(l) }},
+		{animeRoot, "Séries", "animes-series", "anime", 20, func(l categoryLibraryCandidate) bool { return l.Kind == "anime_series" && !isDubbedAnime(l) }},
+		{animeRoot, "Filmes", "animes-filmes", "anime", 30, func(l categoryLibraryCandidate) bool { return (l.Kind == "anime" || l.Kind == "mixed") && !isDubbedAnime(l) }},
 	}
 	created := 0
 	assigned := 0
