@@ -71,33 +71,75 @@ func (s *Service) EnqueueAdminScan(ctx context.Context, id int64) (ManagedLibrar
 	return v, job, nil
 }
 
+// EnqueueAllAdminScans builds the complete batch atomically before starting the
+// scan worker. This is important for SQLite: the first scan must not begin a
+// catalog write transaction while the same request is still inserting the rest
+// of the queue.
 func (s *Service) EnqueueAllAdminScans(ctx context.Context) ([]ScanJob, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id FROM libraries WHERE enabled=1 ORDER BY name,id`)
+	rows, err := s.db.QueryContext(ctx, `SELECT l.id,l.name,COUNT(CASE WHEN ls.enabled=1 THEN 1 END) FROM libraries l LEFT JOIN library_sources ls ON ls.library_id=l.id WHERE l.enabled=1 GROUP BY l.id,l.name ORDER BY l.name,l.id`)
 	if err != nil {
 		return nil, err
 	}
-	ids := []int64{}
+	type candidate struct {
+		id          int64
+		name        string
+		sourceCount int
+	}
+	candidates := []candidate{}
 	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
+		var item candidate
+		if err := rows.Scan(&item.id, &item.name, &item.sourceCount); err != nil {
 			_ = rows.Close()
 			return nil, err
 		}
-		ids = append(ids, id)
+		if item.sourceCount > 0 {
+			candidates = append(candidates, item)
+		}
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
 	}
-	jobs := []ScanJob{}
-	for _, id := range ids {
-		_, job, queueErr := s.EnqueueAdminScan(ctx, id)
-		if queueErr != nil {
-			if strings.Contains(strings.ToLower(queueErr.Error()), "no configured sources") {
-				continue
-			}
-			return jobs, queueErr
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	jobIDs := []int64{}
+	for _, item := range candidates {
+		var existingID int64
+		err := tx.QueryRowContext(ctx, `SELECT id FROM scan_jobs WHERE library_id=? AND status IN ('queued','running','cancelling') ORDER BY id DESC LIMIT 1`, item.id).Scan(&existingID)
+		if err == nil {
+			jobIDs = append(jobIDs, existingID)
+			continue
 		}
-		jobs = append(jobs, job)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+		res, insertErr := tx.ExecContext(ctx, `INSERT INTO scan_jobs(library_id,status,progress,sources_total,message) VALUES(?,'queued',0,?,'aguardando na fila')`, item.id, item.sourceCount)
+		if insertErr != nil {
+			return nil, insertErr
+		}
+		jobID, _ := res.LastInsertId()
+		jobIDs = append(jobIDs, jobID)
+		message := fmt.Sprintf("na fila · lote Escanear todas · %d origem(ns)", item.sourceCount)
+		if _, err := tx.ExecContext(ctx, `UPDATE libraries SET last_scan_status='queued',last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, message, item.id); err != nil {
+			return nil, err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE scan_jobs SET message=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, message, jobID); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	jobs := make([]ScanJob, 0, len(jobIDs))
+	for _, jobID := range jobIDs {
+		job, getErr := s.ScanJob(ctx, jobID)
+		if getErr == nil {
+			jobs = append(jobs, job)
+		}
 	}
 	go s.drainScanQueue()
 	return jobs, nil
@@ -257,7 +299,7 @@ func (s *Service) runQueuedScan(jobID, libraryID int64, ctx context.Context, can
 // updateActiveScanJob mirrors the already-throttled scanner status into the
 // queue table. It keeps the queue UI informative without adding a second scan
 // traversal or expensive polling query inside the scanner.
-func (s *Service) updateActiveScanJob(ctx context.Context, libraryID, files, sourcesDone, sourcesTotal, sourcesOffline int, message string) {
+func (s *Service) updateActiveScanJob(ctx context.Context, libraryID int64, files, sourcesDone, sourcesTotal, sourcesOffline int, message string) {
 	progress := 3
 	if sourcesTotal > 0 {
 		progress = 5 + (sourcesDone * 85 / sourcesTotal)
