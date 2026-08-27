@@ -108,7 +108,9 @@ func (s *server) registerJellyfinRoutes(mux *http.ServeMux, prefix string) {
 	p := strings.TrimSuffix(prefix, "/")
 	route := func(path string) string { return p + path }
 	compat := func(h http.HandlerFunc) http.HandlerFunc { return s.jellyfinCompatWrap(h) }
-	authed := func(h http.HandlerFunc) http.HandlerFunc { return s.jellyfinCompatWrap(s.jellyfinRequireAuth(h)) }
+	authed := func(h http.HandlerFunc) http.HandlerFunc {
+		return s.jellyfinCompatWrap(s.jellyfinRequireAuth(s.jellyfinNormalizeLibraryScope(h)))
+	}
 
 	mux.HandleFunc("GET "+route("/System/Info/Public"), compat(s.jellyfinCompatInfo))
 	mux.HandleFunc("GET "+route("/System/Ping"), s.jellyfinPingJSON)
