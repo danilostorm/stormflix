@@ -14,9 +14,15 @@ var stormflixAnimeAPI = NewAnimeAPIProvider()
 var metadataSpecialPrefixRE = regexp.MustCompile(`(?i)^(?:especiais?|specials?|ovas?|oavs?)\s+`)
 var metadataRapturaRE = regexp.MustCompile(`(?i)\braptura\b`)
 
-// RefreshMediaSmart keeps the regular provider chain first, then tries a small
-// set of safe filename corrections, and only then falls back to MyAnimeList for
-// anime/mixed/episodic-anime libraries.
+func isAnimeFallbackLibrary(kind string) bool {
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	return kind == "anime" || kind == "mixed" || kind == "anime_series"
+}
+
+// RefreshMediaSmart keeps the normal provider strategy first, then safe title
+// aliases, AniList and finally AniDB -> MyAnimeList -> AnimeAPI. This order is
+// intentionally broader for Brazilian dubbed-anime archives where the folder
+// name is often much cleaner than the release filename.
 func (s *Service) RefreshMediaSmart(ctx context.Context, mediaID int64) error {
 	var item SourceItem
 	if err := s.db.QueryRowContext(ctx, `SELECT m.id,m.library_id,l.kind,m.title,m.path FROM media m JOIN libraries l ON l.id=m.library_id WHERE m.id=? AND m.available=1`, mediaID).
@@ -24,24 +30,30 @@ func (s *Service) RefreshMediaSmart(ctx context.Context, mediaID int64) error {
 		return err
 	}
 	parsed := ParseFilename(item.Path, item.LibraryKind)
-	result, err := s.lookup(ctx, item, parsed)
-	if err == nil {
+	result, primaryErr := s.lookup(ctx, item, parsed)
+	if primaryErr == nil {
 		return s.saveResult(ctx, mediaID, result)
 	}
 	if alternate, altErr := s.lookupSafeTitleAlternates(ctx, item, parsed); altErr == nil {
 		return s.saveResult(ctx, mediaID, alternate)
 	}
+	if isAnimeFallbackLibrary(item.LibraryKind) {
+		if anilistResult, anilistErr := s.lookupAniListFallback(ctx, item, parsed); anilistErr == nil {
+			return s.saveResult(ctx, mediaID, anilistResult)
+		}
+	}
 	fallback, fallbackErr := s.lookupMyAnimeListFallback(ctx, item, parsed)
 	if fallbackErr != nil {
-		_ = s.saveError(ctx, mediaID, parsed, errors.Join(err, fallbackErr))
-		return errors.Join(err, fallbackErr)
+		_ = s.saveError(ctx, mediaID, parsed, errors.Join(primaryErr, fallbackErr))
+		return errors.Join(primaryErr, fallbackErr)
 	}
 	return s.saveResult(ctx, mediaID, fallback)
 }
 
-// RetryLibraryErrorsWithMyAnimeList is a smart second pass. It first retries
-// safe title aliases for every failed library item, then uses AniDB +
-// MyAnimeList + AnimeAPI when the library is anime-capable.
+// RetryLibraryErrorsWithMyAnimeList is the automatic anime recovery pass run
+// after a library metadata job. Despite the historical name it now performs
+// the complete recovery chain: safe aliases -> AniList -> AniDB -> MAL ->
+// AnimeAPI -> optional TMDB/Fanart enrichment.
 func (s *Service) RetryLibraryErrorsWithMyAnimeList(ctx context.Context, libraryID int64) {
 	rows, err := s.db.QueryContext(ctx, `SELECT m.id,m.library_id,l.kind,m.title,m.path
 FROM media m JOIN libraries l ON l.id=m.library_id JOIN media_metadata mm ON mm.media_id=m.id
@@ -67,6 +79,12 @@ WHERE m.library_id=? AND m.available=1 AND mm.status='error' ORDER BY m.id`, lib
 		if result, altErr := s.lookupSafeTitleAlternates(ctx, item, parsed); altErr == nil {
 			_ = s.saveResult(ctx, item.ID, result)
 			continue
+		}
+		if isAnimeFallbackLibrary(item.LibraryKind) {
+			if result, anilistErr := s.lookupAniListFallback(ctx, item, parsed); anilistErr == nil {
+				_ = s.saveResult(ctx, item.ID, result)
+				continue
+			}
 		}
 		result, lookupErr := s.lookupMyAnimeListFallback(ctx, item, parsed)
 		if lookupErr != nil {
@@ -116,9 +134,36 @@ func safeMetadataParsedAlternates(parsed ParsedName) []ParsedName {
 	return out
 }
 
+func (s *Service) lookupAniListFallback(ctx context.Context, item SourceItem, parsed ParsedName) (Result, error) {
+	if !isAnimeFallbackLibrary(item.LibraryKind) {
+		return Result{}, errors.New("AniList fallback skipped: library is not anime-capable")
+	}
+	s.providerMu.RLock()
+	anilist := s.anilist
+	s.providerMu.RUnlock()
+	if anilist == nil || !anilist.Ready() {
+		return Result{}, errors.New("AniList fallback unavailable")
+	}
+
+	var lastErr error = errors.New("AniList: no match")
+	for _, title := range parsed.SearchTitles() {
+		candidate := parsed
+		candidate.Title = title
+		result, err := anilist.Lookup(ctx, item, candidate)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		result.MediaType = "anime"
+		result.Season = parsed.Season
+		result.Episode = parsed.Episode
+		return s.enrichAnimeFallbackResult(ctx, item, parsed, result), nil
+	}
+	return Result{}, lastErr
+}
+
 func (s *Service) lookupMyAnimeListFallback(ctx context.Context, item SourceItem, parsed ParsedName) (Result, error) {
-	kind := strings.ToLower(strings.TrimSpace(item.LibraryKind))
-	if kind != "anime" && kind != "mixed" && kind != "anime_series" {
+	if !isAnimeFallbackLibrary(item.LibraryKind) {
 		return Result{}, errors.New("MyAnimeList fallback skipped: library is not anime-capable")
 	}
 	resolved := parsed
@@ -138,7 +183,12 @@ func (s *Service) lookupMyAnimeListFallback(ctx context.Context, item SourceItem
 	result.MediaType = "anime"
 	result.Season = parsed.Season
 	result.Episode = parsed.Episode
+	return s.enrichAnimeFallbackResult(ctx, item, parsed, result), nil
+}
 
+func (s *Service) enrichAnimeFallbackResult(ctx context.Context, item SourceItem, parsed ParsedName, result Result) Result {
+	// AnimeAPI is a relation mapper, not a hard dependency. Once AniList/MAL has
+	// identified the title, use it best-effort to bridge IDs into TMDB/TVDB/IMDb.
 	_ = stormflixAnimeAPI.Enrich(ctx, &result)
 
 	s.providerMu.RLock()
@@ -168,5 +218,5 @@ func (s *Service) lookupMyAnimeListFallback(ctx context.Context, item SourceItem
 	if fanart != nil {
 		_ = fanart.Enrich(ctx, &result)
 	}
-	return result, nil
+	return result
 }
