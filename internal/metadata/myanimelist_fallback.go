@@ -37,15 +37,19 @@ func (s *Service) RefreshMediaSmart(ctx context.Context, mediaID int64) error {
 	if alternate, altErr := s.lookupSafeTitleAlternates(ctx, item, parsed); altErr == nil {
 		return s.saveResult(ctx, mediaID, alternate)
 	}
+	var anilistErr error
 	if isAnimeFallbackLibrary(item.LibraryKind) {
-		if anilistResult, anilistErr := s.lookupAniListFallback(ctx, item, parsed); anilistErr == nil {
+		if anilistResult, err := s.lookupAniListFallback(ctx, item, parsed); err == nil {
 			return s.saveResult(ctx, mediaID, anilistResult)
+		} else {
+			anilistErr = err
 		}
 	}
 	fallback, fallbackErr := s.lookupMyAnimeListFallback(ctx, item, parsed)
 	if fallbackErr != nil {
-		_ = s.saveError(ctx, mediaID, parsed, errors.Join(primaryErr, fallbackErr))
-		return errors.Join(primaryErr, fallbackErr)
+		combined := errors.Join(primaryErr, anilistErr, fallbackErr)
+		_ = s.saveError(ctx, mediaID, parsed, combined)
+		return combined
 	}
 	return s.saveResult(ctx, mediaID, fallback)
 }
@@ -80,14 +84,30 @@ WHERE m.library_id=? AND m.available=1 AND mm.status='error' ORDER BY m.id`, lib
 			_ = s.saveResult(ctx, item.ID, result)
 			continue
 		}
+
+		var previousError string
+		_ = s.db.QueryRowContext(ctx, `SELECT COALESCE(last_error,'') FROM media_metadata WHERE media_id=?`, item.ID).Scan(&previousError)
+		var anilistErr error
 		if isAnimeFallbackLibrary(item.LibraryKind) {
-			if result, anilistErr := s.lookupAniListFallback(ctx, item, parsed); anilistErr == nil {
+			if result, err := s.lookupAniListFallback(ctx, item, parsed); err == nil {
 				_ = s.saveResult(ctx, item.ID, result)
 				continue
+			} else {
+				anilistErr = err
 			}
 		}
+
 		result, lookupErr := s.lookupMyAnimeListFallback(ctx, item, parsed)
 		if lookupErr != nil {
+			causes := []error{}
+			if strings.TrimSpace(previousError) != "" {
+				causes = append(causes, errors.New(previousError))
+			}
+			if anilistErr != nil {
+				causes = append(causes, anilistErr)
+			}
+			causes = append(causes, lookupErr)
+			_ = s.saveError(ctx, item.ID, parsed, errors.Join(causes...))
 			continue
 		}
 		_ = s.saveResult(ctx, item.ID, result)
