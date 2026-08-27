@@ -107,18 +107,23 @@ StormFlix does **not** embed the Plex Hama.bundle. It implements the useful mapp
 
 TheTVDB v4 client is implemented and optional. Configuration is available in Admin → Configurações → Metadados & Capas via API Key and optional Subscriber PIN. Without a TVDB key, TMDB/Fanart continue to operate.
 
-## Manual matching — series level
+## Manual matching — principal series only
 
-Phase 10 introduces Plex-style logical series matching through `series_metadata_overrides`.
+The intended behavior is now strictly Plex-style for episodic libraries.
 
-For an episodic item with a scanner-owned `series_key`, the Admin Catalog offers **Aplicar à série inteira (recomendado)**. One TMDB TV choice:
+Admin → Catálogo defaults to **Obras principais**. For `series`, `anime_series` and `animation_series`, `/api/v1/admin/catalog/works` groups every scanner-owned `series_key` into one principal card showing season/episode counts. Movies and other standalone items remain individual works.
 
-1. stores the provider decision for `(library_id, series_key)`;
-2. protects the logical show rather than requiring every episode to be matched manually;
-3. refreshes current episodes in the background with the selected TMDB series and their scanner season/episode numbers;
-4. keeps the canonical show title across rescans/new episodes while preserving scanner-owned numbering.
+For an episodic work:
 
-The old item-level/manual-copy flow remains available for movies and exceptional cases.
+1. the operator chooses **Corrigir obra principal** once;
+2. the TMDB TV choice is stored in `series_metadata_overrides` for `(library_id, series_key)`;
+3. `RebuildSeriesIdentities` runs immediately, preserving scanner-owned season/episode numbering while applying the approved canonical show title;
+4. every current episode is refreshed in the background from that one series decision;
+5. future episodes discovered by later scans inherit the same series override automatically.
+
+Individual episodes do **not** expose a normal manual-match action anymore. Admin → Catálogo → **Arquivos / diagnóstico** can still inspect files, but an episodic file only links back to its principal work.
+
+Important semantic rule: `media_metadata.manual_match` is for standalone item-level manual matches. Series protection lives only in `series_metadata_overrides`; episodes refreshed from a protected series remain automatic children. Phase 11 clears legacy episode `manual_match=1` flags left by the earlier implementation.
 
 ## Categories and subcategories
 
@@ -166,27 +171,31 @@ Performance work in phase 10:
 
 If Home later becomes slow again, profile with SQL timing before replacing SQLite. The next optimization target would be materialized/denormalized Home rows or event-driven cache invalidation, not an immediate database migration.
 
+## Admin UI fixes
+
+- Metadata & Capas music-agent decoration is guarded against concurrent duplicate rendering. The previous race could render two identical **Agentes de Música** panels.
+- Catalog principal-work view is the default. File-level episodic matching is deliberately removed from the normal workflow.
+
 ## Schema history relevant to current work
 
 - Phase 9: scanner-owned `media_series_identity`.
 - Phase 10: `series_metadata_overrides`, category `parent_id`, category/series/artwork/home indexes.
+- Phase 11: index for ordered series children and cleanup of legacy per-episode manual flags when a principal series override exists.
 
 ## Current admin behavior
 
-Catalog manual matching now exposes scanner series identity and distinguishes:
+Catalog now distinguishes two views:
 
-- automatic item;
-- item-level manual match;
-- **series-level manual protected match**.
+- **Obras principais** (default): one card per logical series plus standalone works; this is where manual matching happens.
+- **Arquivos / diagnóstico**: low-level media rows; episodic rows do not offer manual matching and instead link back to the principal work.
 
 For series, default manual search uses the scanner/canonical series title instead of the release filename.
 
 ## Known pending / next work
 
-- Validate real-world series-level manual match against the user's problematic cartoons and dubbed anime after deployment.
-- Continue cleaning metadata edge cases where provider episode ordering differs (air/DVD/absolute).
+- Validate real-world principal-series matching against the user's problematic cartoons and dubbed anime after deployment.
+- Continue cleaning metadata edge cases where provider episode ordering differs (air/DVD/absolute). Consider explicit TVDB ordering/provider selection at principal-series level when needed.
 - Continue Jellyfin Android TV/Fire validation after the native catalog is correct; do not diagnose Jellyfin using corrupted native metadata.
-- Consider explicit series-level provider selector for TVDB as a manual match source, not only TMDB, if the user needs TVDB ordering for a specific show.
 - If Home timing remains high after phase10, add server-side timing metrics per Home rail and inspect query plans before changing database engines.
 
 ## Documentation rule
