@@ -13,8 +13,22 @@
     await decorateLibraryQueue();
   };
 
+  // The v4 library card still calls the global scanLib function. Override it
+  // after v4 loads so one-library scans use the same persistent queue as
+  // "Escanear todas" and immediately take the operator to observable status.
+  window.scanLib=async function(id){
+    id=Number(id);
+    try{
+      const r=await req(`/libraries/${id}/scan`,{method:'POST',body:'{}'});
+      notice(r.status==='queued'?`Biblioteca adicionada à fila · ${r.message||''}`:`Scan ${r.status||'iniciado'}.`,true);
+      await window.loadLibraries?.();
+      await decorateLibraryQueue();
+    }catch(err){notice(err.message)}
+  };
+
   async function loadJobs(forcePoll=false){
     const root=document.querySelector('#jobs');if(!root)return;
+    const title=document.querySelector('#page-title');if(title)title.textContent='Fila & atividades';
     if(root.innerHTML.trim()==='')root.innerHTML='<div class="job-empty">Carregando fila…</div>';
     try{
       const jobs=await req('/admin/jobs?limit=100');
@@ -45,7 +59,7 @@
   }
 
   async function cancelScan(libraryID){
-    try{await req(`/libraries/${libraryID}/scan/cancel`,{method:'POST'});notice('Cancelamento solicitado.',true);await loadJobs(true)}catch(err){notice(err.message)}
+    try{await req(`/libraries/${libraryID}/scan/cancel`,{method:'POST'});notice('Cancelamento solicitado.',true);await loadJobs(true);await decorateLibraryQueue()}catch(err){notice(err.message)}
   }
 
   async function decorateLibraryQueue(){
@@ -61,12 +75,24 @@
       const intro=page.querySelector('.library-page-intro')||page.firstElementChild;if(intro)intro.after(strip);else page.prepend(strip);
       strip.querySelector('[data-library-scan-all]').onclick=scanAll;
       strip.querySelector('[data-open-jobs]').onclick=()=>document.querySelector('nav [data-page="jobs"]')?.click();
+
+      // Reflect queued/running state directly on each library card, not only on
+      // the separate queue page.
+      for(const job of scanJobs){
+        const card=page.querySelector(`[data-library-card="${job.library_id}"]`);if(!card)continue;
+        const actions=card.querySelector('.library-actions');
+        const scanButton=actions?.querySelector('button');
+        if(scanButton){scanButton.disabled=true;scanButton.textContent=job.status==='queued'?'Na fila':job.status==='cancelling'?'Cancelando…':'Escaneando…'}
+        if(actions&&!actions.querySelector('[data-queue-cancel]')){
+          const cancel=document.createElement('button');cancel.className='danger';cancel.dataset.queueCancel='1';cancel.textContent=job.status==='queued'?'Remover da fila':'Cancelar scan';cancel.onclick=()=>cancelScan(job.library_id);actions.insertBefore(cancel,actions.children[1]||null);
+        }
+      }
       if(scanJobs.length)scheduleLibraryRefresh();
     }catch{}
   }
 
   function schedule(){stop();timer=setTimeout(()=>{if(!document.querySelector('#jobs')?.classList.contains('hidden'))loadJobs(true)},1500)}
-  function scheduleLibraryRefresh(){setTimeout(()=>{if(!document.querySelector('#libraries')?.classList.contains('hidden'))decorateLibraryQueue()},1800)}
+  function scheduleLibraryRefresh(){setTimeout(()=>{if(!document.querySelector('#libraries')?.classList.contains('hidden')){window.loadLibraries?.().catch(()=>{})}},1800)}
   function stop(){if(timer){clearTimeout(timer);timer=null}}
 
   window.sfAdminJobs={reload:()=>loadJobs(true),scanAll};
