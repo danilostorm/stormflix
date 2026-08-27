@@ -118,8 +118,9 @@ func (s *server) adminCatalogMatch(w http.ResponseWriter, r *http.Request) {
 	mediaType := strings.ToLower(strings.TrimSpace(in.MediaType))
 	scope := strings.ToLower(strings.TrimSpace(in.Scope))
 	var updated int
+	var jobID int64
 	if scope == "series" && mediaType == "tv" {
-		updated, err = s.metadata.ManualMatchSeries(r.Context(), id, in.TMDBID)
+		updated, jobID, err = s.metadata.ManualMatchSeries(r.Context(), id, in.TMDBID)
 	} else {
 		updated, err = s.metadata.ManualMatch(r.Context(), id, in.TMDBID, mediaType, in.ApplyCopies)
 	}
@@ -130,10 +131,10 @@ func (s *server) adminCatalogMatch(w http.ResponseWriter, r *http.Request) {
 	uid := currentUser(r).ID
 	message := "Correspondência manual aplicada"
 	if scope == "series" {
-		message = "Correspondência manual aplicada à série inteira"
+		message = "Correspondência manual aplicada à obra principal e atualização colocada na fila"
 	}
 	s.admin.Log(r.Context(), "info", "catalog", message, &uid, strconv.FormatInt(id, 10)+" · TMDB "+strconv.FormatInt(in.TMDBID, 10)+" · "+scope)
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "updated": updated, "scope": scope, "background": scope == "series"})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "updated": updated, "scope": scope, "background": scope == "series", "job_id": jobID})
 }
 
 func (s *server) adminCatalogAuto(w http.ResponseWriter, r *http.Request) {
