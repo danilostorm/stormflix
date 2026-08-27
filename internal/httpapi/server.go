@@ -21,7 +21,7 @@ import (
 )
 
 const sessionCookie = "stormflix_session"
-const version = "0.16.1-player-state-jellyfin"
+const version = "0.16.2-queue-categories"
 
 type contextKey string
 const userKey contextKey = "user"
@@ -50,7 +50,7 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	if err:=admin.EnsureMonitoring(db);err!=nil{panic(err)}
 	music.ConfigureProviders(effective.LastFMAPIKey)
 	s:=&server{db:db,libraries:libraries,media:media.NewService(db),music:music.NewService(db),auth:auth.NewService(db),admin:admin.NewService(db),assets:assetStore,settings:settingsService,baseConfig:cfg,config:effective,startedAt:time.Now()}
-	s.metadata=metadata.NewService(db,effective,assetStore);s.metadata.RecoverInterruptedJobs()
+	s.metadata=metadata.NewService(db,effective,assetStore);s.metadata.ResumeQueuedJobs()
 	s.subtitles=subtitles.NewService(db,effective,assetStore);s.auth.Cleanup(context.Background())
 
 	mux:=http.NewServeMux()
@@ -129,8 +129,11 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("POST /api/v1/admin/catalog/{id}/auto",s.requireRole("manager",s.adminCatalogAuto))
 	mux.HandleFunc("GET /api/v1/admin/categories",s.requireRole("manager",s.adminCategories))
 	mux.HandleFunc("POST /api/v1/admin/categories",s.requireRole("manager",s.createCategory))
+	mux.HandleFunc("POST /api/v1/admin/categories/organize",s.requireRole("manager",s.organizeRecommendedCategories))
 	mux.HandleFunc("PUT /api/v1/admin/categories/{id}",s.requireRole("manager",s.updateCategory))
 	mux.HandleFunc("DELETE /api/v1/admin/categories/{id}",s.requireRole("manager",s.deleteCategory))
+	mux.HandleFunc("GET /api/v1/admin/jobs",s.requireRole("operator",s.adminJobs))
+	mux.HandleFunc("POST /api/v1/admin/libraries/scan-all",s.requireRole("operator",s.scanAllLibraries))
 	mux.HandleFunc("POST /api/v1/admin/libraries/{id}/consolidate",s.requireRole("manager",s.consolidateLibraryCopies))
 	mux.HandleFunc("POST /api/v1/admin/music/index",s.requireRole("operator",s.adminMusicIndex))
 	mux.HandleFunc("GET /api/v1/admin/cleanup",s.requireRole("admin",s.cleanupStatus))
