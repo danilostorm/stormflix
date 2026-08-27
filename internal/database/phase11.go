@@ -26,5 +26,5 @@ WHERE media_id IN (
 )`); err != nil {
 		return fmt.Errorf("normalize series-level manual flags: %w", err)
 	}
-	return nil
+	return migratePhase12(db)
 }
