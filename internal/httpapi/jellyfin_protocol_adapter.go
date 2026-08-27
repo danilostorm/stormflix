@@ -186,6 +186,25 @@ func shouldJellyfinTransformID(key string, object map[string]any, value string) 
 	return strings.HasSuffix(strings.ToLower(key), "id")
 }
 
+func jellyfinEmptyUserData() map[string]any {
+	return map[string]any{
+		"PlaybackPositionTicks": int64(0),
+		"PlayCount":             0,
+		"IsFavorite":            false,
+		"Played":                false,
+		"PlayedPercentage":      0.0,
+	}
+}
+
+func isJellyfinBaseItemType(typeName string) bool {
+	switch strings.ToLower(strings.TrimSpace(typeName)) {
+	case "collectionfolder", "folder", "series", "season", "movie", "episode", "video", "audio", "musicalbum", "musicartist", "playlist", "boxset":
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *server) transformJellyfinResponse(ctx context.Context, value any) any {
 	switch current := value.(type) {
 	case []any:
@@ -198,6 +217,11 @@ func (s *server) transformJellyfinResponse(ctx context.Context, value any) any {
 			// Avoid sending incomplete strict DTOs.
 			current["Configuration"] = nil
 			current["Policy"] = nil
+		}
+		if isJellyfinBaseItemType(firstJellyfinString(current, "Type")) {
+			if userData, ok := current["UserData"]; !ok || userData == nil {
+				current["UserData"] = jellyfinEmptyUserData()
+			}
 		}
 		for key, child := range current {
 			switch typed := child.(type) {
