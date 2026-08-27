@@ -123,6 +123,7 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("PUT /api/v1/admin/profiles/{id}",s.requireRole("admin",s.adminUpdateProfile))
 	mux.HandleFunc("DELETE /api/v1/admin/profiles/{id}",s.requireRole("admin",s.adminDeleteProfile))
 	mux.HandleFunc("GET /api/v1/admin/catalog",s.requireRole("operator",s.adminCatalog))
+	mux.HandleFunc("GET /api/v1/admin/catalog/works",s.requireRole("operator",s.adminCatalogWorks))
 	mux.HandleFunc("GET /api/v1/admin/catalog/{id}/matches",s.requireRole("manager",s.adminCatalogMatches))
 	mux.HandleFunc("POST /api/v1/admin/catalog/{id}/match",s.requireRole("manager",s.adminCatalogMatch))
 	mux.HandleFunc("POST /api/v1/admin/catalog/{id}/auto",s.requireRole("manager",s.adminCatalogAuto))
