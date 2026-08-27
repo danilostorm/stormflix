@@ -10,8 +10,8 @@ import (
 var (
 	yearRE           = regexp.MustCompile(`\b(19\d{2}|20\d{2})\b`)
 	twoDigitYearRE   = regexp.MustCompile(`(?:^|[ ._-])(\d{2})(?:$|[ ._-])`)
-	seasonRE         = regexp.MustCompile(`(?i)\bS(\d{1,2})[ ._-]*E(\d{1,3})\b`)
-	xEpisode         = regexp.MustCompile(`(?i)\b(\d{1,2})x(\d{1,3})\b`)
+	seasonRE         = regexp.MustCompile(`(?i)\bS(\d{1,2})[ ._-]*E[ ._-]*(\d{1,3})\b`)
+	xEpisode         = regexp.MustCompile(`(?i)\b(\d{1,2})x[ ._-]*(\d{1,3})\b`)
 	serialEpisodeRE  = regexp.MustCompile(`(?i)(?:^|[ ._-])(?:ep(?:isode|isodio|isódio)?[ ._-]*)?(\d{1,3})$`)
 	leadingEpisodeRE = regexp.MustCompile(`(?i)^(?:ep(?:isode|isodio|isódio)?[ ._-]*)?(\d{1,3})(?:[ ._-]+|$)`)
 	bracketRE        = regexp.MustCompile(`\[[^\]]+\]|\([^\)]*(?:1080|2160|720|480|x26|hevc|av1|web|bluray|remux|hdr|dv)[^\)]*\)`)
@@ -19,6 +19,7 @@ var (
 	emptyGroupRE     = regexp.MustCompile(`\(\s*\)|\[\s*\]|\{\s*\}`)
 	movieIndexRE     = regexp.MustCompile(`(?i)\b(?:filme|movie)\s*[-_. ]*\d{1,3}\b`)
 	seasonDirRE      = regexp.MustCompile(`(?i)^(?:season|temporada)\s*\d{1,3}$`)
+	seasonDirNumberRE = regexp.MustCompile(`(?i)^(?:season|temporada)\s*(\d{1,3})$`)
 	wordNumberEndRE  = regexp.MustCompile(`(?i)([[:alpha:]])(\d{1,2})(?:$|[ ._-])`)
 )
 
@@ -61,9 +62,6 @@ func ParseFilename(path, libraryKind string) ParsedName {
 	var out ParsedName
 	animeCapable := isAnimeCapableLibraryKind(libraryKind)
 	seriesLike := isSeriesLibraryKind(libraryKind)
-	// anime_series is explicitly episodic. Unlike the generic anime/mixed
-	// modes it never guesses movie just because a folder happens to contain a
-	// movie-like marker.
 	out.LikelyMovie = libraryKind == "movies" || (animeCapable && libraryKind != "anime_series" && animeMoviePath(path))
 	simpleEpisode := false
 	if match := seasonRE.FindStringSubmatch(clean); len(match) == 3 {
@@ -93,10 +91,6 @@ func ParseFilename(path, libraryKind string) ParsedName {
 				}
 			}
 		} else if match := leadingEpisodeRE.FindStringSubmatch(clean); len(match) == 2 {
-			// Common dubbed-anime layout:
-			//   Anime/Temporada 02/01 - Nome do episódio.mkv
-			// The episode title is not the provider search identity; the series
-			// directory is. Mark it as a simple episode so the ancestor wins below.
 			episode, _ := strconv.Atoi(match[1])
 			if episode > 0 && episode <= 999 && meaningfulAncestor(path, clean) != "" {
 				out.Season = seasonFromDirectory(path)
@@ -126,7 +120,6 @@ func ParseFilename(path, libraryKind string) ParsedName {
 		}
 	}
 	clean = emptyGroupRE.ReplaceAllString(clean, " ")
-
 	clean = trimReleaseTail(clean)
 	originalTitle := compactTitle(clean)
 	out.Title = originalTitle
@@ -176,7 +169,7 @@ func ParseFilename(path, libraryKind string) ParsedName {
 func seasonFromDirectory(path string) int {
 	for depth, dir := 0, filepath.Dir(path); depth < 3; depth, dir = depth+1, filepath.Dir(dir) {
 		name := cleanMetadataText(filepath.Base(dir))
-		if match := regexp.MustCompile(`(?i)^(?:season|temporada)\s*(\d{1,3})$`).FindStringSubmatch(name); len(match) == 2 {
+		if match := seasonDirNumberRE.FindStringSubmatch(name); len(match) == 2 {
 			n, _ := strconv.Atoi(match[1])
 			return n
 		}
