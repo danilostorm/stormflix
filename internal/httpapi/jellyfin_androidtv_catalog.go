@@ -10,6 +10,31 @@ import (
 	"time"
 )
 
+func jellyfinQueryValue(r *http.Request, wanted string) string {
+	for key, values := range r.URL.Query() {
+		if !strings.EqualFold(key, wanted) || len(values) == 0 {
+			continue
+		}
+		return strings.TrimSpace(values[0])
+	}
+	return ""
+}
+
+// jellyfinCatalogItems normalizes the camelCase query names emitted by the
+// Kotlin SDK to the names the original compatibility handler expects.
+func (s *server) jellyfinCatalogItems(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	for _, key := range []string{"ParentId", "SearchTerm", "IncludeItemTypes"} {
+		if query.Get(key) == "" {
+			if value := jellyfinQueryValue(r, key); value != "" {
+				query.Set(key, value)
+			}
+		}
+	}
+	r.URL.RawQuery = query.Encode()
+	s.jellyfinItems(w, r)
+}
+
 // jellyfinRichViews returns library folders as real Jellyfin CollectionFolder
 // items. Android TV's UserViewCardPresenter only attempts to load artwork when
 // a Primary image tag is present, otherwise it intentionally renders the blue
@@ -42,7 +67,6 @@ func (s *server) jellyfinLibraryItem(ctx context.Context, profileID int64, lib j
 		"Id":                      jfLibraryID(lib.ID),
 		"Type":                    "CollectionFolder",
 		"CollectionType":          jfCollectionType(lib.Kind),
-		"MediaType":               "Unknown",
 		"IsFolder":                true,
 		"ChildCount":              childCount,
 		"RecursiveItemCount":      childCount,
@@ -145,14 +169,14 @@ func (s *server) jellyfinLatestCatalog(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
 	profileID := s.jellyfinDefaultProfileID(r.Context(), u)
 	limit := 50
-	if parsed, err := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("Limit"))); err == nil && parsed > 0 {
+	if parsed, err := strconv.Atoi(jellyfinQueryValue(r, "limit")); err == nil && parsed > 0 {
 		limit = parsed
 	}
 	if limit > 100 {
 		limit = 100
 	}
 
-	parent := strings.TrimSpace(r.URL.Query().Get("ParentId"))
+	parent := jellyfinQueryValue(r, "parentId")
 	libID, hasLibrary := jfParsePrefixedID(parent, "lib")
 	if hasLibrary {
 		var kind string
