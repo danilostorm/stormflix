@@ -13,6 +13,7 @@ var (
 	seasonRE         = regexp.MustCompile(`(?i)\bS(\d{1,2})[ ._-]*E(\d{1,3})\b`)
 	xEpisode         = regexp.MustCompile(`(?i)\b(\d{1,2})x(\d{1,3})\b`)
 	serialEpisodeRE  = regexp.MustCompile(`(?i)(?:^|[ ._-])(?:ep(?:isode|isodio|isódio)?[ ._-]*)?(\d{1,3})$`)
+	leadingEpisodeRE = regexp.MustCompile(`(?i)^(?:ep(?:isode|isodio|isódio)?[ ._-]*)?(\d{1,3})(?:[ ._-]+|$)`)
 	bracketRE        = regexp.MustCompile(`\[[^\]]+\]|\([^\)]*(?:1080|2160|720|480|x26|hevc|av1|web|bluray|remux|hdr|dv)[^\)]*\)`)
 	junkParenRE      = regexp.MustCompile(`(?i)\((?:vhs|dvd|bdrip|bluray|blu-ray|dublado|dual[ ._-]*audio|legendado|webrip|web-dl|remux)\)`)
 	emptyGroupRE     = regexp.MustCompile(`\(\s*\)|\[\s*\]|\{\s*\}`)
@@ -45,13 +46,25 @@ func (p ParsedName) SearchTitles() []string {
 	return out
 }
 
+func isAnimeCapableLibraryKind(kind string) bool {
+	return kind == "anime" || kind == "mixed" || kind == "anime_series"
+}
+
+func isSeriesLibraryKind(kind string) bool {
+	return kind == "series" || kind == "anime_series"
+}
+
 func ParseFilename(path, libraryKind string) ParsedName {
 	base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	clean := cleanMetadataText(base)
 
 	var out ParsedName
-	animeCapable := libraryKind == "anime" || libraryKind == "mixed"
-	out.LikelyMovie = libraryKind == "movies" || (animeCapable && animeMoviePath(path))
+	animeCapable := isAnimeCapableLibraryKind(libraryKind)
+	seriesLike := isSeriesLibraryKind(libraryKind)
+	// anime_series is explicitly episodic. Unlike the generic anime/mixed
+	// modes it never guesses movie just because a folder happens to contain a
+	// movie-like marker.
+	out.LikelyMovie = libraryKind == "movies" || (animeCapable && libraryKind != "anime_series" && animeMoviePath(path))
 	simpleEpisode := false
 	if match := seasonRE.FindStringSubmatch(clean); len(match) == 3 {
 		out.Season, _ = strconv.Atoi(match[1])
@@ -63,18 +76,37 @@ func ParseFilename(path, libraryKind string) ParsedName {
 		out.Episode, _ = strconv.Atoi(match[2])
 		clean = strings.Replace(clean, match[0], " ", 1)
 		out.LikelyMovie = false
-	} else if libraryKind == "series" || (animeCapable && !out.LikelyMovie) {
+	} else if seriesLike || (animeCapable && !out.LikelyMovie) {
 		if match := serialEpisodeRE.FindStringSubmatch(clean); len(match) == 2 && !movieIndexRE.MatchString(clean) {
 			episode, _ := strconv.Atoi(match[1])
 			if episode > 0 {
 				prefix := compactTitle(strings.TrimSuffix(clean, match[0]))
 				if prefix != "" || meaningfulAncestor(path, clean) != "" {
-					out.Season = 1
+					out.Season = seasonFromDirectory(path)
+					if out.Season <= 0 {
+						out.Season = 1
+					}
 					out.Episode = episode
 					clean = prefix
 					out.LikelyMovie = false
 					simpleEpisode = true
 				}
+			}
+		} else if match := leadingEpisodeRE.FindStringSubmatch(clean); len(match) == 2 {
+			// Common dubbed-anime layout:
+			//   Anime/Temporada 02/01 - Nome do episódio.mkv
+			// The episode title is not the provider search identity; the series
+			// directory is. Mark it as a simple episode so the ancestor wins below.
+			episode, _ := strconv.Atoi(match[1])
+			if episode > 0 && episode <= 999 && meaningfulAncestor(path, clean) != "" {
+				out.Season = seasonFromDirectory(path)
+				if out.Season <= 0 {
+					out.Season = 1
+				}
+				out.Episode = episode
+				out.LikelyMovie = false
+				clean = ""
+				simpleEpisode = true
 			}
 		}
 	}
@@ -85,10 +117,6 @@ func ParseFilename(path, libraryKind string) ParsedName {
 	} else if (out.LikelyMovie || libraryKind == "movies" || libraryKind == "mixed") && !(animeCapable && movieIndexRE.MatchString(clean)) {
 		if match := twoDigitYearRE.FindStringSubmatch(clean); len(match) == 2 {
 			yy, _ := strconv.Atoi(match[1])
-			// Media libraries using two-digit years are overwhelmingly 20th century
-			// for 30-99 and 21st century for 00-29. Keeping this bounded avoids
-			// interpreting sequel numbers such as "Highlander 3" as a year. Anime
-			// sequence labels such as "Filme 15" are protected above and are not years.
 			if yy <= 29 {
 				out.Year = 2000 + yy
 			} else {
@@ -103,8 +131,6 @@ func ParseFilename(path, libraryKind string) ParsedName {
 	originalTitle := compactTitle(clean)
 	out.Title = originalTitle
 
-	// Number-only episode naming such as "Dragon Quest - 01" is common in
-	// anime releases. The parent folder is a much stronger series identity.
 	if simpleEpisode {
 		if parent := meaningfulAncestor(path, originalTitle); parent != "" {
 			if originalTitle != "" {
@@ -114,10 +140,7 @@ func ParseFilename(path, libraryKind string) ParsedName {
 		}
 	}
 
-	// Anime collections commonly use names such as "Filme 15 - O Renascimento
-	// de Freeza". The movie number is useful for humans but usually hurts
-	// provider search, so remove it and use the franchise directory as context.
-	if animeCapable && movieIndexRE.MatchString(out.Title) {
+	if animeCapable && libraryKind != "anime_series" && movieIndexRE.MatchString(out.Title) {
 		out.LikelyMovie = true
 		withoutIndex := compactTitle(movieIndexRE.ReplaceAllString(out.Title, " "))
 		withoutIndex = strings.Trim(withoutIndex, " -–—:·")
@@ -132,8 +155,6 @@ func ParseFilename(path, libraryKind string) ParsedName {
 		}
 	}
 
-	// Browser/download generated filenames such as "videoplayback.mp4" carry no
-	// identity. In that case the parent directory is normally the actual title.
 	if isGenericMediaName(out.Title) {
 		if parent := meaningfulAncestor(path, originalTitle, out.Title); parent != "" {
 			out.Alternates = append(out.Alternates, out.Title)
@@ -141,9 +162,7 @@ func ParseFilename(path, libraryKind string) ParsedName {
 		}
 	}
 
-	// Episode files are often named only "S01E01" while the series title is
-	// carried by the parent directory.
-	if (libraryKind == "series" || animeCapable) && len(strings.TrimSpace(out.Title)) < 2 {
+	if (seriesLike || animeCapable) && len(strings.TrimSpace(out.Title)) < 2 {
 		if parent := meaningfulAncestor(path, originalTitle, out.Title); parent != "" {
 			out.Title = parent
 		}
@@ -152,6 +171,20 @@ func ParseFilename(path, libraryKind string) ParsedName {
 	out.Title = compactTitle(out.Title)
 	out.Alternates = uniqueTitles(out.Title, out.Alternates)
 	return out
+}
+
+func seasonFromDirectory(path string) int {
+	for depth, dir := 0, filepath.Dir(path); depth < 3; depth, dir = depth+1, filepath.Dir(dir) {
+		name := cleanMetadataText(filepath.Base(dir))
+		if match := regexp.MustCompile(`(?i)^(?:season|temporada)\s*(\d{1,3})$`).FindStringSubmatch(name); len(match) == 2 {
+			n, _ := strconv.Atoi(match[1])
+			return n
+		}
+		if next := filepath.Dir(dir); next == dir {
+			break
+		}
+	}
+	return 0
 }
 
 func animeMoviePath(path string) bool {
@@ -168,11 +201,7 @@ func animeMoviePath(path string) bool {
 func cleanMetadataText(value string) string {
 	value = bracketRE.ReplaceAllString(value, " ")
 	value = junkParenRE.ReplaceAllString(value, " ")
-	// A number attached to the end of a title word is commonly a sequel marker
-	// (Highlander3, Filme6). Do not split codec/resolution numbers with 3+ digits.
 	value = wordNumberEndRE.ReplaceAllString(value, `$1 $2 `)
-	// Some old Brazilian release names glue the uppercase negation between words.
-	// Splitting only the all-caps form avoids changing normal words containing "nao".
 	value = strings.ReplaceAll(value, "NAO", " Nao ")
 	value = strings.NewReplacer(".", " ", "_", " ", "–", " - ", "—", " - ").Replace(value)
 	return compactTitle(value)
@@ -222,6 +251,7 @@ func isGenericDirectory(value string) bool {
 	generic := map[string]bool{
 		"filmes": true, "movies": true, "movie": true, "series": true, "séries": true,
 		"anime": true, "animes": true, "filmes animes": true, "filmes anime": true,
+		"animes dublado": true, "animes dublados": true, "anime dublado": true, "anime dublados": true,
 		"dublado": true, "dublados": true, "legendado": true, "legendados": true,
 		"media": true, "videos": true, "vídeos": true,
 	}
@@ -284,8 +314,6 @@ func isReleaseToken(word string) bool {
 	if strings.HasPrefix(w, "dual-") || strings.HasPrefix(w, "multi-") {
 		return true
 	}
-	// Old scene/private release tokens frequently glue the source and resolution
-	// together: TrialBD1080p, TetraBD1080p, BD1080p, etc.
 	if strings.Contains(w, "2160p") || strings.Contains(w, "1080p") || strings.Contains(w, "720p") || strings.Contains(w, "480p") {
 		return true
 	}
