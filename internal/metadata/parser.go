@@ -8,19 +8,21 @@ import (
 )
 
 var (
-	yearRE           = regexp.MustCompile(`\b(19\d{2}|20\d{2})\b`)
-	twoDigitYearRE   = regexp.MustCompile(`(?:^|[ ._-])(\d{2})(?:$|[ ._-])`)
-	seasonRE         = regexp.MustCompile(`(?i)\bS(\d{1,2})[ ._-]*E[ ._-]*(\d{1,3})\b`)
-	xEpisode         = regexp.MustCompile(`(?i)\b(\d{1,2})x[ ._-]*(\d{1,3})\b`)
-	serialEpisodeRE  = regexp.MustCompile(`(?i)(?:^|[ ._-])(?:ep(?:isode|isodio|isódio)?[ ._-]*)?(\d{1,3})$`)
-	leadingEpisodeRE = regexp.MustCompile(`(?i)^(?:ep(?:isode|isodio|isódio)?[ ._-]*)?(\d{1,3})(?:[ ._-]+|$)`)
-	bracketRE        = regexp.MustCompile(`\[[^\]]+\]|\([^\)]*(?:1080|2160|720|480|x26|hevc|av1|web|bluray|remux|hdr|dv)[^\)]*\)`)
-	junkParenRE      = regexp.MustCompile(`(?i)\((?:vhs|dvd|bdrip|bluray|blu-ray|dublado|dual[ ._-]*audio|legendado|webrip|web-dl|remux)\)`)
-	emptyGroupRE     = regexp.MustCompile(`\(\s*\)|\[\s*\]|\{\s*\}`)
-	movieIndexRE     = regexp.MustCompile(`(?i)\b(?:filme|movie)\s*[-_. ]*\d{1,3}\b`)
-	seasonDirRE      = regexp.MustCompile(`(?i)^(?:season|temporada)\s*\d{1,3}$`)
-	seasonDirNumberRE = regexp.MustCompile(`(?i)^(?:season|temporada)\s*(\d{1,3})$`)
-	wordNumberEndRE  = regexp.MustCompile(`(?i)([[:alpha:]])(\d{1,2})(?:$|[ ._-])`)
+	yearRE                    = regexp.MustCompile(`\b(19\d{2}|20\d{2})\b`)
+	twoDigitYearRE            = regexp.MustCompile(`(?:^|[ ._-])(\d{2})(?:$|[ ._-])`)
+	seasonRE                  = regexp.MustCompile(`(?i)\bS(\d{1,2})[ ._-]*E[ ._-]*(\d{1,3})\b`)
+	xEpisode                  = regexp.MustCompile(`(?i)\b(\d{1,2})x[ ._-]*(\d{1,3})\b`)
+	serialEpisodeRE           = regexp.MustCompile(`(?i)(?:^|[ ._-])(?:ep(?:isode|isodio|isódio)?[ ._-]*)?(\d{1,3})$`)
+	leadingEpisodeRE          = regexp.MustCompile(`(?i)^(?:ep(?:isode|isodio|isódio)?[ ._-]*)?(\d{1,3})(?:[ ._-]+|$)`)
+	animeEmbeddedEpisodeRE    = regexp.MustCompile(`(?i)(?:^|[ ._-])(?:ep(?:i|isode|isodio|isódio)?)[ ._-]*(\d{1,3})`)
+	animeStandaloneEpisodeRE  = regexp.MustCompile(`(?:^|[ ._-])(\d{1,3})(?:[ ._-]|$)`)
+	bracketRE                 = regexp.MustCompile(`\[[^\]]+\]|\([^\)]*(?:1080|2160|720|480|x26|hevc|av1|web|bluray|remux|hdr|dv)[^\)]*\)`)
+	junkParenRE               = regexp.MustCompile(`(?i)\((?:vhs|dvd|bdrip|bluray|blu-ray|dublado|dual[ ._-]*audio|legendado|webrip|web-dl|remux)\)`)
+	emptyGroupRE              = regexp.MustCompile(`\(\s*\)|\[\s*\]|\{\s*\}`)
+	movieIndexRE              = regexp.MustCompile(`(?i)\b(?:filme|movie)\s*[-_. ]*\d{1,3}\b`)
+	seasonDirRE               = regexp.MustCompile(`(?i)^(?:season|temporada)\s*\d{1,3}$`)
+	seasonDirNumberRE         = regexp.MustCompile(`(?i)^(?:season|temporada)\s*(\d{1,3})$`)
+	wordNumberEndRE           = regexp.MustCompile(`(?i)([[:alpha:]])(\d{1,2})(?:$|[ ._-])`)
 )
 
 type ParsedName struct {
@@ -69,11 +71,37 @@ func ParseFilename(path, libraryKind string) ParsedName {
 		out.Episode, _ = strconv.Atoi(match[2])
 		clean = strings.Replace(clean, match[0], " ", 1)
 		out.LikelyMovie = false
+		simpleEpisode = libraryKind == "anime_series"
 	} else if match := xEpisode.FindStringSubmatch(clean); len(match) == 3 {
 		out.Season, _ = strconv.Atoi(match[1])
 		out.Episode, _ = strconv.Atoi(match[2])
 		clean = strings.Replace(clean, match[0], " ", 1)
 		out.LikelyMovie = false
+		simpleEpisode = libraryKind == "anime_series"
+	} else if libraryKind == "anime_series" {
+		// Dubbed anime archives frequently carry the real show identity in the
+		// parent folder and noisy release names in the file itself, for example:
+		//   Inuyasha/InuYasha.107.MemoriadaTV.BDMenor.mkv
+		//   Bucky/Bucky.18.Upscale1080p.MemoriadaTV.Maior.mkv
+		//   Samurai X/SamuraiX-Epi90UpsAI1080p.MemoriadaTV.Maior.mkv
+		// Extract only the episode number here; the parent directory becomes the
+		// provider search title below.
+		episode := 0
+		if match := animeEmbeddedEpisodeRE.FindStringSubmatch(clean); len(match) == 2 {
+			episode, _ = strconv.Atoi(match[1])
+		} else if match := animeStandaloneEpisodeRE.FindStringSubmatch(clean); len(match) == 2 {
+			episode, _ = strconv.Atoi(match[1])
+		}
+		if episode > 0 && episode <= 999 && meaningfulAncestor(path, clean) != "" {
+			out.Season = seasonFromDirectory(path)
+			if out.Season <= 0 {
+				out.Season = 1
+			}
+			out.Episode = episode
+			out.LikelyMovie = false
+			clean = ""
+			simpleEpisode = true
+		}
 	} else if seriesLike || (animeCapable && !out.LikelyMovie) {
 		if match := serialEpisodeRE.FindStringSubmatch(clean); len(match) == 2 && !movieIndexRE.MatchString(clean) {
 			episode, _ := strconv.Atoi(match[1])
@@ -298,6 +326,7 @@ func isReleaseToken(word string) bool {
 		"x264", "x265", "h264", "h265", "hevc", "av1", "xvid", "aac", "ac3", "eac3", "dts", "truehd",
 		"10bit", "8bit", "atmos", "ddp5", "ddp", "multi", "dual", "dual-audio",
 		"dublado", "legendado", "dc", "directorcut", "directorscut", "renegade", "trial", "medio",
+		"memoriadatv", "bdmenor", "bdmaior", "maior", "menor",
 	}
 	for _, token := range known {
 		if w == token {
