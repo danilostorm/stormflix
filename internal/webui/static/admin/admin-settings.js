@@ -30,9 +30,11 @@ async function loadSettings(){
         </section>
 
         <section class="panel settings-section">
-          <div class="section-title"><span>02</span><div><h2>Metadados & Capas</h2><small>Agentes usados no scanner de filmes, séries e animes.</small></div></div>
+          <div class="section-title"><span>02</span><div><h2>Metadados & Capas</h2><small>Agentes usados no scanner de filmes, séries, desenhos e animes.</small></div></div>
           ${secretField('set-tmdb-token','TMDB · Read Access Token',secrets.tmdb_token,'Preferido. O API Key v3 pode ficar vazio se usar token.')}
           ${secretField('set-tmdb-key','TMDB · API Key v3',secrets.tmdb_api_key)}
+          ${secretField('set-tvdb-key','TheTVDB v4 · API Key',secrets.tvdb_api_key,'Usado como fallback para séries/desenhos e para ordens de episódios. A chave é criada no painel TheTVDB.')}
+          ${secretField('set-tvdb-pin','TheTVDB · Subscriber PIN',secrets.tvdb_pin,'Só é necessário quando a sua chave/projeto TheTVDB usa o modelo de assinatura do usuário.')}
           ${secretField('set-fanart-key','Fanart.tv · API Key',secrets.fanart_api_key)}
           ${secretField('set-fanart-client','Fanart.tv · Client Key',secrets.fanart_client_key,'Opcional conforme sua conta/aplicação.')}
           <div class="agent-mini-grid">${(agents.metadata||[]).map(a=>`<div><b>${esc(a.name)}</b><span class="${a.ready?'online':'offline'}">${a.ready?'PRONTO':'CONFIGURAR'}</span></div>`).join('')}</div>
@@ -103,6 +105,8 @@ async function saveSettings(e){
     opensubtitles_user_agent:$('#set-os-agent').value.trim(),
     tmdb_token:secretValue('set-tmdb-token'),
     tmdb_api_key:secretValue('set-tmdb-key'),
+    tvdb_api_key:secretValue('set-tvdb-key'),
+    tvdb_pin:secretValue('set-tvdb-pin'),
     fanart_api_key:secretValue('set-fanart-key'),
     fanart_client_key:secretValue('set-fanart-client'),
     lastfm_api_key:secretValue('set-lastfm-key'),
