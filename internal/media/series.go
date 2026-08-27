@@ -53,11 +53,11 @@ type SeriesDetail struct {
 }
 
 type seriesEpisode struct {
-	item       Item
-	path       string
+	item        Item
+	path        string
 	libraryKind string
-	seriesPath string
-	seriesName string
+	seriesPath  string
+	seriesName  string
 }
 
 func (s *Service) SeriesList(ctx context.Context, allowedLibraryIDs []int64, query string) ([]SeriesSummary, error) {
@@ -113,9 +113,13 @@ func (s *Service) RecentEpisodes(ctx context.Context, allowedLibraryIDs []int64,
 	return items, nil
 }
 
+func isSeriesLikeLibraryKind(kind string) bool {
+	return kind == "series" || kind == "anime_series"
+}
+
 func (s *Service) seriesGroups(ctx context.Context, allowedLibraryIDs []int64) ([]SeriesDetail, error) {
 	args := []any{}
-	where := `m.available=1 AND (l.kind='series' OR l.kind='anime' OR l.kind='mixed' OR COALESCE(mm.season_number,0)>0 OR COALESCE(mm.episode_number,0)>0)`
+	where := `m.available=1 AND (l.kind='series' OR l.kind='anime_series' OR l.kind='anime' OR l.kind='mixed' OR COALESCE(mm.season_number,0)>0 OR COALESCE(mm.episode_number,0)>0)`
 	if allowedLibraryIDs != nil {
 		if len(allowedLibraryIDs) == 0 {
 			return []SeriesDetail{}, nil
@@ -153,13 +157,12 @@ FROM media m JOIN libraries l ON l.id=m.library_id LEFT JOIN media_metadata mm O
 			season, episode = episodeFromPath(path)
 		}
 		// Anime/mixed movie libraries must not become fake series just because
-		// they live inside folders. Only group them when an episode pattern exists.
-		if libraryKind != "series" && episode == 0 {
+		// they live inside folders. Explicit series/anime-series libraries are
+		// allowed to group poorly named episodes and assign deterministic order.
+		if !isSeriesLikeLibraryKind(libraryKind) && episode == 0 {
 			continue
 		}
-		if episode == 0 && libraryKind == "series" {
-			// A series library may have poorly named episodes. Keep them grouped,
-			// but place them in season 1 with deterministic episode order later.
+		if episode == 0 && isSeriesLikeLibraryKind(libraryKind) {
 			season = maxInt(season, 1)
 		}
 		item.SeasonNumber, item.EpisodeNumber = season, episode
@@ -234,13 +237,28 @@ func mergeSeriesMetadata(summary *SeriesSummary, item Item, folderTitle string) 
 	} else if summary.Title == "" {
 		summary.Title = folderTitle
 	}
-	if summary.Year == 0 && item.Year > 0 { summary.Year = item.Year }
-	if summary.Overview == "" && item.Overview != "" { summary.Overview = item.Overview }
-	if summary.Rating == 0 && item.Rating > 0 { summary.Rating = item.Rating }
-	if len(summary.Genres) == 0 && len(item.Genres) > 0 { summary.Genres = append([]string(nil), item.Genres...) }
-	if summary.PosterURL == "" && item.PosterURL != "" { summary.PosterURL = item.PosterURL; summary.RepresentativeMediaID = item.ID }
-	if summary.BackdropURL == "" && item.BackdropURL != "" { summary.BackdropURL = item.BackdropURL }
-	if summary.LogoURL == "" && item.LogoURL != "" { summary.LogoURL = item.LogoURL }
+	if summary.Year == 0 && item.Year > 0 {
+		summary.Year = item.Year
+	}
+	if summary.Overview == "" && item.Overview != "" {
+		summary.Overview = item.Overview
+	}
+	if summary.Rating == 0 && item.Rating > 0 {
+		summary.Rating = item.Rating
+	}
+	if len(summary.Genres) == 0 && len(item.Genres) > 0 {
+		summary.Genres = append([]string(nil), item.Genres...)
+	}
+	if summary.PosterURL == "" && item.PosterURL != "" {
+		summary.PosterURL = item.PosterURL
+		summary.RepresentativeMediaID = item.ID
+	}
+	if summary.BackdropURL == "" && item.BackdropURL != "" {
+		summary.BackdropURL = item.BackdropURL
+	}
+	if summary.LogoURL == "" && item.LogoURL != "" {
+		summary.LogoURL = item.LogoURL
+	}
 }
 
 func deriveSeriesIdentity(path string) (string, string) {
@@ -253,32 +271,47 @@ func deriveSeriesIdentity(path string) (string, string) {
 	name := strings.NewReplacer(".", " ", "_", " ").Replace(base)
 	name = seriesYearRE.ReplaceAllString(name, "")
 	name = strings.TrimSpace(strings.Join(strings.Fields(name), " "))
-	if name == "" { name = "Série" }
+	if name == "" {
+		name = "Série"
+	}
 	return filepath.Clean(dir), name
 }
 
 func episodeFromPath(path string) (int, int) {
 	name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	if m := seriesSeasonEpisodeRE.FindStringSubmatch(name); len(m) == 3 {
-		s, _ := strconv.Atoi(m[1]); e, _ := strconv.Atoi(m[2]); return s, e
+		s, _ := strconv.Atoi(m[1])
+		e, _ := strconv.Atoi(m[2])
+		return s, e
 	}
 	if m := seriesXEpisodeRE.FindStringSubmatch(name); len(m) == 3 {
-		s, _ := strconv.Atoi(m[1]); e, _ := strconv.Atoi(m[2]); return s, e
+		s, _ := strconv.Atoi(m[1])
+		e, _ := strconv.Atoi(m[2])
+		return s, e
 	}
 	if m := seriesSeasonDirRE.FindStringSubmatch(filepath.Base(filepath.Dir(path))); len(m) == 2 {
-		s, _ := strconv.Atoi(m[1]); return s, 0
+		s, _ := strconv.Atoi(m[1])
+		return s, 0
 	}
 	return 0, 0
 }
 
 func seriesKey(libraryID int64, path string) string {
-	h := fnv.New64a(); _, _ = h.Write([]byte(strings.ToLower(filepath.Clean(path))))
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(strings.ToLower(filepath.Clean(path))))
 	return fmt.Sprintf("lib%d-%x", libraryID, h.Sum64())
 }
 
 func seriesMediaType(libraryKind, metadataType string) string {
-	if libraryKind == "anime" || strings.EqualFold(metadataType, "anime") { return "anime" }
+	if libraryKind == "anime" || libraryKind == "anime_series" || strings.EqualFold(metadataType, "anime") {
+		return "anime"
+	}
 	return "series"
 }
 
-func maxInt(a, b int) int { if a > b { return a }; return b }
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
