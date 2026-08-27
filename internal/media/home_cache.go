@@ -58,13 +58,17 @@ func (s *Service) HomeGroupedCached(ctx context.Context, allowedLibraryIDs []int
 }
 
 func groupedHomeKey(s *Service, ids []int64, heroMode, serverName string, themeEnabled bool, themeVolume int, themeAutoplay bool) string {
+	scope := "restricted:"
+	if ids == nil {
+		scope = "all:"
+	}
 	copyIDs := append([]int64(nil), ids...)
 	sort.Slice(copyIDs, func(i, j int) bool { return copyIDs[i] < copyIDs[j] })
 	parts := make([]string, len(copyIDs))
 	for i, id := range copyIDs {
 		parts[i] = strconv.FormatInt(id, 10)
 	}
-	return fmt.Sprintf("%p|%s|%s|%s|%t|%d|%t", s, strings.Join(parts, ","), heroMode, serverName, themeEnabled, themeVolume, themeAutoplay)
+	return fmt.Sprintf("%p|%s%s|%s|%s|%t|%d|%t", s, scope, strings.Join(parts, ","), heroMode, serverName, themeEnabled, themeVolume, themeAutoplay)
 }
 
 func cloneHomeFeed(in HomeFeed) HomeFeed {
