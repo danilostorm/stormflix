@@ -47,5 +47,5 @@ CREATE INDEX IF NOT EXISTS idx_metadata_status_media
 	if _, err := db.Exec(schema); err != nil {
 		return fmt.Errorf("migrate phase10 hierarchy and performance: %w", err)
 	}
-	return nil
+	return migratePhase11(db)
 }
