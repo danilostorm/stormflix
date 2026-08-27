@@ -2,10 +2,13 @@ package httpapi
 
 import (
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"time"
 )
+
+var scanSourceProgressRE = regexp.MustCompile(`(?i)origem\s+(\d+)\s*/\s*(\d+)`)
 
 type adminJobView struct {
 	Key        string  `json:"key"`
@@ -40,9 +43,22 @@ func (s *server) adminJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, job := range scanJobs {
+		progress := job.Progress
+		if job.Status == "running" || job.Status == "cancelling" {
+			if match := scanSourceProgressRE.FindStringSubmatch(job.Message); len(match) == 3 {
+				current, _ := strconv.Atoi(match[1])
+				total, _ := strconv.Atoi(match[2])
+				if total > 0 {
+					derived := 5 + ((current - 1) * 85 / total)
+					if derived > progress {
+						progress = derived
+					}
+				}
+			}
+		}
 		out = append(out, adminJobView{
 			Key: "scan:" + strconv.FormatInt(job.ID, 10), ID: job.ID, Kind: "scan", Label: "Scan de biblioteca",
-			LibraryID: job.LibraryID, Library: job.Library, Status: job.Status, Progress: job.Progress,
+			LibraryID: job.LibraryID, Library: job.Library, Status: job.Status, Progress: progress,
 			Current: job.Files, Total: 0, Success: job.Files, Failed: job.SourcesOffline, Message: job.Message,
 			CreatedAt: job.CreatedAt, StartedAt: job.StartedAt, FinishedAt: job.FinishedAt, UpdatedAt: job.UpdatedAt,
 		})
