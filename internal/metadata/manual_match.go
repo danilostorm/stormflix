@@ -103,7 +103,7 @@ func (s *Service) SearchForMedia(ctx context.Context, mediaID int64, query strin
 	mediaType := ""
 	if kind == "movies" {
 		mediaType = "movie"
-	} else if kind == "series" {
+	} else if kind == "series" || kind == "animation_series" || kind == "anime_series" {
 		mediaType = "tv"
 	}
 	return s.SearchTMDB(ctx, query, mediaType, parsed.Year)
