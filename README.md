@@ -1,44 +1,47 @@
 # StormFlix
 
-StormFlix é um servidor de mídia leve, focado em **Direct Play Only**.
+StormFlix é um servidor de mídia em Go focado em **Direct Play**, catálogo próprio, perfis, metadados, clientes web/Android e uma camada de compatibilidade com clientes Jellyfin.
 
-A ideia é oferecer uma experiência semelhante a Plex/Emby/Jellyfin sem carregar um pipeline de transcodificação no servidor. O arquivo é lido do armazenamento montado (por exemplo Google Drive via rclone) e entregue diretamente ao cliente com suporte a HTTP Range.
+> Para continuar o desenvolvimento, leia primeiro **[`PROJECT_STATE.md`](PROJECT_STATE.md)** e **[`AGENTS.md`](AGENTS.md)**. O histórico de mudanças fica em **[`CHANGELOG.md`](CHANGELOG.md)**.
 
 ## Princípios
 
-- zero transcoding no servidor;
-- zero GPU obrigatória;
-- armazenamento externo/montado permanece como fonte dos arquivos;
-- servidor pequeno em Go;
-- SQLite para catálogo/configuração;
-- web, desktop, mobile e TV usando a mesma API;
-- bibliotecas montadas preferencialmente como somente leitura.
+- Direct Play como caminho principal;
+- nenhuma transcodificação silenciosa de vídeo;
+- compatibilidade de áudio pode converter somente a faixa necessária para AAC mantendo o vídeo em stream-copy;
+- armazenamento externo/montado continua sendo a fonte dos arquivos;
+- backend pequeno em Go;
+- SQLite em WAL para catálogo/configuração/progresso;
+- múltiplas bibliotecas/origens;
+- scanner episódico separado dos agentes externos de metadata;
+- API nativa `/api/v1` preservada e compatibilidade Jellyfin isolada.
 
 ## Estado atual
 
-Primeiro MVP do backend:
+O projeto já possui, entre outros:
 
-- [x] servidor HTTP em Go;
-- [x] SQLite em WAL;
-- [x] cadastro de bibliotecas por caminho;
-- [x] scanner recursivo de vídeos;
-- [x] catálogo básico;
-- [x] busca básica;
-- [x] streaming direto com HTTP Range/206;
-- [x] frontend web mínimo embutido no binário;
-- [x] Docker/Compose;
-- [ ] autenticação e usuários;
-- [ ] progresso/continuar assistindo;
-- [ ] identificação de filmes/séries;
-- [ ] metadados/posters;
-- [ ] faixas de áudio/legendas;
-- [ ] app desktop;
-- [ ] Android mobile;
-- [ ] Android TV.
+- autenticação, usuários, perfis e permissões por biblioteca;
+- catálogo, busca, categorias e **subcategorias**;
+- scanner recursivo e proteção contra mounts temporariamente offline;
+- filmes, séries, animes, anime com temporadas, desenhos/séries de animação e música;
+- scanner persistente de identidade `série → temporada → episódio`;
+- TMDB, TheTVDB v4 opcional, AniList, AniDB/MAL recovery, Fanart.tv e ponte HAMA/Anime-Lists;
+- correspondência manual de metadata no nível da **série inteira**, estilo Plex;
+- posters, backdrops, logos, elenco, classificação, trailers e metadata de episódios;
+- Continue Watching por perfil e progresso ordenado por sessão;
+- HTTP Range/206 e Direct Play;
+- fallback de compatibilidade que mantém vídeo original e converte apenas áudio incompatível para AAC;
+- frontend web e painel administrativo;
+- Android mobile/TV baseado em Media3;
+- facade Jellyfin para clientes oficiais mobile/Android TV/desktop;
+- logs administrativos, monitoramento e recebimento de crash report Jellyfin;
+- Home agrupada com cache curto e índices SQLite para catálogos maiores.
+
+Consulte `PROJECT_STATE.md` para detalhes, decisões e pendências atuais.
 
 ## Rodar localmente
 
-Requer Go 1.23+.
+Requer Go compatível com o `go.mod` atual.
 
 ```bash
 go run ./cmd/stormflix
@@ -50,76 +53,58 @@ Abra:
 http://localhost:8090
 ```
 
-Por padrão os dados ficam em `./data/stormflix.db`.
-
-### Variáveis de ambiente
-
-```text
-STORMFLIX_ADDR=:8090
-STORMFLIX_DATA_DIR=./data
-STORMFLIX_BOOTSTRAP_LIBRARY_NAME=Filmes
-STORMFLIX_BOOTSTRAP_LIBRARY_PATH=/mnt/gdrive/Filmes
-```
-
-As duas variáveis `BOOTSTRAP` são opcionais. Quando definidas e ainda não existe nenhuma biblioteca, o StormFlix cadastra a primeira automaticamente.
+Os dados ficam no diretório configurado por `STORMFLIX_DATA_DIR`.
 
 ## Docker Compose
 
-Edite `docker-compose.yml` e troque:
+Monte o armazenamento de mídia dentro do container, preferencialmente somente leitura. Exemplo:
 
 ```yaml
-- /mnt/gdrive:/media:ro
+- /mnt/media:/media:ro
 ```
 
-pelo caminho do seu mount real. Depois:
+Depois:
 
 ```bash
 docker compose up -d --build
 ```
 
-Abra `http://IP-DO-SERVIDOR:8090`.
+Uma instalação Unraid existente normalmente é atualizada com:
 
-Dentro do container, uma biblioteca deverá usar o caminho `/media/...`, não o caminho original do host.
+```bash
+cd /mnt/user/appdata/stormflix
+git pull origin main
+docker compose down
+docker compose up -d --build
+curl -s http://127.0.0.1:8090/healthz
+echo
+```
 
-## API inicial
+## Direct Play e compatibilidade
+
+Streams nativos usam HTTP Range. O servidor não deve converter vídeo só porque um cliente possui uma limitação de áudio. No Android/Fire, o arquivo multi-áudio original é entregue primeiro para que o cliente escolha o idioma preferido. Se a faixa preferida não puder ser decodificada, o cliente solicita explicitamente o modo de compatibilidade: o vídeo continua stream-copy e somente o áudio é convertido para AAC-LC em um MP4 seekable/cacheado.
+
+## Metadados episódicos
+
+Em bibliotecas de séries/animes/desenhos, o scanner resolve a identidade lógica antes dos provedores externos:
 
 ```text
-GET  /healthz
-GET  /api/v1/system/info
-GET  /api/v1/libraries
-POST /api/v1/libraries
-POST /api/v1/libraries/{id}/scan
-GET  /api/v1/media
-GET  /api/v1/media/{id}/stream
+raiz da biblioteca
+  → pasta da obra
+    → temporada
+      → episódio
 ```
 
-Exemplo de biblioteca:
+Assim, pastas técnicas como `Remux`, `BluRay` ou `1080p` não viram séries. A correspondência manual pode ser salva na obra principal e aplicada aos episódios atuais e futuros.
 
-```json
-{
-  "name": "Filmes 4K",
-  "kind": "movies",
-  "path": "/media/Filmes 4K"
-}
-```
+## Jellyfin
 
-## Direct Play
+StormFlix não é um fork do Jellyfin. Ele mantém sua API nativa e expõe uma **facade de compatibilidade** para permitir conexão de clientes Jellyfin oficiais. A implementação e o estado atual estão documentados em `PROJECT_STATE.md`.
 
-O endpoint de stream usa `http.ServeContent`, que suporta requisições HTTP `Range`. Assim o cliente pode buscar partes do arquivo e fazer seek sem o StormFlix converter o vídeo.
+## Segurança
 
-O servidor adiciona:
-
-```text
-X-StormFlix-Playback: direct
-Accept-Ranges: bytes
-```
-
-Compatibilidade de codecs/containers é responsabilidade do cliente. Se um navegador não reproduzir um MKV/HEVC/DTS específico, a solução planejada é usar o app StormFlix com player nativo, **não transcodificar no servidor**.
-
-## Segurança atual
-
-Este é o primeiro MVP e ainda não possui autenticação. Não exponha a porta diretamente à internet antes da etapa de usuários/sessões. Para testes, mantenha o serviço em rede privada ou protegido pelo seu reverse proxy.
+Não publique uma instalação sem autenticação, reverse proxy/TLS e configuração adequada de usuários/perfis. Não grave segredos no repositório; chaves de provedores são configuradas pelo painel/ambiente e armazenadas conforme a camada de settings do StormFlix.
 
 ## Licença
 
-Licença ainda não definida. O código inicial do StormFlix foi criado do zero para evitar herdar a licença/código de servidores de mídia existentes.
+Consulte o arquivo de licença do repositório, quando presente. O código StormFlix é mantido separadamente dos projetos usados apenas como referência de protocolo/comportamento.
