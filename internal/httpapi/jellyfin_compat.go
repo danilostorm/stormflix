@@ -126,6 +126,15 @@ func (s *server) registerJellyfinRoutes(mux *http.ServeMux, prefix string) {
 	mux.HandleFunc("POST "+route("/Sessions/Capabilities/Full"), authed(s.jellyfinCapabilities))
 	mux.HandleFunc("POST "+route("/Sessions/Logout"), authed(s.jellyfinLogout))
 
+	// Modern SDK routes used by Jellyfin Android TV 0.19.x while building Home.
+	// Keep the older /Users/{id}/... aliases below for legacy clients.
+	mux.HandleFunc("GET "+route("/UserViews"), authed(s.jellyfinViews))
+	mux.HandleFunc("GET "+route("/UserViews/GroupingOptions"), authed(s.jellyfinUserViewGroupingOptions))
+	mux.HandleFunc("GET "+route("/UserItems/Resume"), authed(s.jellyfinResume))
+	mux.HandleFunc("GET "+route("/Items/Latest"), authed(s.jellyfinLatest))
+	mux.HandleFunc("GET "+route("/Items"), authed(s.jellyfinItems))
+	mux.HandleFunc("POST "+route("/ClientLog/Document"), authed(s.jellyfinClientLogDocument))
+
 	mux.HandleFunc("GET "+route("/Users/{id}"), authed(s.jellyfinCurrentUser))
 	mux.HandleFunc("GET "+route("/Users/{id}/Views"), authed(s.jellyfinViews))
 	mux.HandleFunc("GET "+route("/Library/MediaFolders"), authed(s.jellyfinViews))
@@ -170,7 +179,21 @@ func isJellyfinRequestPath(path string) bool {
 	if strings.HasPrefix(path, "/jellyfin-api/") {
 		return true
 	}
-	for _, prefix := range []string{"/System/", "/Users/", "/Branding/", "/DisplayPreferences/", "/Library/", "/Items/", "/Shows/", "/Videos/", "/Audio/", "/Sessions/"} {
+	for _, prefix := range []string{
+		"/System/",
+		"/Users/",
+		"/UserViews",
+		"/UserItems/",
+		"/Branding/",
+		"/DisplayPreferences/",
+		"/Library/",
+		"/Items",
+		"/Shows/",
+		"/Videos/",
+		"/Audio/",
+		"/Sessions/",
+		"/ClientLog/",
+	} {
 		if strings.HasPrefix(path, prefix) {
 			return true
 		}
