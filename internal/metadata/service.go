@@ -22,7 +22,9 @@ type Service struct {
 	providerMu sync.RWMutex
 	cfg        config.Config
 	tmdb       *TMDBProvider
+	tvdb       *TVDBProvider
 	anilist    *AniListProvider
+	hama       *HAMAMapper
 	fanart     *FanartProvider
 	theme      *ThemeProvider
 	mu         sync.Mutex
@@ -56,7 +58,11 @@ func (s *Service) Configure(cfg config.Config) {
 	defer s.providerMu.Unlock()
 	s.cfg = cfg
 	s.tmdb = NewTMDBProvider(cfg.TMDBToken, cfg.TMDBAPIKey, cfg.MetadataLanguage)
+	s.tvdb = NewTVDBProvider(cfg.TVDBAPIKey, cfg.TVDBPIN, cfg.MetadataLanguage)
 	s.anilist = NewAniListProvider()
+	if s.hama == nil {
+		s.hama = NewHAMAMapper()
+	}
 	s.fanart = NewFanartProvider(cfg.FanartAPIKey, cfg.FanartClientKey)
 	s.theme = NewThemeProvider(cfg.ThemePreviewCountry)
 }
@@ -70,7 +76,9 @@ func (s *Service) Agents() []AgentStatus {
 	defer s.providerMu.RUnlock()
 	return []AgentStatus{
 		{Name: "TMDB", Enabled: true, Ready: s.tmdb.Ready(), Description: "Filmes e séries: títulos, sinopses, classificação indicativa, lançamento, elenco, direção, trailer, gêneros, IDs, posters, backdrops, logos e episódios."},
+		{Name: "TheTVDB", Enabled: true, Ready: s.tvdb.Ready(), Description: "Fallback para séries e desenhos, com temporadas, episódios e suporte às ordens do TheTVDB v4."},
 		{Name: "AniList", Enabled: true, Ready: s.anilist.Ready(), Description: "Agente principal para anime: títulos, sinopses, capas, banners, gêneros e IDs AniList/MAL."},
+		{Name: "HAMA / Anime-Lists", Enabled: true, Ready: s.hama.Ready(), Description: "Ponte de IDs inspirada no HAMA: AniDB/AniList/MAL ↔ TVDB/TMDB usando os mapeamentos comunitários Anime-Lists."},
 		{Name: "Fanart.tv", Enabled: true, Ready: s.fanart.Ready(), Description: "Artwork extra: logos, clearart, fanart, posters e backgrounds de alta qualidade."},
 		{Name: "Trilha Preview", Enabled: s.cfg.ThemePreviewEnabled, Ready: s.cfg.ThemePreviewEnabled, Description: "Prévia curta opcional da abertura de séries; nunca baixa ou toca a faixa completa."},
 	}
@@ -145,7 +153,7 @@ func (s *Service) runJob(jobID, libraryID int64, refresh bool) {
 			s.updateProgress(ctx, jobID, processed, matched, failed, "already matched")
 			continue
 		}
-		parsed := ParseFilename(item.Path, item.LibraryKind)
+		parsed := item.Parsed()
 		result, lookupErr := s.lookup(ctx, item, parsed)
 		if lookupErr != nil {
 			failed++
@@ -157,7 +165,8 @@ func (s *Service) runJob(jobID, libraryID int64, refresh bool) {
 			matched++
 		}
 		processed++
-		s.updateProgress(ctx, jobID, processed, matched, failed, item.Title)
+		progressName := firstNonEmpty(item.SeriesTitle, item.Title)
+		s.updateProgress(ctx, jobID, processed, matched, failed, progressName)
 		select {
 		case <-time.After(120 * time.Millisecond):
 		case <-ctx.Done():
@@ -175,42 +184,47 @@ func (s *Service) runJob(jobID, libraryID int64, refresh bool) {
 
 func (s *Service) lookup(ctx context.Context, item SourceItem, parsed ParsedName) (Result, error) {
 	if strings.TrimSpace(parsed.Title) == "" {
-		return Result{}, errors.New("could not derive a title from filename")
+		return Result{}, errors.New("could not derive a title from scanner/filename")
 	}
-	// Western cartoons use TMDB's TV surface and Fanart. They intentionally do
-	// not enter AniList/AniDB/MAL, even though they share the episodic series UI.
-	if strings.EqualFold(item.LibraryKind, "animation_series") {
-		item.LibraryKind = "series"
+	originalKind := item.LibraryKind
+	providerItem := item
+	if strings.EqualFold(providerItem.LibraryKind, "animation_series") {
+		providerItem.LibraryKind = "series"
 	}
 	s.providerMu.RLock()
 	cfg := s.cfg
 	tmdb := s.tmdb
+	tvdb := s.tvdb
 	anilist := s.anilist
+	hama := s.hama
 	fanart := s.fanart
 	theme := s.theme
 	s.providerMu.RUnlock()
 
 	var result Result
 	var err error
-	if item.LibraryKind == "anime" {
+	if originalKind == "anime" {
 		result, err = anilist.Lookup(ctx, item, parsed)
 		if err == nil {
 			result.ContentRatingAge = -1
+			_ = hama.Enrich(ctx, &result)
 			if tmdb.Ready() {
 				if tmdbResult, tmdbErr := tmdb.Lookup(ctx, item, parsed); tmdbErr == nil {
-					result.TMDBID = tmdbResult.TMDBID
-					result.TVDBID = tmdbResult.TVDBID
-					result.IMDbID = tmdbResult.IMDbID
+					result.TMDBID = firstPositiveInt64(result.TMDBID, tmdbResult.TMDBID)
+					result.TVDBID = firstPositiveInt64(result.TVDBID, tmdbResult.TVDBID)
+					result.IMDbID = firstNonEmpty(result.IMDbID, tmdbResult.IMDbID)
 					result.Artwork = append(result.Artwork, tmdbResult.Artwork...)
 					_ = tmdb.EnrichExperience(ctx, &tmdbResult)
-					result.OriginalTitle = tmdbResult.OriginalTitle
-					result.Tagline = tmdbResult.Tagline
-					result.ReleaseDate = tmdbResult.ReleaseDate
-					result.ContentRating = tmdbResult.ContentRating
-					result.ContentRatingAge = tmdbResult.ContentRatingAge
+					result.OriginalTitle = firstNonEmpty(result.OriginalTitle, tmdbResult.OriginalTitle)
+					result.Tagline = firstNonEmpty(result.Tagline, tmdbResult.Tagline)
+					result.ReleaseDate = firstNonEmpty(result.ReleaseDate, tmdbResult.ReleaseDate)
+					result.ContentRating = firstNonEmpty(result.ContentRating, tmdbResult.ContentRating)
+					if result.ContentRatingAge < 0 {
+						result.ContentRatingAge = tmdbResult.ContentRatingAge
+					}
 					result.Cast = tmdbResult.Cast
 					result.Directors = tmdbResult.Directors
-					result.TrailerURL = tmdbResult.TrailerURL
+					result.TrailerURL = firstNonEmpty(result.TrailerURL, tmdbResult.TrailerURL)
 				}
 			}
 		} else if tmdb.Ready() {
@@ -220,15 +234,33 @@ func (s *Service) lookup(ctx context.Context, item SourceItem, parsed ParsedName
 			}
 		}
 	} else {
-		if !tmdb.Ready() {
-			return Result{}, errors.New("TMDB is not configured")
+		var tmdbErr, tvdbErr error
+		if tmdb.Ready() {
+			result, tmdbErr = tmdb.Lookup(ctx, providerItem, parsed)
 		}
-		result, err = tmdb.Lookup(ctx, item, parsed)
+		if (tmdbErr != nil || !tmdb.Ready()) && tvdb.Ready() && tvdb.Supports(originalKind) {
+			result, tvdbErr = tvdb.Lookup(ctx, item, parsed)
+			if tvdbErr == nil {
+				tmdbErr = nil
+			}
+		}
+		if tmdbErr != nil {
+			if tvdbErr != nil {
+				return Result{}, errors.Join(tmdbErr, tvdbErr)
+			}
+			return Result{}, tmdbErr
+		}
+		if !tmdb.Ready() && !tvdb.Ready() {
+			return Result{}, errors.New("TMDB/TheTVDB are not configured")
+		}
+		if result.Title == "" {
+			return Result{}, errors.New("series metadata providers returned no match")
+		}
 	}
 	if err != nil {
 		return Result{}, err
 	}
-	if result.TMDBID > 0 {
+	if result.TMDBID > 0 && tmdb.Ready() {
 		_ = tmdb.EnrichExperience(ctx, &result)
 	}
 	_ = fanart.Enrich(ctx, &result)
@@ -242,7 +274,10 @@ func (s *Service) lookup(ctx context.Context, item SourceItem, parsed ParsedName
 }
 
 func (s *Service) libraryItems(ctx context.Context, libraryID int64) ([]SourceItem, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT m.id,m.library_id,l.kind,m.title,m.path FROM media m JOIN libraries l ON l.id=m.library_id WHERE m.library_id=? AND m.available=1 ORDER BY m.id`, libraryID)
+	rows, err := s.db.QueryContext(ctx, `SELECT m.id,m.library_id,l.kind,m.title,m.path,
+COALESCE(si.source_root,''),COALESCE(si.series_key,''),COALESCE(si.series_title,''),COALESCE(si.season_number,0),COALESCE(si.episode_number,0),COALESCE(si.absolute_number,0)
+FROM media m JOIN libraries l ON l.id=m.library_id LEFT JOIN media_series_identity si ON si.media_id=m.id
+WHERE m.library_id=? AND m.available=1 ORDER BY m.id`, libraryID)
 	if err != nil {
 		return nil, err
 	}
@@ -250,7 +285,8 @@ func (s *Service) libraryItems(ctx context.Context, libraryID int64) ([]SourceIt
 	items := []SourceItem{}
 	for rows.Next() {
 		var item SourceItem
-		if err := rows.Scan(&item.ID, &item.LibraryID, &item.LibraryKind, &item.Title, &item.Path); err != nil {
+		if err := rows.Scan(&item.ID, &item.LibraryID, &item.LibraryKind, &item.Title, &item.Path,
+			&item.SourceRoot, &item.SeriesKey, &item.SeriesTitle, &item.Season, &item.Episode, &item.Absolute); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -396,12 +432,13 @@ func (s *Service) RefreshMedia(ctx context.Context, mediaID int64) error {
 		Scan(&item.ID, &item.LibraryID, &item.LibraryKind, &item.Title, &item.Path); err != nil {
 		return err
 	}
+	loadSourceItemIdentity(ctx, s.db, &item)
 	var manual bool
 	_ = s.db.QueryRowContext(ctx, `SELECT COALESCE(manual_match,0) FROM media_metadata WHERE media_id=?`, mediaID).Scan(&manual)
 	if manual {
 		return errors.New("esta mídia possui correspondência manual protegida; use Catálogo para alterar a correspondência")
 	}
-	parsed := ParseFilename(item.Path, item.LibraryKind)
+	parsed := item.Parsed()
 	result, err := s.lookup(ctx, item, parsed)
 	if err != nil {
 		_ = s.saveError(ctx, mediaID, parsed, err)
@@ -476,4 +513,13 @@ func (s *Service) SelectArtwork(ctx context.Context, mediaID, artworkID int64) e
 func providerIDInt(value string) int64 {
 	v, _ := strconv.ParseInt(value, 10, 64)
 	return v
+}
+
+func firstPositiveInt64(values ...int64) int64 {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
 }
