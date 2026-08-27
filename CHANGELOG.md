@@ -13,20 +13,40 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 - Added native HAMA-style Anime-Lists bridge between AniDB/AniList/MAL and TVDB/TMDB identifiers.
 - Added series-level manual metadata overrides.
 - **Corrected the manual-match workflow to be principal-series only:** Admin → Catálogo now defaults to `Obras principais`, grouping an episodic library into one card per `series_key` instead of one card per episode.
-- Matching a principal series stores one provider decision, immediately rebuilds scanner identities and refreshes the current episodes in the background; future episodes inherit the same series override.
+- Matching a principal series stores one provider decision and rebuilds scanner identities; the episode reorganization is now an observable queued `series_refresh` job instead of an invisible background goroutine.
+- Future episodes inherit the same series override automatically.
 - `Arquivos / diagnóstico` remains available for low-level inspection, but episodic rows no longer expose manual matching and instead point back to the principal work.
 - Added phase11 cleanup so legacy builds that marked every episode `manual_match=1` are normalized; series protection now lives only in `series_metadata_overrides`.
 - Added a regression test requiring two episodes of the same scanner series to appear as one principal work in the Admin catalog.
 
+### Queue, scans and background activity
+
+- Added phase12 persistent `scan_jobs` queue.
+- Individual library scans now enter a serialized FIFO queue instead of creating uncontrolled parallel scans.
+- Added **Bibliotecas → Escanear todas**, which queues every active library and processes them one at a time.
+- Added queue-safe cancellation for both queued and running scans using the same cancellable context as the actual scan worker.
+- Added restart recovery for unfinished scan jobs.
+- Added Admin → **Fila & atividades**, merging scan jobs, normal metadata jobs and principal-series episode refreshes into one operational view.
+- Added live job status, progress, current scanner message, matched/success/error counts and recent history.
+- Principal-series refresh jobs persist series/provider information so they can resume after a server restart.
+- Added a regression test that queues two libraries through **scan all** and requires both jobs and media discovery to complete.
+
 ### Admin UI
 
 - Fixed a race in `Metadados & Capas` that could render the **Agentes de Música** panel twice.
+- Library cards now reflect queued/running scan state and expose queue cancellation/removal.
+- Added a compact queue strip to Bibliotecas with **Escanear todas** and **Ver fila completa**.
 
-### Categories
+### Categories and site layout
 
 - Added parent/child category hierarchy.
 - Parent categories aggregate descendant libraries while child categories remain individually browsable.
-- Added Admin category tree editor and secondary client subcategory navigation.
+- Added Admin category tree editor.
+- Added **Organizar estrutura recomendada** in Admin → Categorias. It creates/updates managed children under Filmes/Séries/Animes while preserving custom categories.
+- Recommended automatic sibling assignments are exclusive where possible to avoid duplicate rails.
+- The main site now visibly shows **Explorar por categoria** with root groups and subcategory chips.
+- Opening a root category with children renders **one rail per subcategory** instead of mixing everything into one large rail.
+- Added sticky secondary subcategory navigation with split view, direct child access and `Tudo em <categoria>`.
 
 ### Home performance
 
