@@ -17,6 +17,8 @@ type Config struct {
 	MetadataLanguage           string
 	TMDBToken                  string
 	TMDBAPIKey                 string
+	TVDBAPIKey                 string
+	TVDBPIN                    string
 	FanartAPIKey               string
 	FanartClientKey            string
 	LastFMAPIKey               string
@@ -47,6 +49,8 @@ func Load() Config {
 		MetadataLanguage:           env("STORMFLIX_METADATA_LANGUAGE", "pt-BR"),
 		TMDBToken:                  os.Getenv("STORMFLIX_TMDB_TOKEN"),
 		TMDBAPIKey:                 os.Getenv("STORMFLIX_TMDB_API_KEY"),
+		TVDBAPIKey:                 os.Getenv("STORMFLIX_TVDB_API_KEY"),
+		TVDBPIN:                    os.Getenv("STORMFLIX_TVDB_PIN"),
 		FanartAPIKey:               os.Getenv("STORMFLIX_FANART_API_KEY"),
 		FanartClientKey:            os.Getenv("STORMFLIX_FANART_CLIENT_KEY"),
 		LastFMAPIKey:               os.Getenv("STORMFLIX_LASTFM_API_KEY"),
