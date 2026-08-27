@@ -19,17 +19,14 @@ func isAnimeFallbackLibrary(kind string) bool {
 	return kind == "anime" || kind == "mixed" || kind == "anime_series"
 }
 
-// RefreshMediaSmart keeps the normal provider strategy first, then safe title
-// aliases, AniList and finally AniDB -> MyAnimeList -> AnimeAPI. This order is
-// intentionally broader for Brazilian dubbed-anime archives where the folder
-// name is often much cleaner than the release filename.
 func (s *Service) RefreshMediaSmart(ctx context.Context, mediaID int64) error {
 	var item SourceItem
 	if err := s.db.QueryRowContext(ctx, `SELECT m.id,m.library_id,l.kind,m.title,m.path FROM media m JOIN libraries l ON l.id=m.library_id WHERE m.id=? AND m.available=1`, mediaID).
 		Scan(&item.ID, &item.LibraryID, &item.LibraryKind, &item.Title, &item.Path); err != nil {
 		return err
 	}
-	parsed := ParseFilename(item.Path, item.LibraryKind)
+	loadSourceItemIdentity(ctx, s.db, &item)
+	parsed := item.Parsed()
 	result, primaryErr := s.lookup(ctx, item, parsed)
 	if primaryErr == nil {
 		return s.saveResult(ctx, mediaID, result)
@@ -54,10 +51,6 @@ func (s *Service) RefreshMediaSmart(ctx context.Context, mediaID int64) error {
 	return s.saveResult(ctx, mediaID, fallback)
 }
 
-// RetryLibraryErrorsWithMyAnimeList is the automatic anime recovery pass run
-// after a library metadata job. Despite the historical name it now performs
-// the complete recovery chain: safe aliases -> AniList -> AniDB -> MAL ->
-// AnimeAPI -> optional TMDB/Fanart enrichment.
 func (s *Service) RetryLibraryErrorsWithMyAnimeList(ctx context.Context, libraryID int64) {
 	rows, err := s.db.QueryContext(ctx, `SELECT m.id,m.library_id,l.kind,m.title,m.path
 FROM media m JOIN libraries l ON l.id=m.library_id JOIN media_metadata mm ON mm.media_id=m.id
@@ -69,6 +62,7 @@ WHERE m.library_id=? AND m.available=1 AND mm.status='error' ORDER BY m.id`, lib
 	for rows.Next() {
 		var item SourceItem
 		if rows.Scan(&item.ID, &item.LibraryID, &item.LibraryKind, &item.Title, &item.Path) == nil {
+			loadSourceItemIdentity(ctx, s.db, &item)
 			items = append(items, item)
 		}
 	}
@@ -79,7 +73,7 @@ WHERE m.library_id=? AND m.available=1 AND mm.status='error' ORDER BY m.id`, lib
 			return
 		default:
 		}
-		parsed := ParseFilename(item.Path, item.LibraryKind)
+		parsed := item.Parsed()
 		if result, altErr := s.lookupSafeTitleAlternates(ctx, item, parsed); altErr == nil {
 			_ = s.saveResult(ctx, item.ID, result)
 			continue
@@ -207,22 +201,39 @@ func (s *Service) lookupMyAnimeListFallback(ctx context.Context, item SourceItem
 }
 
 func (s *Service) enrichAnimeFallbackResult(ctx context.Context, item SourceItem, parsed ParsedName, result Result) Result {
-	// AnimeAPI is a relation mapper, not a hard dependency. Once AniList/MAL has
-	// identified the title, use it best-effort to bridge IDs into TMDB/TVDB/IMDb.
-	_ = stormflixAnimeAPI.Enrich(ctx, &result)
-
+	// HAMA-style mapping is intentionally a bridge, not a title detector: once
+	// AniList/MAL has identified the anime, map stable IDs to TVDB/TMDB first.
 	s.providerMu.RLock()
+	hama := s.hama
+	tvdb := s.tvdb
 	tmdb := s.tmdb
 	fanart := s.fanart
 	s.providerMu.RUnlock()
+	if hama != nil {
+		_ = hama.Enrich(ctx, &result)
+	}
+	// AnimeAPI remains another best-effort relation mapper.
+	_ = stormflixAnimeAPI.Enrich(ctx, &result)
+
+	if tvdb != nil && tvdb.Ready() && result.TVDBID == 0 {
+		canonical := parsed
+		canonical.Title = result.Title
+		canonical.Alternates = append([]string{parsed.Title}, parsed.Alternates...)
+		if enriched, tvdbErr := tvdb.Lookup(ctx, item, canonical); tvdbErr == nil {
+			result.TVDBID = firstPositiveInt64(result.TVDBID, enriched.TVDBID)
+			result.TMDBID = firstPositiveInt64(result.TMDBID, enriched.TMDBID)
+			result.IMDbID = firstNonEmpty(result.IMDbID, enriched.IMDbID)
+			result.Artwork = append(result.Artwork, enriched.Artwork...)
+		}
+	}
 	if tmdb != nil && tmdb.Ready() {
 		canonical := parsed
 		canonical.Title = result.Title
 		canonical.Alternates = append([]string{parsed.Title}, parsed.Alternates...)
 		if enriched, tmdbErr := tmdb.Lookup(ctx, item, canonical); tmdbErr == nil {
-			result.TMDBID = enriched.TMDBID
-			result.TVDBID = enriched.TVDBID
-			result.IMDbID = enriched.IMDbID
+			result.TMDBID = firstPositiveInt64(result.TMDBID, enriched.TMDBID)
+			result.TVDBID = firstPositiveInt64(result.TVDBID, enriched.TVDBID)
+			result.IMDbID = firstNonEmpty(result.IMDbID, enriched.IMDbID)
 			result.Artwork = append(result.Artwork, enriched.Artwork...)
 			_ = tmdb.EnrichExperience(ctx, &enriched)
 			if result.Overview == "" {
