@@ -16,6 +16,7 @@ var (
 	leadingEpisodeRE          = regexp.MustCompile(`(?i)^(?:ep(?:isode|isodio|isódio)?[ ._-]*)?(\d{1,3})(?:[ ._-]+|$)`)
 	animeEmbeddedEpisodeRE    = regexp.MustCompile(`(?i)(?:^|[ ._-])(?:ep(?:i|isode|isodio|isódio)?)[ ._-]*(\d{1,3})`)
 	animeStandaloneEpisodeRE  = regexp.MustCompile(`(?:^|[ ._-])(\d{1,3})(?:[ ._-]|$)`)
+	compactCartoonEpisodeRE   = regexp.MustCompile(`(?i)^(\d{1,3})[[:alpha:]]{1,6}(?:[ ._-]|$)`)
 	bracketRE                 = regexp.MustCompile(`\[[^\]]+\]|\([^\)]*(?:1080|2160|720|480|x26|hevc|av1|web|bluray|remux|hdr|dv)[^\)]*\)`)
 	junkParenRE               = regexp.MustCompile(`(?i)\((?:vhs|dvd|bdrip|bluray|blu-ray|dublado|dual[ ._-]*audio|legendado|webrip|web-dl|remux)\)`)
 	emptyGroupRE              = regexp.MustCompile(`\(\s*\)|\[\s*\]|\{\s*\}`)
@@ -23,6 +24,7 @@ var (
 	seasonDirRE               = regexp.MustCompile(`(?i)^(?:season|temporada)\s*\d{1,3}$`)
 	seasonDirNumberRE         = regexp.MustCompile(`(?i)^(?:season|temporada)\s*(\d{1,3})$`)
 	wordNumberEndRE           = regexp.MustCompile(`(?i)([[:alpha:]])(\d{1,2})(?:$|[ ._-])`)
+	technicalSeriesDirRE      = regexp.MustCompile(`(?i)^(?:remux(?:es)?|blu[ ._-]?ray|bdrip|brrip|web[ ._-]?dl|webrip|hdtv|uhd|4k|2160p|1080p|720p|480p|disc(?:o)?[ ._-]*\d+|disk[ ._-]*\d+|cd[ ._-]*\d+|volume[ ._-]*\d+|vol[ ._-]*\d+|parte[ ._-]*\d+|part[ ._-]*\d+)$`)
 )
 
 type ParsedName struct {
@@ -54,7 +56,7 @@ func isAnimeCapableLibraryKind(kind string) bool {
 }
 
 func isSeriesLibraryKind(kind string) bool {
-	return kind == "series" || kind == "anime_series"
+	return kind == "series" || kind == "anime_series" || kind == "animation_series"
 }
 
 func ParseFilename(path, libraryKind string) ParsedName {
@@ -71,13 +73,13 @@ func ParseFilename(path, libraryKind string) ParsedName {
 		out.Episode, _ = strconv.Atoi(match[2])
 		clean = strings.Replace(clean, match[0], " ", 1)
 		out.LikelyMovie = false
-		simpleEpisode = libraryKind == "anime_series"
+		simpleEpisode = libraryKind == "anime_series" || libraryKind == "animation_series"
 	} else if match := xEpisode.FindStringSubmatch(clean); len(match) == 3 {
 		out.Season, _ = strconv.Atoi(match[1])
 		out.Episode, _ = strconv.Atoi(match[2])
 		clean = strings.Replace(clean, match[0], " ", 1)
 		out.LikelyMovie = false
-		simpleEpisode = libraryKind == "anime_series"
+		simpleEpisode = libraryKind == "anime_series" || libraryKind == "animation_series"
 	} else if libraryKind == "anime_series" {
 		// Dubbed anime archives frequently carry the real show identity in the
 		// parent folder and noisy release names in the file itself, for example:
@@ -90,6 +92,33 @@ func ParseFilename(path, libraryKind string) ParsedName {
 		if match := animeEmbeddedEpisodeRE.FindStringSubmatch(clean); len(match) == 2 {
 			episode, _ = strconv.Atoi(match[1])
 		} else if match := animeStandaloneEpisodeRE.FindStringSubmatch(clean); len(match) == 2 {
+			episode, _ = strconv.Atoi(match[1])
+		}
+		if episode > 0 && episode <= 999 && meaningfulAncestor(path, clean) != "" {
+			out.Season = seasonFromDirectory(path)
+			if out.Season <= 0 {
+				out.Season = 1
+			}
+			out.Episode = episode
+			out.LikelyMovie = false
+			clean = ""
+			simpleEpisode = true
+		}
+	} else if libraryKind == "animation_series" {
+		// Cartoon archives are commonly organized as one show folder containing
+		// technical subfolders (Remux, BluRay, Disc 1...) and compact filenames
+		// such as 002PP-BD1080pRemux. The show identity comes from the nearest
+		// meaningful ancestor; the filename is used primarily for episode order.
+		episode := 0
+		if match := leadingEpisodeRE.FindStringSubmatch(clean); len(match) == 2 {
+			episode, _ = strconv.Atoi(match[1])
+		} else if match := compactCartoonEpisodeRE.FindStringSubmatch(clean); len(match) == 2 {
+			episode, _ = strconv.Atoi(match[1])
+		} else if match := animeEmbeddedEpisodeRE.FindStringSubmatch(clean); len(match) == 2 {
+			episode, _ = strconv.Atoi(match[1])
+		} else if match := animeStandaloneEpisodeRE.FindStringSubmatch(clean); len(match) == 2 {
+			episode, _ = strconv.Atoi(match[1])
+		} else if match := serialEpisodeRE.FindStringSubmatch(clean); len(match) == 2 {
 			episode, _ = strconv.Atoi(match[1])
 		}
 		if episode > 0 && episode <= 999 && meaningfulAncestor(path, clean) != "" {
@@ -195,7 +224,7 @@ func ParseFilename(path, libraryKind string) ParsedName {
 }
 
 func seasonFromDirectory(path string) int {
-	for depth, dir := 0, filepath.Dir(path); depth < 3; depth, dir = depth+1, filepath.Dir(dir) {
+	for depth, dir := 0, filepath.Dir(path); depth < 4; depth, dir = depth+1, filepath.Dir(dir) {
 		name := cleanMetadataText(filepath.Base(dir))
 		if match := seasonDirNumberRE.FindStringSubmatch(name); len(match) == 2 {
 			n, _ := strconv.Atoi(match[1])
@@ -249,7 +278,7 @@ func meaningfulAncestor(path string, ignored ...string) string {
 		ignore[normalizeTitle(value)] = true
 	}
 	dir := filepath.Dir(path)
-	for depth := 0; depth < 5; depth++ {
+	for depth := 0; depth < 7; depth++ {
 		name := cleanMetadataText(filepath.Base(dir))
 		key := normalizeTitle(name)
 		if name != "" && key != "" && !ignore[key] && !isGenericDirectory(name) {
@@ -266,13 +295,14 @@ func meaningfulAncestor(path string, ignored ...string) string {
 
 func isGenericDirectory(value string) bool {
 	v := strings.ToLower(compactTitle(value))
-	if seasonDirRE.MatchString(v) {
+	if seasonDirRE.MatchString(v) || technicalSeriesDirRE.MatchString(v) {
 		return true
 	}
 	generic := map[string]bool{
 		"filmes": true, "movies": true, "movie": true, "series": true, "séries": true,
 		"anime": true, "animes": true, "filmes animes": true, "filmes anime": true,
 		"animes dublado": true, "animes dublados": true, "anime dublado": true, "anime dublados": true,
+		"desenho": true, "desenhos": true, "cartoon": true, "cartoons": true, "animação": true, "animacao": true,
 		"dublado": true, "dublados": true, "legendado": true, "legendados": true,
 		"media": true, "videos": true, "vídeos": true,
 	}
