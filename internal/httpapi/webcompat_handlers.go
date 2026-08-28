@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -153,8 +152,7 @@ func (s *server) prepareRemuxMedia(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, errors.New(plan.Reason))
 		return
 	}
-	cacheDir := filepath.Join(s.config.DataDir, "compat-cache")
-	path, err := webcompat.MaterializeSeekable(r.Context(), item.Path, plan, cacheDir, compatibilityCacheKey(item, plan))
+	path, err := s.compatCache.MaterializeSeekable(r.Context(), item.Path, plan, compatibilityCacheKey(item, plan))
 	if err != nil {
 		uid := u.ID
 		s.admin.Log(r.Context(), "error", "playback", "Compatibility materialization failed", &uid, err.Error())
@@ -209,14 +207,19 @@ func (s *server) remuxMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cacheDir := filepath.Join(s.config.DataDir, "compat-cache")
-	compatPath, err := webcompat.MaterializeSeekable(r.Context(), item.Path, plan, cacheDir, compatibilityCacheKey(item, plan))
+	compatPath, err := s.compatCache.MaterializeSeekable(r.Context(), item.Path, plan, compatibilityCacheKey(item, plan))
 	if err != nil {
 		uid := u.ID
 		s.admin.Log(r.Context(), "error", "playback", "Compatibility materialization failed", &uid, err.Error())
 		writeError(w, http.StatusUnprocessableEntity, err)
 		return
 	}
+	release, err := s.compatCache.Acquire(compatPath)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	defer release()
 	file, err := os.Open(compatPath)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
