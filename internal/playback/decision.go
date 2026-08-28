@@ -60,8 +60,10 @@ func Decide(source Source, request Request) Plan {
 
 	audios := streamsOfType(source.Streams, "audio")
 	plan.AudioTrackCount = len(audios)
+	selectedAudioDefault := true
 	if len(audios) > 0 {
 		audio := pickAudio(audios, request.PreferredAudioLanguage)
+		selectedAudioDefault = audio.Default
 		plan.AudioStream = audio.Index
 		plan.SourceAudioCodec = normalizeCodec(audio.Codec)
 		plan.AudioCodec = plan.SourceAudioCodec
@@ -71,8 +73,9 @@ func Decide(source Source, request Request) Plan {
 
 	containerSupported := supports(request.Capabilities.Containers, plan.SourceContainer, normalizeContainer)
 	audioSupported := plan.AudioStream < 0 || supports(request.Capabilities.AudioCodecs, plan.SourceAudioCodec, normalizeCodec)
+	needsServerAudioSelection := request.Capabilities.ServerSelectsAudio && len(audios) > 1 && !selectedAudioDefault
 
-	if containerSupported && audioSupported {
+	if containerSupported && audioSupported && !needsServerAudioSelection {
 		plan.Available = true
 		plan.Mode = ModeDirectPlay
 		plan.ReasonCode = "direct_play_supported"
@@ -82,6 +85,23 @@ func Decide(source Source, request Request) Plan {
 
 	if !audioSupported {
 		return audioCompatibilityOrUnsupported(plan, request, "selected audio codec "+plan.SourceAudioCodec+" is not supported")
+	}
+
+	if needsServerAudioSelection {
+		if !request.Capabilities.AllowRemux || !supports(request.Capabilities.Containers, "mp4", normalizeContainer) {
+			plan.ReasonCode = "audio_track_selection_unavailable"
+			plan.Reason = "the preferred audio track is not the default track and this client requires server-side audio selection, but remux is unavailable"
+			return plan
+		}
+		if plan.AudioStream >= 0 && !mp4AudioCopyCompatible(plan.SourceAudioCodec) {
+			return audioCompatibilityOrUnsupported(plan, request, "the preferred server-selected audio track cannot be safely copied into the MP4 compatibility container")
+		}
+		plan.Available = true
+		plan.Mode = ModeRemux
+		plan.Container = "mp4"
+		plan.ReasonCode = "server_audio_track_selection"
+		plan.Reason = "the preferred audio track will be selected server-side while video and audio are copied without re-encoding"
+		return plan
 	}
 
 	if !containerSupported && request.Capabilities.AllowRemux && supports(request.Capabilities.Containers, "mp4", normalizeContainer) {
