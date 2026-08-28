@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/danilostorm/stormflix/internal/config"
 )
@@ -33,6 +34,11 @@ type Public struct {
 	ThemePreviewVolume          int             `json:"theme_preview_volume"`
 	ThemePreviewAutoplay        bool            `json:"theme_preview_autoplay"`
 	HomeHeroMode                string          `json:"home_hero_mode"`
+	CompatCacheMaxBytes         int64           `json:"compat_cache_max_bytes"`
+	CompatCacheTTLHours         int             `json:"compat_cache_ttl_hours"`
+	CompatCacheAutoCleanup      bool            `json:"compat_cache_auto_cleanup"`
+	CompatCacheMinFreeBytes     int64           `json:"compat_cache_min_free_bytes"`
+	CompatCacheMinFreePercent   int             `json:"compat_cache_min_free_percent"`
 	Secrets                     map[string]bool `json:"secrets"`
 	OpenSubtitlesUsername       string          `json:"opensubtitles_username"`
 	OpenSubtitlesUserAgent      string          `json:"opensubtitles_user_agent"`
@@ -49,6 +55,11 @@ type Update struct {
 	ThemePreviewVolume         *int    `json:"theme_preview_volume"`
 	ThemePreviewAutoplay       *bool   `json:"theme_preview_autoplay"`
 	HomeHeroMode               *string `json:"home_hero_mode"`
+	CompatCacheMaxBytes        *int64  `json:"compat_cache_max_bytes"`
+	CompatCacheTTLHours        *int    `json:"compat_cache_ttl_hours"`
+	CompatCacheAutoCleanup     *bool   `json:"compat_cache_auto_cleanup"`
+	CompatCacheMinFreeBytes    *int64  `json:"compat_cache_min_free_bytes"`
+	CompatCacheMinFreePercent  *int    `json:"compat_cache_min_free_percent"`
 	TMDBToken                  *string `json:"tmdb_token"`
 	TMDBAPIKey                 *string `json:"tmdb_api_key"`
 	TVDBAPIKey                 *string `json:"tvdb_api_key"`
@@ -153,6 +164,29 @@ func (s *Service) Apply(ctx context.Context, base config.Config) (config.Config,
 			base.ThemePreviewVolume = clamp(n, 0, 100)
 		}
 	}
+	if value, ok := values["compat_cache_max_bytes"]; ok {
+		if n, err := strconv.ParseInt(value, 10, 64); err == nil && n >= 0 {
+			base.CompatCacheMaxBytes = n
+		}
+	}
+	if value, ok := values["compat_cache_ttl_hours"]; ok {
+		if n, err := strconv.Atoi(value); err == nil && n >= 0 {
+			base.CompatCacheTTL = time.Duration(n) * time.Hour
+		}
+	}
+	if value, ok := values["compat_cache_auto_cleanup"]; ok {
+		base.CompatCacheAutoCleanup = value == "1" || strings.EqualFold(value, "true")
+	}
+	if value, ok := values["compat_cache_min_free_bytes"]; ok {
+		if n, err := strconv.ParseInt(value, 10, 64); err == nil && n >= 0 {
+			base.CompatCacheMinFreeBytes = n
+		}
+	}
+	if value, ok := values["compat_cache_min_free_percent"]; ok {
+		if n, err := strconv.Atoi(value); err == nil {
+			base.CompatCacheMinFreePercent = clamp(n, 0, 95)
+		}
+	}
 	return base, nil
 }
 
@@ -174,7 +208,11 @@ func (s *Service) Public(ctx context.Context, base config.Config) (Public, error
 		AssetDir: effective.AssetDir, AssetPublicBaseURL: effective.AssetPublicBaseURL,
 		ThemePreviewEnabled: effective.ThemePreviewEnabled, ThemePreviewCountry: effective.ThemePreviewCountry,
 		ThemePreviewVolume: effective.ThemePreviewVolume, ThemePreviewAutoplay: effective.ThemePreviewAutoplay,
-		HomeHeroMode: effective.HomeHeroMode, Secrets: secrets,
+		HomeHeroMode: effective.HomeHeroMode,
+		CompatCacheMaxBytes: effective.CompatCacheMaxBytes, CompatCacheTTLHours: int(effective.CompatCacheTTL / time.Hour),
+		CompatCacheAutoCleanup: effective.CompatCacheAutoCleanup, CompatCacheMinFreeBytes: effective.CompatCacheMinFreeBytes,
+		CompatCacheMinFreePercent: effective.CompatCacheMinFreePercent,
+		Secrets: secrets,
 		OpenSubtitlesUsername: effective.OpenSubtitlesUsername, OpenSubtitlesUserAgent: effective.OpenSubtitlesUserAgent,
 	}, nil
 }
@@ -222,7 +260,11 @@ func (s *Service) Update(ctx context.Context, in Update) error {
 			return err
 		}
 	}
-	for key, value := range map[string]*bool{"theme_preview_enabled": in.ThemePreviewEnabled, "theme_preview_autoplay": in.ThemePreviewAutoplay} {
+	for key, value := range map[string]*bool{
+		"theme_preview_enabled": in.ThemePreviewEnabled,
+		"theme_preview_autoplay": in.ThemePreviewAutoplay,
+		"compat_cache_auto_cleanup": in.CompatCacheAutoCleanup,
+	} {
 		if value != nil {
 			if err := s.put(ctx, key, strconv.FormatBool(*value)); err != nil {
 				return err
@@ -231,6 +273,38 @@ func (s *Service) Update(ctx context.Context, in Update) error {
 	}
 	if in.ThemePreviewVolume != nil {
 		if err := s.put(ctx, "theme_preview_volume", strconv.Itoa(clamp(*in.ThemePreviewVolume, 0, 100))); err != nil {
+			return err
+		}
+	}
+	if in.CompatCacheMaxBytes != nil {
+		value := *in.CompatCacheMaxBytes
+		if value < 0 {
+			value = 0
+		}
+		if err := s.put(ctx, "compat_cache_max_bytes", strconv.FormatInt(value, 10)); err != nil {
+			return err
+		}
+	}
+	if in.CompatCacheTTLHours != nil {
+		value := *in.CompatCacheTTLHours
+		if value < 0 {
+			value = 0
+		}
+		if err := s.put(ctx, "compat_cache_ttl_hours", strconv.Itoa(value)); err != nil {
+			return err
+		}
+	}
+	if in.CompatCacheMinFreeBytes != nil {
+		value := *in.CompatCacheMinFreeBytes
+		if value < 0 {
+			value = 0
+		}
+		if err := s.put(ctx, "compat_cache_min_free_bytes", strconv.FormatInt(value, 10)); err != nil {
+			return err
+		}
+	}
+	if in.CompatCacheMinFreePercent != nil {
+		if err := s.put(ctx, "compat_cache_min_free_percent", strconv.Itoa(clamp(*in.CompatCacheMinFreePercent, 0, 95))); err != nil {
 			return err
 		}
 	}
