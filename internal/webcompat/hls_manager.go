@@ -21,13 +21,13 @@ import (
 // compatibility MP4 cache, HLS data is session-scoped and intentionally
 // disposable. It is never a permanent copy of the source media.
 type HLSPolicy struct {
-	MaxBytes         int64
-	SegmentDuration  time.Duration
-	BatchSegments    int
-	IdleTTL          time.Duration
-	CleanupInterval  time.Duration
-	MinFreeBytes     int64
-	MinFreePercent   int
+	MaxBytes          int64
+	SegmentDuration   time.Duration
+	BatchSegments     int
+	IdleTTL           time.Duration
+	CleanupInterval   time.Duration
+	MinFreeBytes      int64
+	MinFreePercent    int
 	EvictionTargetPct int
 }
 
@@ -71,18 +71,26 @@ func NeedsHLSAAC(codec string, requested bool) bool {
 }
 
 type HLSStatus struct {
-	Directory       string `json:"directory"`
-	UsageBytes      int64  `json:"usage_bytes"`
-	MaxBytes        int64  `json:"max_bytes"`
-	Sessions        int    `json:"sessions"`
-	Workers         int    `json:"workers"`
-	Files           int    `json:"files"`
-	FreeBytes       int64  `json:"free_bytes"`
-	MinFreeBytes    int64  `json:"min_free_bytes"`
-	MinFreePercent  int    `json:"min_free_percent"`
-	SegmentSeconds  int    `json:"segment_seconds"`
-	BatchSegments   int    `json:"batch_segments"`
-	IdleTTLSeconds  int64  `json:"idle_ttl_seconds"`
+	Directory      string `json:"directory"`
+	UsageBytes     int64  `json:"usage_bytes"`
+	MaxBytes       int64  `json:"max_bytes"`
+	Sessions       int    `json:"sessions"`
+	Workers        int    `json:"workers"`
+	Files          int    `json:"files"`
+	FreeBytes      int64  `json:"free_bytes"`
+	MinFreeBytes   int64  `json:"min_free_bytes"`
+	MinFreePercent int    `json:"min_free_percent"`
+	SegmentSeconds int    `json:"segment_seconds"`
+	BatchSegments  int    `json:"batch_segments"`
+	IdleTTLSeconds int64  `json:"idle_ttl_seconds"`
+}
+
+type hlsWorker struct {
+	cancel context.CancelFunc
+	done   chan struct{}
+	start  int
+	end    int
+	err    error
 }
 
 type hlsSession struct {
@@ -95,12 +103,8 @@ type hlsSession struct {
 	Spec      HLSSpec
 	Dir       string
 	LastTouch time.Time
-
-	workerCancel     context.CancelFunc
-	workerDone       chan struct{}
-	workerStartIndex int
-	workerEndIndex   int
-	workerErr        error
+	Closed    bool
+	worker    *hlsWorker
 }
 
 type HLSManager struct {
@@ -324,11 +328,12 @@ func (m *HLSManager) CloseSession(userID int64, sessionID string) bool {
 
 func (m *HLSManager) stopSession(session *hlsSession) {
 	session.mu.Lock()
-	cancel := session.workerCancel
-	session.workerCancel = nil
+	session.Closed = true
+	worker := session.worker
+	session.worker = nil
 	session.mu.Unlock()
-	if cancel != nil {
-		cancel()
+	if worker != nil && worker.cancel != nil {
+		worker.cancel()
 	}
 }
 
@@ -391,6 +396,7 @@ func (m *HLSManager) InitPath(ctx context.Context, userID, mediaID int64, sessio
 	}
 	path := filepath.Join(session.Dir, fmt.Sprintf("init-%06d.mp4", batchStart))
 	if stat, err := os.Stat(path); err == nil && stat.Size() > 0 {
+		_ = os.Chtimes(path, time.Now(), time.Now())
 		return path, nil
 	}
 	if err := m.ensureBatch(ctx, session, batchStart, batchStart); err != nil {
@@ -399,6 +405,7 @@ func (m *HLSManager) InitPath(ctx context.Context, userID, mediaID int64, sessio
 	if stat, err := os.Stat(path); err != nil || stat.Size() == 0 {
 		return "", errors.New("hls init segment was not generated")
 	}
+	_ = os.Chtimes(path, time.Now(), time.Now())
 	return path, nil
 }
 
@@ -443,49 +450,66 @@ func (m *HLSManager) ensureBatch(ctx context.Context, session *hlsSession, batch
 	}
 
 	expected := filepath.Join(session.Dir, fmt.Sprintf("seg-%06d.m4s", requestedSegment))
-	if requestedSegment == batchStart {
-		if _, err := os.Stat(filepath.Join(session.Dir, fmt.Sprintf("init-%06d.mp4", batchStart))); err == nil {
-			if _, segErr := os.Stat(expected); segErr == nil {
-				return nil
-			}
-		}
+	if stat, err := os.Stat(expected); err == nil && stat.Size() > 0 {
+		return nil
 	}
 
+	// Inspect/cancel a previous worker without holding the session lock across
+	// global capacity cleanup. This lock ordering keeps concurrent segment
+	// requests and global eviction race-free.
 	session.mu.Lock()
-	if session.workerDone != nil && requestedSegment >= session.workerStartIndex && requestedSegment < session.workerEndIndex {
-		done := session.workerDone
+	if session.Closed {
 		session.mu.Unlock()
-		return waitForHLSPath(ctx, expected, done, session)
+		return errors.New("hls playback session is closed")
 	}
-	if session.workerCancel != nil {
-		session.workerCancel()
+	if worker := session.worker; worker != nil && requestedSegment >= worker.start && requestedSegment < worker.end {
+		session.mu.Unlock()
+		return waitForHLSPath(ctx, expected, worker)
 	}
+	oldWorker := session.worker
+	if oldWorker != nil {
+		session.worker = nil
+	}
+	session.mu.Unlock()
+	if oldWorker != nil && oldWorker.cancel != nil {
+		oldWorker.cancel()
+	}
+
 	startIndex := batchStart
 	startSeconds := float64(startIndex) * m.policy.SegmentDuration.Seconds()
 	endSeconds := math.Min(session.Spec.DurationSeconds, float64(batchEnd)*m.policy.SegmentDuration.Seconds())
 	batchDuration := endSeconds - startSeconds
 	if batchDuration <= 0 {
-		session.mu.Unlock()
 		return errors.New("invalid hls batch duration")
 	}
 	if err := m.ensureCapacity(session, batchDuration); err != nil {
-		session.mu.Unlock()
 		return err
 	}
+
+	// Another request can win the worker race while capacity was being checked.
+	session.mu.Lock()
+	if session.Closed {
+		session.mu.Unlock()
+		return errors.New("hls playback session is closed")
+	}
+	if stat, err := os.Stat(expected); err == nil && stat.Size() > 0 {
+		session.mu.Unlock()
+		return nil
+	}
+	if worker := session.worker; worker != nil && requestedSegment >= worker.start && requestedSegment < worker.end {
+		session.mu.Unlock()
+		return waitForHLSPath(ctx, expected, worker)
+	}
 	workerCtx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	session.workerCancel = cancel
-	session.workerDone = done
-	session.workerStartIndex = startIndex
-	session.workerEndIndex = batchEnd
-	session.workerErr = nil
+	worker := &hlsWorker{cancel: cancel, done: make(chan struct{}), start: startIndex, end: batchEnd}
+	session.worker = worker
 	session.mu.Unlock()
 
-	go m.runBatch(workerCtx, session, batchStart, startIndex, batchEnd, done)
-	return waitForHLSPath(ctx, expected, done, session)
+	go m.runBatch(workerCtx, session, batchStart, startIndex, batchEnd, worker)
+	return waitForHLSPath(ctx, expected, worker)
 }
 
-func waitForHLSPath(ctx context.Context, path string, done <-chan struct{}, session *hlsSession) error {
+func waitForHLSPath(ctx context.Context, path string, worker *hlsWorker) error {
 	timer := time.NewTimer(35 * time.Second)
 	defer timer.Stop()
 	ticker := time.NewTicker(60 * time.Millisecond)
@@ -500,26 +524,33 @@ func waitForHLSPath(ctx context.Context, path string, done <-chan struct{}, sess
 		case <-timer.C:
 			return errors.New("timed out waiting for hls segment")
 		case <-ticker.C:
-		case <-done:
+		case <-worker.done:
 			if stat, err := os.Stat(path); err == nil && stat.Size() > 0 {
 				return nil
 			}
-			session.mu.Lock()
-			err := session.workerErr
-			session.mu.Unlock()
-			if err != nil {
-				return err
+			if worker.err != nil {
+				return worker.err
 			}
 			return errors.New("hls batch ended before requested segment was ready")
 		}
 	}
 }
 
-func (m *HLSManager) runBatch(ctx context.Context, session *hlsSession, batchStart, startIndex, batchEnd int, done chan struct{}) {
-	defer close(done)
+func (m *HLSManager) runBatch(ctx context.Context, session *hlsSession, batchStart, startIndex, batchEnd int, worker *hlsWorker) {
+	var resultErr error
+	defer func() {
+		worker.err = resultErr
+		close(worker.done)
+		session.mu.Lock()
+		if session.worker == worker {
+			session.worker = nil
+		}
+		session.mu.Unlock()
+	}()
+
 	ffmpeg, err := exec.LookPath("ffmpeg")
 	if err != nil {
-		m.finishWorker(session, errors.New("ffmpeg is not installed"))
+		resultErr = errors.New("ffmpeg is not installed")
 		return
 	}
 
@@ -572,28 +603,20 @@ func (m *HLSManager) runBatch(ctx context.Context, session *hlsSession, batchSta
 	output, runErr := cmd.CombinedOutput()
 	if runErr != nil {
 		if errors.Is(ctx.Err(), context.Canceled) {
-			m.finishWorker(session, context.Canceled)
+			resultErr = context.Canceled
 			return
 		}
 		msg := strings.TrimSpace(string(output))
 		if len(msg) > 1200 {
 			msg = msg[len(msg)-1200:]
 		}
-		m.finishWorker(session, fmt.Errorf("ffmpeg hls batch failed: %s", msg))
+		resultErr = fmt.Errorf("ffmpeg hls batch failed: %s", msg)
 		return
 	}
 	_ = os.Remove(playlistPath)
-	m.finishWorker(session, nil)
-	if err := m.cleanupPressure(); err != nil {
+	if err := m.cleanupPressure(0); err != nil {
 		log.Printf("stormflix hls cache pressure cleanup: %v", err)
 	}
-}
-
-func (m *HLSManager) finishWorker(session *hlsSession, err error) {
-	session.mu.Lock()
-	session.workerErr = err
-	session.workerCancel = nil
-	session.mu.Unlock()
 }
 
 func (m *HLSManager) estimateBatchBytes(session *hlsSession, duration float64) int64 {
@@ -609,10 +632,10 @@ func (m *HLSManager) estimateBatchBytes(session *hlsSession, duration float64) i
 }
 
 func (m *HLSManager) ensureCapacity(session *hlsSession, batchDuration float64) error {
-	if err := m.cleanupPressure(); err != nil {
+	estimated := m.estimateBatchBytes(session, batchDuration)
+	if err := m.cleanupPressure(estimated); err != nil {
 		return err
 	}
-	estimated := m.estimateBatchBytes(session, batchDuration)
 	usage, _, err := hlsDiskUsage(m.dir)
 	if err != nil {
 		return err
@@ -689,17 +712,23 @@ func (m *HLSManager) Cleanup(ctx context.Context) error {
 		m.stopSession(session)
 		_ = os.RemoveAll(session.Dir)
 	}
-	return m.cleanupPressure()
+	return m.cleanupPressure(0)
 }
 
 type hlsCandidate struct {
-	path      string
-	sessionID string
-	size      int64
-	mod       time.Time
+	path string
+	size int64
+	mod  time.Time
 }
 
-func (m *HLSManager) cleanupPressure() error {
+// cleanupPressure evicts only disposable files belonging to sessions without a
+// running FFmpeg batch. extraBytes reserves space for the batch that is about
+// to start, which makes MaxBytes a hard global budget rather than a threshold
+// noticed only after the SSD has already grown.
+func (m *HLSManager) cleanupPressure(extraBytes int64) error {
+	if extraBytes < 0 {
+		extraBytes = 0
+	}
 	usage, files, err := hlsDiskUsage(m.dir)
 	if err != nil {
 		return err
@@ -712,13 +741,23 @@ func (m *HLSManager) cleanupPressure() error {
 			reserve = percent
 		}
 	}
+
 	need := int64(0)
-	if m.policy.MaxBytes > 0 && usage > m.policy.MaxBytes {
+	if m.policy.MaxBytes > 0 && usage+extraBytes > m.policy.MaxBytes {
 		target := m.policy.MaxBytes * int64(m.policy.EvictionTargetPct) / 100
+		if target+extraBytes > m.policy.MaxBytes {
+			target = m.policy.MaxBytes - extraBytes
+		}
+		if target < 0 {
+			return fmt.Errorf("single hls batch estimate exceeds global cache limit: estimate=%d max=%d", extraBytes, m.policy.MaxBytes)
+		}
 		need = usage - target
+		if need < 0 {
+			need = 0
+		}
 	}
-	if diskErr == nil && free < reserve && reserve-free > need {
-		need = reserve - free
+	if diskErr == nil && free < reserve+extraBytes && reserve+extraBytes-free > need {
+		need = reserve + extraBytes - free
 	}
 	if need <= 0 {
 		return nil
@@ -728,7 +767,7 @@ func (m *HLSManager) cleanupPressure() error {
 	workers := map[string]bool{}
 	for id, session := range m.sessions {
 		session.mu.Lock()
-		workers[id] = session.workerCancel != nil
+		workers[id] = session.worker != nil
 		session.mu.Unlock()
 	}
 	m.mu.Unlock()
@@ -750,7 +789,7 @@ func (m *HLSManager) cleanupPressure() error {
 		if err != nil {
 			return nil
 		}
-		candidates = append(candidates, hlsCandidate{path: path, sessionID: parts[0], size: info.Size(), mod: info.ModTime()})
+		candidates = append(candidates, hlsCandidate{path: path, size: info.Size(), mod: info.ModTime()})
 		return nil
 	})
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i].mod.Before(candidates[j].mod) })
@@ -798,7 +837,7 @@ func (m *HLSManager) Status() HLSStatus {
 	workers := 0
 	for _, session := range m.sessions {
 		session.mu.Lock()
-		if session.workerCancel != nil {
+		if session.worker != nil {
 			workers++
 		}
 		session.mu.Unlock()
