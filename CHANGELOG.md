@@ -65,6 +65,14 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 
 ### Playback
 
+- Added `docs/PLAYBACK_ARCHITECTURE.md` defining the native StormFlix playback architecture for Web, Android and TV/Fire while keeping the Jellyfin facade isolated.
+- Added `internal/playback` with a capability-driven source probe and deterministic Playback Decision Engine for `direct_play`, `remux`, `audio_compatibility` and explicit `unsupported` results.
+- Added native `POST /api/v1/media/{id}/playback/plan`; it applies library/profile access, profile audio preference, resume state and creates a playback session without routing native clients through Jellyfin compatibility.
+- StormFlix Web now detects browser codec/container support at runtime and requests a Playback Plan before loading the media source.
+- Browser playback preserves Direct Play first, reuses the existing seekable remux/AAC execution path when required and does not silently introduce video transcoding.
+- Web playback heartbeats now send the server-issued playback session, monotonic sequence and event timestamp so the existing ordered-progress protection is actually used by the browser client.
+- Added protection against late planner responses starting hidden playback after the player is closed.
+- Bumped the native server version to `0.17.0-playback-core`.
 - Restored preferred Portuguese audio selection before codec fallback.
 - AAC compatibility fallback keeps video stream-copy and prepares seekable cached MP4 output with HTTP range support.
 - Ordered playback progress prevents stale requests from overwriting newer resume positions while allowing intentional backward seeks.

@@ -21,7 +21,7 @@ Server HTTP port: **8090** behind the user's HTTPS reverse proxy. Public StormFl
 
 ## Current versions
 
-- Server version constant: `0.16.2-queue-categories`.
+- Server version constant: `0.17.0-playback-core`.
 - Native Android application: `cloud.stormflix.app`, version **0.2.3**, versionCode 10, minSdk 23, targetSdk 36, Java 17, Media3 1.11.0.
 - SQLite is the supported database. It uses WAL, synchronous=NORMAL, busy timeout, bounded connection pool and targeted indexes.
 
@@ -33,6 +33,57 @@ Server HTTP port: **8090** behind the user's HTTPS reverse proxy. Public StormFl
 - If the preferred audio codec is not supported, the client explicitly requests compatibility mode: video stays stream-copy and only audio is converted to AAC-LC.
 - Compatibility AAC is prepared as a seekable cached MP4 and served with range support; do not regress to non-seekable fragmented pipe behavior.
 - Ordered profile progress uses playback session + sequence/event ordering so stale writes cannot overwrite a newer position while legitimate backward seeks remain valid.
+
+## Unified native playback architecture
+
+The playback architecture is now being centralized for StormFlix Web, Android and TV/Fire. `docs/PLAYBACK_ARCHITECTURE.md` is the detailed design record.
+
+The native architecture is:
+
+```text
+StormFlix Web ───────┐
+StormFlix Android ───┼──> /api/v1 ──> Playback Core ──> Media
+StormFlix TV/Fire ───┘        │
+                              ├── Profiles / progress
+                              ├── Library access
+                              └── Metadata / subtitles
+
+Jellyfin clients ──> Jellyfin compatibility facade ──> StormFlix core
+```
+
+`internal/playback` is the first shared Playback Core foundation. It owns source probing, client capability contracts and deterministic source decisions. Current native modes are:
+
+- `direct_play` — original source, no re-encode;
+- `remux` — container compatibility while preserving streams where the existing execution path allows it;
+- `audio_compatibility` — video remains stream-copy and audio becomes AAC;
+- `unsupported` — explicit refusal when the advertised client capabilities cannot consume the video without video transcoding.
+
+`POST /api/v1/media/{id}/playback/plan` is the native planning endpoint. It checks media/library/profile access, reads the selected profile audio preference and resume position, probes the source, applies client capabilities, and returns the execution URL plus a new playback session ID. Native clients must use this API rather than depending on Jellyfin playback endpoints.
+
+### StormFlix Web migration
+
+The browser now loads `playback-core.js` after the legacy web compatibility adapter and before player decoration/monitoring. The new controller:
+
+- derives browser container/codec support using runtime `canPlayType` feature detection rather than relying only on User-Agent;
+- requests a native Playback Plan before loading a source;
+- preserves the existing seekable cached remux/AAC materialization as the execution adapter;
+- refuses unsupported video instead of silently adding video transcoding;
+- installs Media Session actions;
+- keeps source switches under the same planner path;
+- invalidates in-flight planning when the player closes so a late response cannot start hidden playback.
+
+Web monitoring now sends the server-issued playback session, monotonic progress sequence and event timestamp. This means the browser finally exercises the ordered profile-progress protection already implemented on the server.
+
+The old `/media/{id}/compatibility` and `/remux` behavior remains available during migration, including manual AAC controls. It is now an execution/compatibility adapter rather than the intended long-term owner of source-selection policy.
+
+### Next playback migration work
+
+- Move Android Media3 source selection to the same native Playback Plan while continuing to publish real MediaCodec capabilities.
+- Move Android TV/Fire playback to the same plan contract while keeping TV-specific D-pad/focus/player UI.
+- Continue consolidating remaining legacy browser wrappers into the unified web controller once parity is proven.
+- Expand capability contracts for HDR/Dolby Vision, maximum decode resolution/frame-rate, passthrough, subtitle rendering and bandwidth policy.
+- Make selected audio-stream execution explicit for every remux path so non-Portuguese profile preferences are guaranteed end-to-end instead of relying on the legacy webcompat stream picker.
+- Any future video transcoding must be an explicit separate policy; it must not become a silent fallback.
 
 ## Jellyfin compatibility facade
 
@@ -230,6 +281,9 @@ For series, default manual search uses the scanner/canonical series title instea
 
 ## Known pending / next work
 
+- Continue the unified playback migration described above, starting with Android Media3 capability publication/Playback Plan consumption and then Android TV/Fire.
+- Validate the new web Playback Plan against real H.264/AAC, H.264+DTS, HEVC/AV1 and multi-audio files on Chrome/Chromium, Firefox and Safari-capable devices; tune capability declarations only from observed/runtime support.
+- Make exact selected-audio execution explicit through remux preparation instead of relying on the legacy webcompat picker for every profile language.
 - Validate the new scan queue/scan-all workflow against the user's real rclone/Drive libraries and tune timeout/progress text if a specific mount behaves differently.
 - Validate real-world principal-series matching against problematic cartoons and dubbed anime while watching `series_refresh` in the queue.
 - Continue cleaning metadata edge cases where provider episode ordering differs (air/DVD/absolute). Consider explicit TVDB ordering/provider selection at principal-series level when needed.

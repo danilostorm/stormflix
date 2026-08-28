@@ -184,6 +184,17 @@
     };
   }
 
+  const previousClosePlayer=closePlayer;
+  closePlayer=function(){
+    // Invalidate any in-flight planning/preparation request before the legacy
+    // close routine clears the media element. A late response must never start
+    // hidden playback after the user has left the player.
+    planGeneration++;
+    applyPlanState(null);
+    return previousClosePlayer();
+  };
+  const closeButton=document.querySelector('#player-close');if(closeButton)closeButton.onclick=closePlayer;
+
   // Disable the old automatic web-only planner. Manual AAC controls remain as
   // an explicit escape hatch while the UI migration is completed.
   window.sfEnsureWebAudioCompatibility=function(){return Promise.resolve(activePlan)};
