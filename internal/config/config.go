@@ -41,6 +41,10 @@ type Config struct {
 	CompatCacheMinFreeBytes    int64
 	CompatCacheMinFreePercent  int
 	CompatCacheOversizeTTL     time.Duration
+	HLSCacheMaxBytes           int64
+	HLSCacheIdleTTL            time.Duration
+	HLSSegmentDuration         time.Duration
+	HLSBatchSegments           int
 	BootstrapLibraryName       string
 	BootstrapLibraryPath       string
 }
@@ -80,6 +84,10 @@ func Load() Config {
 		CompatCacheMinFreeBytes:    envInt64("STORMFLIX_MIN_FREE_DISK_BYTES", 10<<30),
 		CompatCacheMinFreePercent:  envInt("STORMFLIX_MIN_FREE_DISK_PERCENT", 5),
 		CompatCacheOversizeTTL:     envDuration("STORMFLIX_COMPAT_CACHE_OVERSIZE_TTL", 15*time.Minute),
+		HLSCacheMaxBytes:           envInt64("STORMFLIX_HLS_CACHE_MAX_BYTES", 5<<30),
+		HLSCacheIdleTTL:            envDuration("STORMFLIX_HLS_CACHE_IDLE_TTL", 30*time.Minute),
+		HLSSegmentDuration:         envDuration("STORMFLIX_HLS_SEGMENT_DURATION", 6*time.Second),
+		HLSBatchSegments:           envInt("STORMFLIX_HLS_BATCH_SEGMENTS", 4),
 		BootstrapLibraryName:       env("STORMFLIX_BOOTSTRAP_LIBRARY_NAME", "Media"),
 		BootstrapLibraryPath:       os.Getenv("STORMFLIX_BOOTSTRAP_LIBRARY_PATH"),
 	}
