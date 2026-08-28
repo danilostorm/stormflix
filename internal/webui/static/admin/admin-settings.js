@@ -14,12 +14,43 @@ function secretField(id,label,configured,help=''){
   return `<div class="setting-field secret-field"><label for="${id}">${label}</label><div class="secret-input"><input id="${id}" type="password" autocomplete="new-password" placeholder="${configured?'Configurado — deixe vazio para manter':'Não configurado'}"><span class="secret-state ${configured?'ready':'missing'}">${configured?'CONFIGURADO':'VAZIO'}</span></div>${help?`<small>${help}</small>`:''}<label class="clear-secret"><input type="checkbox" data-clear-secret="${id}"> Limpar valor salvo</label></div>`;
 }
 
+function settingBytes(value){
+  const n=Number(value)||0;
+  if(n<=0)return'0 B';
+  const units=['B','KB','MB','GB','TB'];let i=0,x=n;
+  while(x>=1024&&i<units.length-1){x/=1024;i++}
+  return`${x.toFixed(i>=3?1:0)} ${units[i]}`;
+}
+
+function settingAge(value){
+  if(!value)return'—';
+  const ts=new Date(value).getTime();if(!Number.isFinite(ts))return'—';
+  const seconds=Math.max(0,Math.round((Date.now()-ts)/1000));
+  if(seconds<60)return'há poucos segundos';
+  if(seconds<3600)return`há ${Math.round(seconds/60)} min`;
+  if(seconds<86400)return`há ${Math.round(seconds/3600)} h`;
+  return`há ${Math.round(seconds/86400)} dias`;
+}
+
+function cacheLimitOptions(current){
+  const options=[[5,5*1024**3],[10,10*1024**3],[20,20*1024**3],[50,50*1024**3],[100,100*1024**3]];
+  let html=options.map(([gb,bytes])=>`<option value="${bytes}">${gb} GB</option>`).join('');
+  if(Number(current)===0)html+=`<option value="0">Ilimitado</option>`;
+  else if(!options.some(([,bytes])=>bytes===Number(current)))html+=`<option value="${Number(current)}">Personalizado · ${settingBytes(current)}</option>`;
+  else html+=`<option value="0">Ilimitado</option>`;
+  return html;
+}
+
 async function loadSettings(){
-  const [s,agents]=await Promise.all([req('/admin/settings'),req('/admin/agents')]);
+  const [s,agents,cache]=await Promise.all([req('/admin/settings'),req('/admin/agents'),req('/admin/playback/cache')]);
   const secrets=s.secrets||{};
+  const lastCleanup=cache.last_cleanup||{};
+  const cacheLimit=Number(s.compat_cache_max_bytes??20*1024**3);
+  const cacheTTL=Number(s.compat_cache_ttl_hours??48);
+  const freeReserve=Number(s.compat_cache_min_free_bytes??10*1024**3);
   $('#settings').innerHTML=`
     <form id="settings-form" class="settings-shell">
-      <div class="settings-hero"><div><p class="kicker">Configuração central</p><h2>Tudo pelo painel</h2><p>Chaves, agentes, CDN, idiomas e experiência do catálogo são aplicados sem editar Docker Compose ou .env.</p></div><button class="primary settings-save" type="submit">Salvar configurações</button></div>
+      <div class="settings-hero"><div><p class="kicker">Configuração central</p><h2>Tudo pelo painel</h2><p>Chaves, agentes, CDN, idiomas, experiência do catálogo e cache de reprodução são aplicados sem editar Docker Compose ou .env.</p></div><button class="primary settings-save" type="submit">Salvar configurações</button></div>
 
       <div class="settings-grid">
         <section class="panel settings-section">
@@ -73,11 +104,52 @@ async function loadSettings(){
             <div class="setting-field"><label>Volume da prévia <span id="volume-label">${Number(s.theme_preview_volume??24)}%</span></label><input id="set-theme-volume" type="range" min="0" max="100" value="${Number(s.theme_preview_volume??24)}"></div>
           </div>
         </section>
+
+        <section class="panel settings-section settings-wide">
+          <div class="section-title"><span>07</span><div><h2>Playback · Cache de compatibilidade</h2><small>Controle das versões MP4 seekable usadas quando o navegador/dispositivo precisa de remux ou áudio AAC.</small></div></div>
+          <div class="agent-mini-grid">
+            <div><b>Uso atual</b><span>${settingBytes(cache.usage_bytes)}</span></div>
+            <div><b>Limite</b><span>${cache.max_bytes?settingBytes(cache.max_bytes):'ILIMITADO'}</span></div>
+            <div><b>Arquivos</b><span>${Number(cache.files||0)}</span></div>
+            <div><b>Em uso agora</b><span>${Number(cache.active_files||0)}</span></div>
+            <div><b>Mais antigo</b><span>${settingAge(cache.oldest_last_used_at)}</span></div>
+            <div><b>Espaço livre</b><span>${settingBytes(cache.free_bytes)}</span></div>
+          </div>
+          <div class="experience-grid">
+            <div class="setting-field"><label>Limite máximo</label><select id="set-compat-cache-limit">${cacheLimitOptions(cacheLimit)}</select><small>O padrão é 20 GB. Ao ultrapassar, o StormFlix remove primeiro as versões menos usadas.</small></div>
+            <div class="setting-field"><label>Expirar após</label><select id="set-compat-cache-ttl"><option value="24">24 horas</option><option value="48">48 horas</option><option value="72">72 horas</option><option value="168">7 dias</option><option value="0">Sem TTL</option></select><small>O limite de tamanho continua valendo mesmo sem TTL.</small></div>
+            <div class="setting-field"><label>Reserva mínima livre</label><select id="set-compat-cache-free"><option value="5368709120">5 GB</option><option value="10737418240">10 GB</option><option value="21474836480">20 GB</option><option value="0">Somente percentual</option></select><small>Antes de materializar arquivos grandes, o cache tenta liberar espaço.</small></div>
+            <div class="setting-field"><label>Reserva mínima do disco (%)</label><input id="set-compat-cache-free-percent" type="number" min="0" max="95" value="${Number(s.compat_cache_min_free_percent??5)}"><small>É usado o maior valor entre a reserva em GB e este percentual.</small></div>
+            <label class="switch-row"><div><b>Limpeza automática</b><small>Executa limpeza no startup e periodicamente sem interromper reprodução ativa.</small></div><input id="set-compat-cache-auto" type="checkbox" ${s.compat_cache_auto_cleanup!==false?'checked':''}></label>
+            <div class="storage-preview"><b>Última limpeza</b><span>${settingAge(lastCleanup.finished_at)}</span><small>${lastCleanup.finished_at?`${Number(lastCleanup.files_removed||0)} arquivo(s) · ${settingBytes(lastCleanup.bytes_removed)} liberados`:'Aguardando primeira limpeza registrada.'}</small></div>
+          </div>
+          <div class="storage-preview"><b>Arquivos maiores que o limite</b><span>Temporários / oversize</span><small>Uma mídia de 42 GB pode ser preparada para manter seek/Range, mas não fica permanentemente presa num cache de 20 GB: após ficar sem uso ela é descartada automaticamente.</small></div>
+          <div style="margin-top:12px"><button id="compat-cache-clean" class="secondary" type="button">Limpar cache agora</button></div>
+        </section>
       </div>
     </form>`;
   $('#set-meta-language').value=s.metadata_language||'pt-BR';
   $('#set-hero-mode').value=s.home_hero_mode||'featured';
   $('#set-theme-volume').oninput=e=>$('#volume-label').textContent=e.target.value+'%';
+  $('#set-compat-cache-limit').value=String(cacheLimit);
+  $('#set-compat-cache-ttl').value=String(cacheTTL);
+  if(![24,48,72,168,0].includes(cacheTTL)){
+    $('#set-compat-cache-ttl').insertAdjacentHTML('beforeend',`<option value="${cacheTTL}">${cacheTTL} horas · personalizado</option>`);
+    $('#set-compat-cache-ttl').value=String(cacheTTL);
+  }
+  $('#set-compat-cache-free').value=String(freeReserve);
+  if(![5*1024**3,10*1024**3,20*1024**3,0].includes(freeReserve)){
+    $('#set-compat-cache-free').insertAdjacentHTML('beforeend',`<option value="${freeReserve}">${settingBytes(freeReserve)} · personalizado</option>`);
+    $('#set-compat-cache-free').value=String(freeReserve);
+  }
+  $('#compat-cache-clean').onclick=async e=>{
+    const button=e.currentTarget;button.disabled=true;button.textContent='Limpando…';
+    try{
+      const result=await req('/admin/playback/cache/cleanup',{method:'POST',body:'{}'});
+      notice(`Cache limpo: ${Number(result.files_removed||0)} arquivo(s), ${settingBytes(result.bytes_removed)} liberados.`,true);
+      await loadSettings();
+    }catch(err){notice(err.message)}finally{button.disabled=false}
+  };
   $('#settings-form').onsubmit=saveSettings;
 }
 
@@ -101,6 +173,11 @@ async function saveSettings(e){
     theme_preview_autoplay:$('#set-theme-autoplay').checked,
     theme_preview_country:$('#set-theme-country').value.trim().toUpperCase(),
     theme_preview_volume:+$('#set-theme-volume').value,
+    compat_cache_max_bytes:+$('#set-compat-cache-limit').value,
+    compat_cache_ttl_hours:+$('#set-compat-cache-ttl').value,
+    compat_cache_auto_cleanup:$('#set-compat-cache-auto').checked,
+    compat_cache_min_free_bytes:+$('#set-compat-cache-free').value,
+    compat_cache_min_free_percent:+$('#set-compat-cache-free-percent').value,
     opensubtitles_username:$('#set-os-user').value.trim(),
     opensubtitles_user_agent:$('#set-os-agent').value.trim(),
     tmdb_token:secretValue('set-tmdb-token'),
@@ -117,7 +194,7 @@ async function saveSettings(e){
   Object.keys(body).forEach(k=>body[k]===undefined&&delete body[k]);
   try{
     await req('/admin/settings',{method:'PUT',body:JSON.stringify(body)});
-    notice('Configurações salvas e agentes recarregados sem reiniciar o servidor.',true);
+    notice('Configurações salvas e agentes/cache recarregados sem reiniciar o servidor.',true);
     await loadSettings();
   }catch(err){notice(err.message)}
 }
