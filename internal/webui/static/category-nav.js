@@ -77,19 +77,37 @@
     document.querySelectorAll('.main-nav button').forEach(x=>x.classList.toggle('active',x===button));
     renderSubnav(root,null,button);
     const children=childrenOf(root.id);
-    if(!children.length){await openCategory(root,button,root);return}
     prepareCatalogView();
     showExplorer(false);
-    const target=$('#rows');target.innerHTML='<div class="empty-state">Carregando subcategorias…</div>';
+    const target=$('#rows');target.innerHTML='<div class="empty-state">Carregando seções…</div>';
     try{
-      const results=await Promise.all(children.map(async child=>({child,data:await request(`/categories/${encodeURIComponent(child.slug)}`)})));
-      const rows=results.map(({child,data})=>({id:`category-${child.slug}`,title:child.name,items:categoryItems(data)})).filter(row=>row.items.length);
-      if(!rows.length){
-        const fallback=await request(`/categories/${encodeURIComponent(root.slug)}`);
-        renderRows([{id:`category-${root.slug}`,title:`Todos em ${root.name}`,items:categoryItems(fallback)}]);
-      }else{
-        renderRows(rows);
+      const childPromise=children.length
+        ?Promise.all(children.map(async child=>({child,data:await request(`/categories/${encodeURIComponent(child.slug)}`)})))
+        :Promise.resolve([]);
+      const [rootData,results]=await Promise.all([
+        request(`/categories/${encodeURIComponent(root.slug)}`),
+        childPromise
+      ]);
+      const childRows=results
+        .map(({child,data})=>({id:`category-${child.slug}`,title:child.name,items:categoryItems(data)}))
+        .filter(row=>row.items.length);
+      const usedTitles=new Set(childRows.map(row=>normalizeSectionKey(row.title)));
+      const genreRows=categoryGenreRows(root,rootData,usedTitles);
+      const rows=[...childRows,...genreRows];
+      const allItems=categoryItems(rootData);
+
+      // If there is no configured child hierarchy, genres become the visible
+      // section structure and the complete catalog stays available at the end.
+      // This prevents a root such as Filmes/Séries/Animes from degrading into
+      // one enormous rail while still keeping titles with incomplete metadata
+      // reachable through "Todos em ...".
+      if(!children.length&&allItems.length){
+        rows.push({id:`category-${root.slug}-all`,title:`Todos em ${root.name}`,items:allItems});
       }
+      if(!rows.length){
+        rows.push({id:`category-${root.slug}`,title:`Todos em ${root.name}`,items:allItems});
+      }
+      renderRows(rows);
       window.scrollTo({top:0,behavior:'smooth'});
     }catch(err){target.innerHTML=`<div class="empty-state error">${escapeHTML(err.message)}</div>`}
   }
@@ -118,7 +136,13 @@
     const target=$('#rows');target.innerHTML='<div class="empty-state">Carregando categoria…</div>';
     try{
       const data=await request(`/categories/${encodeURIComponent(category.slug)}`);
-      renderRows([{id:`category-${category.slug}`,title:aggregate?`Tudo em ${root.name}`:category.name,items:categoryItems(data)}]);
+      const items=categoryItems(data);
+      if(aggregate){
+        renderRows([{id:`category-${category.slug}`,title:`Tudo em ${root.name}`,items}]);
+      }else{
+        const genreRows=categoryGenreRows(category,data,new Set());
+        renderRows(genreRows.length?[{id:`category-${category.slug}`,title:category.name,items},...genreRows]:[{id:`category-${category.slug}`,title:category.name,items}]);
+      }
       window.scrollTo({top:0,behavior:'smooth'});
     }catch(err){target.innerHTML=`<div class="empty-state error">${escapeHTML(err.message)}</div>`}
   }
@@ -137,6 +161,61 @@
       if(seen.has(key))return false;seen.add(key);return true;
     });
     return [...series,...mediaItems];
+  }
+
+  function normalizeSectionKey(value){
+    return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+  }
+
+  function canonicalGenre(value){
+    const raw=String(value||'').trim();
+    if(!raw)return null;
+    const key=normalizeSectionKey(raw);
+    const aliases={
+      action:['acao','action'],adventure:['aventura','adventure'],animation:['animacao','animation'],
+      comedy:['comedia','comedy'],crime:['crime'],documentary:['documentario','documentary'],
+      drama:['drama'],family:['familia','family'],fantasy:['fantasia','fantasy'],history:['historia','history'],
+      horror:['terror','horror'],music:['musica','music'],mystery:['misterio','mystery'],
+      romance:['romance'],sciencefiction:['ficcao-cientifica','science-fiction','sci-fi'],thriller:['suspense','thriller'],
+      war:['guerra','war'],western:['faroeste','western'],actionadventure:['acao-e-aventura','action-adventure'],
+      kids:['infantil','kids'],reality:['reality'],scififantasy:['sci-fi-fantasy','sci-fi-fantasia'],
+      soap:['novela','soap'],talk:['talk'],warpolitics:['guerra-politica','war-politics']
+    };
+    const titles={
+      action:'Ação',adventure:'Aventura',animation:'Animação',comedy:'Comédia',crime:'Crime',documentary:'Documentários',
+      drama:'Drama',family:'Família',fantasy:'Fantasia',history:'História',horror:'Terror',music:'Música',mystery:'Mistério',
+      romance:'Romance',sciencefiction:'Ficção científica',thriller:'Suspense',war:'Guerra',western:'Faroeste',
+      actionadventure:'Ação e aventura',kids:'Infantil',reality:'Reality',scififantasy:'Ficção científica e fantasia',
+      soap:'Novelas',talk:'Talk shows',warpolitics:'Guerra e política'
+    };
+    for(const [name,values] of Object.entries(aliases)){
+      if(values.includes(key))return {key:name,title:titles[name]};
+    }
+    return {key:`genre-${key}`,title:raw};
+  }
+
+  function categoryGenreRows(root,data,usedTitles){
+    const items=categoryItems(data);
+    if(items.length<2)return [];
+    const groups=new Map();
+    for(const item of items){
+      const seenGenres=new Set();
+      const genres=Array.isArray(item?.genres)?item.genres:[];
+      for(const value of genres){
+        const genre=canonicalGenre(value);
+        if(!genre||seenGenres.has(genre.key))continue;
+        seenGenres.add(genre.key);
+        let group=groups.get(genre.key);
+        if(!group){group={title:genre.title,count:0,items:[]};groups.set(genre.key,group)}
+        group.count++;
+        if(group.items.length<30)group.items.push(item);
+      }
+    }
+    return [...groups.entries()]
+      .filter(([,group])=>group.count>=2&&!usedTitles.has(normalizeSectionKey(group.title)))
+      .sort((a,b)=>b[1].count-a[1].count||a[1].title.localeCompare(b[1].title,'pt-BR'))
+      .slice(0,8)
+      .map(([key,group])=>({id:`category-${root.slug}-genre-${key}`,title:group.title,items:group.items}));
   }
 
   function seriesCard(s){return {id:s.representative_media_id,entity_type:'series',series_id:s.id,library_id:s.library_id,library_name:s.library_name,title:s.title,media_type:s.media_type,year:s.year,overview:s.overview,genres:s.genres,rating:s.rating,poster_url:s.poster_url,backdrop_url:s.backdrop_url,logo_url:s.logo_url,modified_unix:s.modified_unix,season_count:s.season_count,episode_count:s.episode_count}}
