@@ -2,6 +2,7 @@ package webcompat
 
 import (
 	"context"
+	"math"
 	"sync"
 	"time"
 )
@@ -28,22 +29,27 @@ func (m *HLSManager) SegmentPathBuffered(ctx context.Context, userID, mediaID in
 	return path, nil
 }
 
+func nextHLSBatchStart(segment, batchSegments, maxSegments int) (int, bool) {
+	if segment < 0 || batchSegments <= 0 || maxSegments <= 0 {
+		return 0, false
+	}
+	currentBatch := (segment / batchSegments) * batchSegments
+	nextBatch := currentBatch + batchSegments
+	if nextBatch >= maxSegments {
+		return 0, false
+	}
+	return nextBatch, true
+}
+
 func (m *HLSManager) prefetchFollowingBatch(userID, mediaID int64, sessionID string, segment int) {
 	session, err := m.getSession(userID, mediaID, sessionID)
 	if err != nil {
 		return
 	}
 	batchSegments := m.policy.BatchSegments
-	if batchSegments <= 0 {
-		return
-	}
-	maxSegments := int((session.Spec.DurationSeconds + m.policy.SegmentDuration.Seconds() - 0.000001) / m.policy.SegmentDuration.Seconds())
-	if maxSegments <= 0 {
-		return
-	}
-	currentBatch := (segment / batchSegments) * batchSegments
-	nextBatch := currentBatch + batchSegments
-	if nextBatch >= maxSegments {
+	maxSegments := int(math.Ceil(session.Spec.DurationSeconds / m.policy.SegmentDuration.Seconds()))
+	nextBatch, ok := nextHLSBatchStart(segment, batchSegments, maxSegments)
+	if !ok {
 		return
 	}
 
