@@ -171,6 +171,40 @@ func TestAbandonedTempFileIsRemovedButFreshTempIsPreserved(t *testing.T) {
 	}
 }
 
+func TestActiveMaterializationTempIsNeverRemoved(t *testing.T) {
+	dir := t.TempDir()
+	p := testCachePolicy()
+	p.TempMaxAge = time.Minute
+	finalPath := writeCacheFile(t, dir, "active.mp4", 16*1024, time.Now())
+	tmpPath := filepath.Join(dir, "active.mp4.123.tmp")
+	if err := os.WriteFile(tmpPath, []byte("in progress"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	past := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(tmpPath, past, past); err != nil {
+		t.Fatal(err)
+	}
+	m, err := NewCacheManager(dir, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release, err := m.Acquire(finalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	result, err := m.Cleanup(context.Background(), false, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.TempRemoved != 0 || result.ActiveSkipped == 0 {
+		t.Fatalf("active materialization temp should be preserved, got %+v", result)
+	}
+	if _, err := os.Stat(tmpPath); err != nil {
+		t.Fatalf("active temp file was removed: %v", err)
+	}
+}
+
 func TestOversizeEntryExpiresOnShortIdleTTL(t *testing.T) {
 	dir := t.TempDir()
 	p := testCachePolicy()
