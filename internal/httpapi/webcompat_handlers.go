@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/danilostorm/stormflix/internal/admin"
@@ -21,8 +23,6 @@ func preferAACForPlayback(r *http.Request, plan *webcompat.Plan) {
 	// AAC forcing is an explicit compatibility fallback only. Do not infer it
 	// merely from an Android User-Agent: the native player must first receive
 	// the original multi-audio source and choose the profile-preferred track.
-	// If Media3 later reports that preferred track as unsupported it asks for
-	// audio=aac and only then do we encode that selected audio track.
 	forceByQuery := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("audio")), "aac")
 	if !forceByQuery {
 		return
@@ -41,7 +41,19 @@ func preferAACForPlayback(r *http.Request, plan *webcompat.Plan) {
 
 	plan.AudioCodec = "aac"
 	plan.AudioTranscode = true
-	plan.Reason = "video will be copied without re-encoding; audio is forced to AAC for device compatibility"
+	plan.Reason = "video will be copied without re-encoding; the selected audio track is forced to AAC for device compatibility"
+}
+
+func requestedAudioStream(r *http.Request) (int, bool, error) {
+	raw := strings.TrimSpace(r.URL.Query().Get("audio_stream"))
+	if raw == "" {
+		return -1, false, nil
+	}
+	index, err := strconv.Atoi(raw)
+	if err != nil || index < 0 {
+		return -1, false, errors.New("invalid audio_stream")
+	}
+	return index, true, nil
 }
 
 func (s *server) compatibilityPlan(r *http.Request, id int64) (media.StreamItem, webcompat.Plan, error) {
@@ -52,7 +64,16 @@ func (s *server) compatibilityPlan(r *http.Request, id int64) (media.StreamItem,
 	if !item.Available {
 		return item, webcompat.Plan{}, sql.ErrNoRows
 	}
-	plan, err := webcompat.Probe(r.Context(), item.Path)
+	audioStream, explicitAudio, err := requestedAudioStream(r)
+	if err != nil {
+		return item, webcompat.Plan{}, err
+	}
+	var plan webcompat.Plan
+	if explicitAudio {
+		plan, err = webcompat.ProbeWithAudioStream(r.Context(), item.Path, audioStream)
+	} else {
+		plan, err = webcompat.Probe(r.Context(), item.Path)
+	}
 	if err != nil {
 		return item, plan, err
 	}
@@ -88,6 +109,21 @@ func (s *server) mediaCompatibility(w http.ResponseWriter, r *http.Request) {
 
 func compatibilityCacheKey(item media.StreamItem, plan webcompat.Plan) string {
 	return fmt.Sprintf("media=%d;mtime=%d;size=%d;v=%d:%s;a=%d:%s;transcode=%t", item.ID, item.ModifiedUnix, item.SizeBytes, plan.VideoStream, plan.VideoCodec, plan.AudioStream, plan.AudioCodec, plan.AudioTranscode)
+}
+
+func compatibilityMediaURL(id int64, plan webcompat.Plan) string {
+	values := url.Values{}
+	if plan.AudioStream >= 0 {
+		values.Set("audio_stream", strconv.Itoa(plan.AudioStream))
+	}
+	if plan.AudioTranscode {
+		values.Set("audio", "aac")
+	}
+	result := fmt.Sprintf("/api/v1/media/%d/remux", id)
+	if encoded := values.Encode(); encoded != "" {
+		result += "?" + encoded
+	}
+	return result
 }
 
 func (s *server) prepareRemuxMedia(w http.ResponseWriter, r *http.Request) {
@@ -132,11 +168,14 @@ func (s *server) prepareRemuxMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ready":              true,
-		"url":                fmt.Sprintf("/api/v1/media/%d/remux?audio=aac", id),
+		"url":                compatibilityMediaURL(id, plan),
 		"size_bytes":         size,
 		"video_codec":        plan.VideoCodec,
 		"audio_codec":        plan.AudioCodec,
 		"source_audio_codec": plan.SourceAudioCodec,
+		"audio_stream":       plan.AudioStream,
+		"audio_language":     plan.AudioLanguage,
+		"audio_title":        plan.AudioTitle,
 		"audio_transcode":    plan.AudioTranscode,
 		"seekable":           true,
 	})
@@ -200,6 +239,7 @@ func (s *server) remuxMedia(w http.ResponseWriter, r *http.Request) {
 		VideoCodec:       plan.VideoCodec,
 		AudioCodec:       plan.AudioCodec,
 		SourceAudioCodec: plan.SourceAudioCodec,
+		AudioLanguage:    plan.AudioLanguage,
 	})
 	w.Header().Set("Content-Type", "video/mp4")
 	w.Header().Set("Accept-Ranges", "bytes")
@@ -215,6 +255,10 @@ func (s *server) remuxMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("X-StormFlix-Video-Codec", plan.VideoCodec)
 	w.Header().Set("X-StormFlix-Audio-Codec", plan.AudioCodec)
+	w.Header().Set("X-StormFlix-Audio-Stream", strconv.Itoa(plan.AudioStream))
+	if plan.AudioLanguage != "" {
+		w.Header().Set("X-StormFlix-Audio-Language", plan.AudioLanguage)
+	}
 	if plan.SourceAudioCodec != "" && plan.SourceAudioCodec != plan.AudioCodec {
 		w.Header().Set("X-StormFlix-Source-Audio-Codec", plan.SourceAudioCodec)
 	}
