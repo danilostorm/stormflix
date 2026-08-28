@@ -79,6 +79,15 @@ func verifyMaterialized(path string, plan Plan) error {
 	return nil
 }
 
+// MaterializedPath returns the deterministic cache path for a compatibility
+// artifact. Keeping path calculation in one place lets the cache manager mark
+// the exact final file active before ffmpeg starts writing its temporary file.
+func MaterializedPath(cacheDir, cacheKey string) string {
+	sum := sha256.Sum256([]byte("seekable-aac-v3|" + cacheKey))
+	name := hex.EncodeToString(sum[:16]) + ".mp4"
+	return filepath.Join(cacheDir, name)
+}
+
 // MaterializeSeekable creates a normal MP4 file for compatibility playback.
 // The video stream is always copied. Only audio is encoded when Plan asks for
 // it. A real file lets http.ServeContent provide Content-Length, Range/206 and
@@ -98,9 +107,8 @@ func MaterializeSeekable(ctx context.Context, source string, plan Plan, cacheDir
 	// v3 deliberately invalidates v2 files produced with
 	// aresample=async=1:first_pts=0. On sources with shifted timestamps that
 	// filter can pad a very long silent prefix even though the AAC track exists.
-	sum := sha256.Sum256([]byte("seekable-aac-v3|" + cacheKey))
-	name := hex.EncodeToString(sum[:16]) + ".mp4"
-	finalPath := filepath.Join(cacheDir, name)
+	finalPath := MaterializedPath(cacheDir, cacheKey)
+	name := filepath.Base(finalPath)
 	lockValue, _ := materializeLocks.LoadOrStore(finalPath, &sync.Mutex{})
 	lock := lockValue.(*sync.Mutex)
 	lock.Lock()
