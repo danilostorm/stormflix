@@ -88,6 +88,34 @@ func TestRemuxContainerWithDTSUsesAACBecauseMP4CannotCopyDTS(t *testing.T) {
 	}
 }
 
+func TestServerSelectsPreferredNonDefaultAudioForWeb(t *testing.T) {
+	req := baseRequest()
+	req.Capabilities.ServerSelectsAudio = true
+	source := Source{Container: "mp4", Streams: []Stream{
+		{Index: 0, Type: "video", Codec: "h264"},
+		{Index: 1, Type: "audio", Codec: "aac", Language: "eng", Default: true},
+		{Index: 2, Type: "audio", Codec: "aac", Language: "pt-BR"},
+	}}
+	plan := Decide(source, req)
+	if plan.Mode != ModeRemux || !plan.Available || plan.AudioStream != 2 || plan.AudioTranscode || plan.ReasonCode != "server_audio_track_selection" {
+		t.Fatalf("expected explicit preferred-track remux, got %+v", plan)
+	}
+}
+
+func TestServerSelectedPreferredDTSUsesAACWithoutVideoTranscode(t *testing.T) {
+	req := baseRequest()
+	req.Capabilities.ServerSelectsAudio = true
+	source := Source{Container: "mp4", Streams: []Stream{
+		{Index: 0, Type: "video", Codec: "h264"},
+		{Index: 1, Type: "audio", Codec: "aac", Language: "eng", Default: true},
+		{Index: 2, Type: "audio", Codec: "dts", Language: "pt-BR"},
+	}}
+	plan := Decide(source, req)
+	if plan.Mode != ModeAudioCompatibility || !plan.AudioTranscode || plan.VideoTranscode || plan.AudioStream != 2 {
+		t.Fatalf("expected selected DTS audio-only compatibility, got %+v", plan)
+	}
+}
+
 func TestDecodeProfileRejectsUnsupportedResolutionWithoutVideoTranscode(t *testing.T) {
 	req := baseRequest()
 	req.Capabilities.VideoProfiles = []VideoProfile{{Codec: "h264", MaxWidth: 1920, MaxHeight: 1080, MaxFrameRate: 60}}
