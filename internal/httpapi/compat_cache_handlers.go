@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"fmt"
 	"net/http"
 	"path/filepath"
 
@@ -41,9 +42,6 @@ func (s *server) cleanupCompatCache(w http.ResponseWriter, r *http.Request) {
 }
 
 func formatCompatCacheCleanup(result webcompat.CacheCleanupResult) string {
-	return "files_removed=" + itoa(result.FilesRemoved) +
-		" bytes_removed=" + int64toa(result.BytesRemoved) +
-		" usage_before=" + int64toa(result.BytesBefore) +
-		" usage_after=" + int64toa(result.BytesAfter) +
-		" active_skipped=" + itoa(result.ActiveSkipped)
+	return fmt.Sprintf("files_removed=%d bytes_removed=%d usage_before=%d usage_after=%d active_skipped=%d",
+		result.FilesRemoved, result.BytesRemoved, result.BytesBefore, result.BytesAfter, result.ActiveSkipped)
 }
