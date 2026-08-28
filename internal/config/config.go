@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Config struct {
@@ -33,6 +34,13 @@ type Config struct {
 	ThemePreviewVolume         int
 	ThemePreviewAutoplay       bool
 	HomeHeroMode               string
+	CompatCacheMaxBytes        int64
+	CompatCacheTTL             time.Duration
+	CompatCacheAutoCleanup     bool
+	CompatCacheCleanupInterval time.Duration
+	CompatCacheMinFreeBytes    int64
+	CompatCacheMinFreePercent  int
+	CompatCacheOversizeTTL     time.Duration
 	BootstrapLibraryName       string
 	BootstrapLibraryPath       string
 }
@@ -65,6 +73,13 @@ func Load() Config {
 		ThemePreviewVolume:         envInt("STORMFLIX_THEME_PREVIEW_VOLUME", 24),
 		ThemePreviewAutoplay:       envBool("STORMFLIX_THEME_PREVIEW_AUTOPLAY", true),
 		HomeHeroMode:               env("STORMFLIX_HOME_HERO_MODE", "featured"),
+		CompatCacheMaxBytes:        envInt64("STORMFLIX_COMPAT_CACHE_MAX_BYTES", 20<<30),
+		CompatCacheTTL:             envDuration("STORMFLIX_COMPAT_CACHE_TTL", 48*time.Hour),
+		CompatCacheAutoCleanup:     envBool("STORMFLIX_COMPAT_CACHE_AUTO_CLEANUP", true),
+		CompatCacheCleanupInterval: envDuration("STORMFLIX_COMPAT_CACHE_CLEANUP_INTERVAL", 15*time.Minute),
+		CompatCacheMinFreeBytes:    envInt64("STORMFLIX_MIN_FREE_DISK_BYTES", 10<<30),
+		CompatCacheMinFreePercent:  envInt("STORMFLIX_MIN_FREE_DISK_PERCENT", 5),
+		CompatCacheOversizeTTL:     envDuration("STORMFLIX_COMPAT_CACHE_OVERSIZE_TTL", 15*time.Minute),
 		BootstrapLibraryName:       env("STORMFLIX_BOOTSTRAP_LIBRARY_NAME", "Media"),
 		BootstrapLibraryPath:       os.Getenv("STORMFLIX_BOOTSTRAP_LIBRARY_PATH"),
 	}
@@ -99,6 +114,30 @@ func envInt(key string, fallback int) int {
 		return fallback
 	}
 	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func envInt64(key string, fallback int64) int64 {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func envDuration(key string, fallback time.Duration) time.Duration {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := time.ParseDuration(value)
 	if err != nil {
 		return fallback
 	}

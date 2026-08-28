@@ -4,6 +4,24 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 
 ## 2026-08-27
 
+### Web Player v4 and managed compatibility cache
+
+- Replaced the old-looking browser playback shell with **StormFlix Web Player v4**, a visibly new cinematic player presentation layered over the native PlaybackPlan engine.
+- Player v4 adds SVG controls, custom played/buffered timeline, seek preview, playback-mode/resolution/quality indicators, previous/next episode controls, audio/subtitle/settings access, fullscreen, native Picture-in-Picture and responsive desktop/mobile layouts.
+- The visual redesign does not fork playback policy: Direct Play/remux/AAC decisions still come from the shared native Playback Core.
+- Replaced the unbounded `data/compat-cache` behavior with a managed compatibility Cache Manager.
+- Default cache policy is **20 GiB maximum + 48h TTL**, periodic cleanup every 15 minutes and LRU eviction down to an 85% target.
+- Compatibility cache tracks its own persisted `last_used_at` metadata instead of depending on filesystem atime.
+- Files being materialized or served are protected from eviction; abandoned temporary files are cleaned without deleting active FFmpeg output.
+- Oversize compatibility artifacts larger than the configured cache limit are treated as short-lived entries and expire after they become idle rather than permanently pushing the cache above its budget.
+- Before creating a large compatibility MP4, StormFlix applies disk-pressure eviction and preserves at least **10 GiB or 5% free filesystem space**, whichever is larger by default.
+- Startup cleanup safely adopts/evicts legacy compatibility MP4 files, so servers that accumulated a large pre-manager cache are brought back under policy without touching the database, artwork, source media or other DataDir content.
+- Added Admin → Configurações → **Playback · Cache de compatibilidade** with current usage, limit, file count, active files, oldest entry, free space, maximum size, TTL, auto-cleanup, disk reserve and **Limpar cache agora**.
+- Added authenticated admin status/cleanup APIs for the playback cache and reload cache policy immediately when settings are changed.
+- Added compatibility-cache regression tests for LRU, TTL, active-file safety, active/abandoned temporary files, oversize entries, manual cleanup isolation, path safety and unlimited mode.
+- CI now checks Player v4 JavaScript syntax and runs `go test -race` for playback/cache packages.
+- Server version advanced to **0.18.0-player-cache**.
+
 ### Unified playback completion
 
 - Completed the native StormFlix Playback Core for **Web, Android, Android TV and Fire TV** behind the same `/api/v1/media/{id}/playback/plan` contract.
@@ -34,7 +52,7 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 - Matching a principal series stores one provider decision and rebuilds scanner identities; the episode reorganization is now an observable queued `series_refresh` job instead of an invisible background goroutine.
 - Future episodes inherit the same series override automatically.
 - `Arquivos / diagnóstico` remains available for low-level inspection, but episodic rows no longer expose manual matching and instead point back to the principal work.
-- Added phase11 cleanup so legacy builds that marked every episode `manual_match=1` are normalized; series protection now lives only in `series_metadata_overrides`.
+- Added phase11 cleanup so legacy builds that marked every episode `manual_match=1` flags are normalized; series protection now lives only in `series_metadata_overrides`.
 - Added a regression test requiring two episodes of the same scanner series to appear as one principal work in the Admin catalog.
 
 ### Queue, scans and background activity
@@ -71,7 +89,7 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 - Added phase10 SQLite read indexes for artwork, recent/title ordering, ratings/status and series identity.
 - Added 20-second access-scope-aware cache for the static grouped Home feed.
 - Continue Watching remains uncached and profile-specific.
-- Parallelized independent Home reads (static grouped catalog, Continue Watching, trending windows and Releases).
+- Parallelized independent Home reads (static grouped catalog, Continue Watching, two trending windows and Releases).
 
 ### Jellyfin compatibility
 
