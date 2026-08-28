@@ -21,7 +21,7 @@ import (
 )
 
 const sessionCookie = "stormflix_session"
-const version = "0.16.2-queue-categories"
+const version = "0.17.0-playback-core"
 
 type contextKey string
 const userKey contextKey = "user"
@@ -96,6 +96,7 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("GET /api/v1/media/{id}/versions",s.requireAuth(s.mediaVersions))
 	mux.HandleFunc("GET /api/v1/media/{id}/subtitles",s.requireAuth(s.mediaSubtitles))
 	mux.HandleFunc("GET /api/v1/media/{id}/subtitles/{subtitle_id}/vtt",s.requireAuth(s.subtitleVTT))
+	mux.HandleFunc("POST /api/v1/media/{id}/playback/plan",s.requireAuth(s.playbackPlan))
 	mux.HandleFunc("POST /api/v1/media/{id}/playback",s.requireAuth(s.playbackHeartbeat))
 	mux.HandleFunc("POST /api/v1/media/{id}/playback/event",s.requireAuth(s.playbackEvent))
 	mux.HandleFunc("DELETE /api/v1/media/{id}/playback",s.requireAuth(s.playbackStop))
