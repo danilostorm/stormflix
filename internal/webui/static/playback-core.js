@@ -3,6 +3,8 @@
   let planGeneration=0;
   let activePlan=null;
   let activeItem=null;
+  let activeHls=null;
+  let hlsLibraryPromise=null;
   let mediaSessionBound=false;
   let playerErrorBound=false;
 
@@ -27,6 +29,8 @@
     if(canPlay('audio/webm; codecs="opus"'))audioCodecs.push('opus');
     if(canPlay('audio/mp4; codecs="ac-3"'))audioCodecs.push('ac3');
     if(canPlay('audio/mp4; codecs="ec-3"'))audioCodecs.push('eac3');
+    if(canPlay('audio/mp4; codecs="dts-"')||canPlay('audio/mp4; codecs="dts+"'))audioCodecs.push('dts');
+    if(canPlay('audio/flac')||canPlay('audio/mp4; codecs="fLaC"'))audioCodecs.push('flac');
 
     return {
       containers:[...new Set(containers)],
@@ -37,8 +41,7 @@
       allow_audio_compatibility:containers.includes('mp4')&&audioCodecs.includes('aac'),
       native_audio_track_selection:false,
       // HTMLMediaElement multi-audio selection is not consistently exposed
-      // across browsers. Ask the server to pin a non-default preferred track
-      // through a stream-copy remux instead of silently playing the wrong one.
+      // across browsers. Ask the server to pin a non-default preferred track.
       server_selects_audio:true,
       picture_in_picture:Boolean(document.pictureInPictureEnabled&&player.requestPictureInPicture),
       media_session:'mediaSession' in navigator
@@ -49,7 +52,7 @@
     return {
       client_kind:'web',
       client_name:'StormFlix Web',
-      client_version:'0.18',
+      client_version:'0.19',
       playback_session_id:String(sessionID||''),
       capabilities:browserCapabilities()
     };
@@ -153,12 +156,47 @@
     });
   }
 
-  function loadSource(url,resume,autoplay,generation){
-    if(generation!==planGeneration)return;
-    const source=String(url||'');
-    if(!source)throw new Error('O plano de reprodução não retornou uma fonte.');
-    player.src=source.startsWith('/api/')?source:`${api}${source}`;
-    player.load();
+  function absoluteSourceURL(source){
+    source=String(source||'');
+    if(!source)return'';
+    if(/^https?:\/\//i.test(source))return source;
+    return source.startsWith('/api/')?source:`${api}${source}`;
+  }
+
+  function isHLSSource(source){
+    const value=String(source||'').toLowerCase();
+    return value.includes('.m3u8')||value.includes('/hls/');
+  }
+
+  function destroyHls(){
+    if(activeHls){
+      try{activeHls.destroy()}catch{}
+      activeHls=null;
+    }
+  }
+
+  function ensureHlsLibrary(){
+    if(window.Hls)return Promise.resolve(window.Hls);
+    if(hlsLibraryPromise)return hlsLibraryPromise;
+    hlsLibraryPromise=new Promise((resolve,reject)=>{
+      const existing=document.querySelector('script[data-stormflix-hls]');
+      if(existing){
+        existing.addEventListener('load',()=>window.Hls?resolve(window.Hls):reject(new Error('hls.js não inicializou.')),{once:true});
+        existing.addEventListener('error',()=>reject(new Error('Não foi possível carregar hls.js.')),{once:true});
+        return;
+      }
+      const script=document.createElement('script');
+      script.src='https://cdn.jsdelivr.net/npm/hls.js@1.7.1/dist/hls.min.js';
+      script.async=true;
+      script.dataset.stormflixHls='1';
+      script.onload=()=>window.Hls?resolve(window.Hls):reject(new Error('hls.js não inicializou.'));
+      script.onerror=()=>reject(new Error('Não foi possível carregar hls.js.'));
+      document.head.appendChild(script);
+    }).catch(err=>{hlsLibraryPromise=null;throw err});
+    return hlsLibraryPromise;
+  }
+
+  function restoreOnMetadata(resume,autoplay,generation){
     player.addEventListener('loadedmetadata',function restore(){
       if(generation!==planGeneration)return;
       const position=Number(resume||0);
@@ -166,6 +204,80 @@
       if(autoplay)player.play().catch(()=>{});
       updateMediaSessionPosition();
     },{once:true});
+  }
+
+  async function loadHlsSource(url,resume,autoplay,generation){
+    destroyHls();
+    restoreOnMetadata(resume,autoplay,generation);
+    const nativeHls=canPlay('application/vnd.apple.mpegurl')||canPlay('application/x-mpegURL');
+    let HlsCtor=null;
+    if('MediaSource'in window){
+      try{HlsCtor=await ensureHlsLibrary()}catch(err){if(!nativeHls)throw err}
+    }
+    if(generation!==planGeneration)return;
+
+    if(HlsCtor&&typeof HlsCtor.isSupported==='function'&&HlsCtor.isSupported()){
+      const hls=new HlsCtor({
+        enableWorker:true,
+        maxBufferLength:24,
+        maxMaxBufferLength:36,
+        backBufferLength:8,
+        maxBufferHole:0.5,
+        lowLatencyMode:false
+      });
+      activeHls=hls;
+      hls.on(HlsCtor.Events.ERROR,(_event,data)=>{
+        if(!data?.fatal||activeHls!==hls)return;
+        if(data.type===HlsCtor.ErrorTypes.NETWORK_ERROR){
+          try{hls.startLoad()}catch{}
+          return;
+        }
+        if(data.type===HlsCtor.ErrorTypes.MEDIA_ERROR){
+          try{hls.recoverMediaError()}catch{}
+          return;
+        }
+        setHelp(data.details||'Falha fatal no streaming HLS.',true);
+        if(typeof sfToast==='function')sfToast('Falha no streaming HLS');
+        try{hls.destroy()}catch{}
+        if(activeHls===hls)activeHls=null;
+      });
+      await new Promise((resolve,reject)=>{
+        let settled=false;
+        const fail=(_event,data)=>{
+          if(settled||!data?.fatal)return;
+          settled=true;reject(new Error(data.details||'Falha ao abrir o HLS.'));
+        };
+        hls.on(HlsCtor.Events.ERROR,fail);
+        hls.on(HlsCtor.Events.MEDIA_ATTACHED,()=>{
+          if(generation!==planGeneration){if(!settled){settled=true;resolve()}return}
+          hls.loadSource(url);
+        });
+        hls.on(HlsCtor.Events.MANIFEST_PARSED,()=>{if(!settled){settled=true;resolve()}});
+        hls.attachMedia(player);
+      });
+      return;
+    }
+
+    if(nativeHls){
+      player.src=url;
+      player.load();
+      return;
+    }
+    throw new Error('Este navegador não possui suporte MSE/HLS para o modo de compatibilidade.');
+  }
+
+  async function loadSource(url,resume,autoplay,generation){
+    if(generation!==planGeneration)return;
+    const source=absoluteSourceURL(url);
+    if(!source)throw new Error('O plano de reprodução não retornou uma fonte.');
+    if(isHLSSource(source)){
+      await loadHlsSource(source,resume,autoplay,generation);
+      return;
+    }
+    destroyHls();
+    restoreOnMetadata(resume,autoplay,generation);
+    player.src=source;
+    player.load();
   }
 
   async function start(item,options={}){
@@ -184,6 +296,7 @@
       });
     }catch(err){
       if(generation!==planGeneration)return null;
+      destroyHls();
       player.pause();player.removeAttribute('src');player.load();
       setHelp(`Não foi possível obter o plano de reprodução: ${err.message||err}`,true);
       if(typeof sfToast==='function')sfToast('Não foi possível planejar a reprodução');
@@ -193,6 +306,7 @@
     applyPlanState(plan);
 
     if(!plan?.available){
+      destroyHls();
       player.pause();
       player.removeAttribute('src');
       player.load();
@@ -216,8 +330,17 @@
     }
     const resume=Number.isFinite(options.resumePosition)?options.resumePosition:Number(plan.resume_position_seconds||item.position_seconds||0);
     const sourceURL=prepared?.url||plan.url;
+    setHelp(isHLSSource(sourceURL)?'Iniciando streaming sob demanda…':'',isHLSSource(sourceURL));
+    try{
+      await loadSource(sourceURL,resume,options.autoplay!==false,generation);
+    }catch(err){
+      if(generation!==planGeneration)return plan;
+      setHelp(`Falha ao iniciar a fonte: ${err.message||err}`,true);
+      if(typeof sfToast==='function')sfToast('Falha ao iniciar reprodução');
+      return plan;
+    }
+    if(generation!==planGeneration)return plan;
     setHelp('',false);
-    loadSource(sourceURL,resume,options.autoplay!==false,generation);
     mediaSession(item);
     ensurePiPControl();
     bindPlayerErrors();
@@ -258,6 +381,7 @@
   closePlayer=function(){
     planGeneration++;
     activeItem=null;
+    destroyHls();
     applyPlanState(null);
     if(document.pictureInPictureElement)document.exitPictureInPicture().catch(()=>{});
     return previousClosePlayer();
