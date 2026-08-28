@@ -1,4 +1,4 @@
-// StormFlix Android 0.2.3 - preferred audio recovery and Jellyfin startup fixes
+// StormFlix Android 0.3.0 - unified PlaybackPlan / Media3 core
 plugins {
     id 'com.android.application'
 }
@@ -11,8 +11,8 @@ android {
         applicationId 'cloud.stormflix.app'
         minSdk 23
         targetSdk 36
-        versionCode 10
-        versionName '0.2.3'
+        versionCode 11
+        versionName '0.3.0'
     }
 
     buildTypes {
@@ -31,4 +31,5 @@ android {
 dependencies {
     implementation 'androidx.media3:media3-exoplayer:1.11.0'
     implementation 'androidx.media3:media3-ui:1.11.0'
+    implementation 'androidx.media3:media3-session:1.11.0'
 }
