@@ -24,7 +24,8 @@ function settingBytes(value){
 
 function settingAge(value){
   if(!value)return'—';
-  const ts=new Date(value).getTime();if(!Number.isFinite(ts))return'—';
+  const ts=new Date(value).getTime();
+  if(!Number.isFinite(ts)||ts<Date.UTC(2000,0,1))return'—';
   const seconds=Math.max(0,Math.round((Date.now()-ts)/1000));
   if(seconds<60)return'há poucos segundos';
   if(seconds<3600)return`há ${Math.round(seconds/60)} min`;
