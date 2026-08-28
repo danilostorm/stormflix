@@ -8,6 +8,7 @@
     const explicit=String(window.sfPlaybackMode||'').trim();
     if(explicit)return explicit;
     const src=String(player.currentSrc||player.src||'').toLowerCase();
+    if(src.includes('/hls/'))return'dynamic_hls';
     if(src.includes('/remux')&&src.includes('audio=aac'))return'direct_stream_audio_aac';
     if(src.includes('/remux'))return'web_remux';
     return'direct_play';
@@ -66,8 +67,10 @@
   function stopTimer(){clearInterval(timer);timer=null}
   async function finish(item,reason='stop'){
     if(!item?.id)return;
+    const session=sessionID();
     await heartbeat(true,reason);
-    try{await request(`/media/${item.id}/playback`,{method:'DELETE'})}catch{}
+    const suffix=session?`?session=${encodeURIComponent(session)}`:'';
+    try{await request(`/media/${item.id}/playback${suffix}`,{method:'DELETE'})}catch{}
   }
 
   player.addEventListener('playing',start);
@@ -85,9 +88,13 @@
 
   window.addEventListener('beforeunload',()=>{
     const item=media();if(!item?.id)return;
+    const session=sessionID();
     const fields=orderedFields('unload');
     const body=JSON.stringify({position_seconds:player.currentTime||0,duration_seconds:player.duration||0,state:state(),mode:mode(),resolution:resolution(),video_codec:technical.video_codec||'',audio_codec:technical.audio_codec||'',source_audio_codec:technical.source_audio_codec||'',audio_language:audioLanguage(),subtitle_language:subtitleLanguage(),...fields});
     fetch(`${api}/media/${item.id}/playback`,{method:'POST',headers:{'Content-Type':'application/json'},body,credentials:'same-origin',keepalive:true}).catch(()=>{});
+    if(session){
+      fetch(`${api}/media/${item.id}/playback?session=${encodeURIComponent(session)}`,{method:'DELETE',credentials:'same-origin',keepalive:true}).catch(()=>{});
+    }
   });
 })();
 
