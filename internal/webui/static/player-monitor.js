@@ -1,6 +1,6 @@
 /* StormFlix playback heartbeat for Tautulli-style monitoring */
 (function(){
-  let timer=null,lastMediaID=0,lastMode='',technical={};
+  let timer=null,lastMediaID=0,lastMode='',technical={},progressSequence=0,lastSession='';
   const baseClosePlayer=closePlayer;
 
   function media(){return typeof sfCurrentMedia!=='undefined'?sfCurrentMedia:null}
@@ -13,6 +13,7 @@
     return'direct_play';
   }
   function state(){return player.paused?'paused':'playing'}
+  function sessionID(){return String(window.sfPlaybackSessionID||'').trim()}
   function resolution(){return player.videoWidth&&player.videoHeight?`${player.videoWidth}x${player.videoHeight}`:''}
   function audioLanguage(){
     try{const tracks=player.audioTracks?[...player.audioTracks]:[];const active=tracks.find(t=>t.enabled);return active?.language||active?.label||''}catch{return''}
@@ -23,6 +24,11 @@
 
   async function loadTechnical(id,currentMode){
     technical={};
+    const planned=window.sfLastPlaybackPlan;
+    if(planned&&Number(planned.media_id)===Number(id)){
+      technical={video_codec:planned.video_codec||'',audio_codec:planned.audio_codec||'',source_audio_codec:planned.source_audio_codec||''};
+      return;
+    }
     try{
       const suffix=currentMode==='direct_stream_audio_aac'?'?audio=aac':'';
       const plan=await request(`/media/${id}/compatibility${suffix}`);
@@ -30,45 +36,57 @@
     }catch{}
   }
 
-  async function heartbeat(force=false){
+  function orderedFields(reason){
+    const session=sessionID();
+    if(!session)return{playback_session_id:'',progress_sequence:0,progress_event_ms:0,progress_reason:reason||'periodic'};
+    if(session!==lastSession){lastSession=session;progressSequence=0}
+    progressSequence++;
+    return{playback_session_id:session,progress_sequence:progressSequence,progress_event_ms:Date.now(),progress_reason:reason||'periodic'};
+  }
+
+  async function heartbeat(force=false,reason='periodic'){
     const item=media();if(!item?.id)return;
-    const currentMode=mode();
-    if(Number(item.id)!==lastMediaID||currentMode!==lastMode){
-      lastMediaID=Number(item.id);lastMode=currentMode;loadTechnical(lastMediaID,currentMode);
+    const currentMode=mode(),currentSession=sessionID();
+    if(Number(item.id)!==lastMediaID||currentMode!==lastMode||currentSession!==lastSession){
+      lastMediaID=Number(item.id);lastMode=currentMode;
+      if(currentSession!==lastSession){lastSession=currentSession;progressSequence=0}
+      loadTechnical(lastMediaID,currentMode);
     }
     if(!force&&document.hidden)return;
     const body={
       position_seconds:Number.isFinite(player.currentTime)?player.currentTime:0,
       duration_seconds:Number.isFinite(player.duration)?player.duration:0,
-      state:state(),mode:currentMode,resolution:resolution(),video_codec:technical.video_codec||'',audio_codec:technical.audio_codec||'',source_audio_codec:technical.source_audio_codec||'',audio_language:audioLanguage(),subtitle_language:subtitleLanguage()
+      state:state(),mode:currentMode,resolution:resolution(),video_codec:technical.video_codec||'',audio_codec:technical.audio_codec||'',source_audio_codec:technical.source_audio_codec||'',audio_language:audioLanguage(),subtitle_language:subtitleLanguage(),
+      ...orderedFields(reason)
     };
     try{await request(`/media/${item.id}/playback`,{method:'POST',body:JSON.stringify(body)})}catch{}
   }
 
-  function start(){clearInterval(timer);heartbeat(true);timer=setInterval(()=>heartbeat(false),10000)}
+  function start(){clearInterval(timer);heartbeat(true,'playing');timer=setInterval(()=>heartbeat(false,'periodic'),10000)}
   function stopTimer(){clearInterval(timer);timer=null}
-  async function finish(item){
+  async function finish(item,reason='stop'){
     if(!item?.id)return;
-    await heartbeat(true);
+    await heartbeat(true,reason);
     try{await request(`/media/${item.id}/playback`,{method:'DELETE'})}catch{}
   }
 
   player.addEventListener('playing',start);
-  player.addEventListener('pause',()=>heartbeat(true));
-  player.addEventListener('seeked',()=>heartbeat(true));
-  player.addEventListener('loadedmetadata',()=>heartbeat(true));
-  player.addEventListener('ended',async()=>{const item=media();stopTimer();await finish(item)});
-  document.addEventListener('visibilitychange',()=>{if(!document.hidden)heartbeat(true)});
+  player.addEventListener('pause',()=>heartbeat(true,'pause'));
+  player.addEventListener('seeked',()=>heartbeat(true,'seeked'));
+  player.addEventListener('loadedmetadata',()=>heartbeat(true,'ready'));
+  player.addEventListener('ended',async()=>{const item=media();stopTimer();await finish(item,'ended')});
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)heartbeat(true,'visible')});
 
   closePlayer=function(){
-    const item=media();stopTimer();finish(item);
-    baseClosePlayer();lastMediaID=0;lastMode='';technical={};
+    const item=media();stopTimer();finish(item,'stop');
+    baseClosePlayer();lastMediaID=0;lastMode='';technical={};progressSequence=0;lastSession='';
   };
   const close=document.querySelector('#player-close');if(close)close.onclick=closePlayer;
 
   window.addEventListener('beforeunload',()=>{
     const item=media();if(!item?.id)return;
-    const body=JSON.stringify({position_seconds:player.currentTime||0,duration_seconds:player.duration||0,state:state(),mode:mode(),resolution:resolution(),video_codec:technical.video_codec||'',audio_codec:technical.audio_codec||'',source_audio_codec:technical.source_audio_codec||'',audio_language:audioLanguage(),subtitle_language:subtitleLanguage()});
+    const fields=orderedFields('unload');
+    const body=JSON.stringify({position_seconds:player.currentTime||0,duration_seconds:player.duration||0,state:state(),mode:mode(),resolution:resolution(),video_codec:technical.video_codec||'',audio_codec:technical.audio_codec||'',source_audio_codec:technical.source_audio_codec||'',audio_language:audioLanguage(),subtitle_language:subtitleLanguage(),...fields});
     fetch(`${api}/media/${item.id}/playback`,{method:'POST',headers:{'Content-Type':'application/json'},body,credentials:'same-origin',keepalive:true}).catch(()=>{});
   });
 })();
