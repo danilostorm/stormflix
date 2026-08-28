@@ -2,6 +2,9 @@
 (function(){
   let planGeneration=0;
   let activePlan=null;
+  let activeItem=null;
+  let mediaSessionBound=false;
+  let playerErrorBound=false;
 
   function canPlay(mediaType){
     try{return Boolean(player.canPlayType(mediaType))}catch{return false}
@@ -29,16 +32,25 @@
       containers:[...new Set(containers)],
       video_codecs:[...new Set(videoCodecs)],
       audio_codecs:[...new Set(audioCodecs)],
+      subtitle_formats:['vtt'],
       allow_remux:containers.includes('mp4'),
-      allow_audio_compatibility:containers.includes('mp4')&&audioCodecs.includes('aac')
+      allow_audio_compatibility:containers.includes('mp4')&&audioCodecs.includes('aac'),
+      native_audio_track_selection:false,
+      // HTMLMediaElement multi-audio selection is not consistently exposed
+      // across browsers. Ask the server to pin a non-default preferred track
+      // through a stream-copy remux instead of silently playing the wrong one.
+      server_selects_audio:true,
+      picture_in_picture:Boolean(document.pictureInPictureEnabled&&player.requestPictureInPicture),
+      media_session:'mediaSession' in navigator
     };
   }
 
-  function clientRequest(){
+  function clientRequest(sessionID){
     return {
       client_kind:'web',
       client_name:'StormFlix Web',
-      client_version:'0.17',
+      client_version:'0.18',
+      playback_session_id:String(sessionID||''),
       capabilities:browserCapabilities()
     };
   }
@@ -76,9 +88,18 @@
       plan.audio_transcode=true;
       plan.audio_codec=prepared.audio_codec||'aac';
       plan.source_audio_codec=prepared.source_audio_codec||plan.source_audio_codec||'';
-      applyPlanState(plan);
     }
+    if(Number.isInteger(prepared.audio_stream))plan.audio_stream=prepared.audio_stream;
+    if(prepared.audio_language)plan.audio_language=prepared.audio_language;
+    applyPlanState(plan);
     return prepared;
+  }
+
+  function updateMediaSessionPosition(){
+    if(!('mediaSession' in navigator)||typeof navigator.mediaSession.setPositionState!=='function')return;
+    const duration=Number(player.duration),position=Number(player.currentTime),rate=Number(player.playbackRate||1);
+    if(!Number.isFinite(duration)||duration<=0||!Number.isFinite(position))return;
+    try{navigator.mediaSession.setPositionState({duration,position:Math.max(0,Math.min(position,duration)),playbackRate:rate})}catch{}
   }
 
   function mediaSession(item){
@@ -94,7 +115,42 @@
       navigator.mediaSession.setActionHandler('seekbackward',details=>{player.currentTime=Math.max(0,(player.currentTime||0)-(details.seekOffset||10))});
       navigator.mediaSession.setActionHandler('seekforward',details=>{player.currentTime=Math.min(player.duration||Infinity,(player.currentTime||0)+(details.seekOffset||10))});
       navigator.mediaSession.setActionHandler('seekto',details=>{if(Number.isFinite(details.seekTime))player.currentTime=details.seekTime});
+      if(!mediaSessionBound){
+        mediaSessionBound=true;
+        player.addEventListener('timeupdate',updateMediaSessionPosition,{passive:true});
+        player.addEventListener('durationchange',updateMediaSessionPosition,{passive:true});
+        player.addEventListener('ratechange',updateMediaSessionPosition,{passive:true});
+      }
+      updateMediaSessionPosition();
     }catch{}
+  }
+
+  async function togglePictureInPicture(){
+    if(!document.pictureInPictureEnabled||!player.requestPictureInPicture)return false;
+    try{
+      if(document.pictureInPictureElement){await document.exitPictureInPicture();return false}
+      await player.requestPictureInPicture();return true;
+    }catch{return false}
+  }
+
+  function ensurePiPControl(){
+    if(!document.pictureInPictureEnabled||!player.requestPictureInPicture||document.querySelector('#sf-pip'))return;
+    const fullscreen=document.querySelector('#sf-fullscreen');
+    if(!fullscreen?.parentElement)return;
+    const button=document.createElement('button');
+    button.className='sf-control-btn';button.id='sf-pip';button.type='button';button.setAttribute('aria-label','Picture-in-Picture');button.textContent='▣';
+    button.onclick=()=>togglePictureInPicture();
+    fullscreen.parentElement.insertBefore(button,fullscreen);
+  }
+
+  function bindPlayerErrors(){
+    if(playerErrorBound)return;playerErrorBound=true;
+    player.addEventListener('error',()=>{
+      if(!activeItem)return;
+      const detail=player.error?.message||activePlan?.reason||'O navegador não conseguiu decodificar a fonte planejada.';
+      setHelp(detail,true);
+      if(typeof sfToast==='function')sfToast('Falha ao reproduzir esta fonte');
+    });
   }
 
   function loadSource(url,resume,autoplay,generation){
@@ -108,12 +164,15 @@
       const position=Number(resume||0);
       if(position>=0&&Number.isFinite(player.duration)&&position<player.duration-3)player.currentTime=position;
       if(autoplay)player.play().catch(()=>{});
+      updateMediaSessionPosition();
     },{once:true});
   }
 
   async function start(item,options={}){
     if(!item?.id)return null;
     const generation=++planGeneration;
+    const previousSession=options.sessionID||activePlan?.playback_session_id||window.sfPlaybackSessionID||'';
+    activeItem=item;
     applyPlanState(null);
     setHelp('Analisando a melhor forma de reproduzir neste navegador…',true);
 
@@ -121,13 +180,14 @@
     try{
       plan=await request(`/media/${Number(item.id)}/playback/plan`,{
         method:'POST',
-        body:JSON.stringify(clientRequest())
+        body:JSON.stringify(clientRequest(previousSession))
       });
     }catch(err){
       if(generation!==planGeneration)return null;
-      // A planner outage must not make an otherwise healthy Direct Play path
-      // unusable during migration.
-      plan={available:true,mode:'direct_play',url:`/api/v1/media/${Number(item.id)}/stream`,reason:`Planner indisponível: ${err.message||err}`};
+      player.pause();player.removeAttribute('src');player.load();
+      setHelp(`Não foi possível obter o plano de reprodução: ${err.message||err}`,true);
+      if(typeof sfToast==='function')sfToast('Não foi possível planejar a reprodução');
+      return null;
     }
     if(generation!==planGeneration)return plan;
     applyPlanState(plan);
@@ -142,16 +202,25 @@
     }
 
     let prepared=null;
-    if(plan.prepare_url){
-      setHelp(plan.mode==='audio_compatibility'?'Preparando áudio AAC sem recodificar o vídeo…':'Preparando remux sem recodificar o vídeo…',true);
-      prepared=await preparePlan(plan);
+    try{
+      if(plan.prepare_url){
+        setHelp(plan.mode==='audio_compatibility'?'Preparando áudio AAC sem recodificar o vídeo…':'Preparando remux sem recodificar o vídeo…',true);
+        prepared=await preparePlan(plan);
+        if(generation!==planGeneration)return plan;
+      }
+    }catch(err){
       if(generation!==planGeneration)return plan;
+      setHelp(`Falha ao preparar a fonte: ${err.message||err}`,true);
+      if(typeof sfToast==='function')sfToast('Falha ao preparar a fonte');
+      return plan;
     }
     const resume=Number.isFinite(options.resumePosition)?options.resumePosition:Number(plan.resume_position_seconds||item.position_seconds||0);
     const sourceURL=prepared?.url||plan.url;
     setHelp('',false);
     loadSource(sourceURL,resume,options.autoplay!==false,generation);
     mediaSession(item);
+    ensurePiPControl();
+    bindPlayerErrors();
     return plan;
   }
 
@@ -175,10 +244,11 @@
       if(!version)return;
       const oldTime=Number.isFinite(player.currentTime)?player.currentTime:0;
       const wasPlaying=!player.paused;
+      const session=activePlan?.playback_session_id||window.sfPlaybackSessionID||'';
       const next={...sfCurrentMedia,...version,id:Number(id)};
       sfCurrentMedia=next;
       if(typeof sfLoadPlayerOptions==='function')await sfLoadPlayerOptions(id);
-      await start(next,{resumePosition:oldTime,autoplay:wasPlaying});
+      await start(next,{resumePosition:oldTime,autoplay:wasPlaying,sessionID:session});
       if(typeof sfToast==='function')sfToast(`${version.label||'Versão'} · ${compatibilityMode(activePlan?.mode).replaceAll('_',' ')}`);
       if(typeof sfRenderSettings==='function')sfRenderSettings();
     };
@@ -186,23 +256,24 @@
 
   const previousClosePlayer=closePlayer;
   closePlayer=function(){
-    // Invalidate any in-flight planning/preparation request before the legacy
-    // close routine clears the media element. A late response must never start
-    // hidden playback after the user has left the player.
     planGeneration++;
+    activeItem=null;
     applyPlanState(null);
+    if(document.pictureInPictureElement)document.exitPictureInPicture().catch(()=>{});
     return previousClosePlayer();
   };
   const closeButton=document.querySelector('#player-close');if(closeButton)closeButton.onclick=closePlayer;
 
-  // Disable the old automatic web-only planner. Manual AAC controls remain as
-  // an explicit escape hatch while the UI migration is completed.
+  // The legacy automatic web-only planner is retired. Manual compatibility UI
+  // remains a user action, but automatic source policy belongs to Playback Core.
   window.sfEnsureWebAudioCompatibility=function(){return Promise.resolve(activePlan)};
+  window.sfTogglePictureInPicture=togglePictureInPicture;
 
   window.sfPlaybackCore={
     start,
     capabilities:browserCapabilities,
     currentPlan:()=>activePlan,
-    sessionID:()=>String(activePlan?.playback_session_id||'')
+    sessionID:()=>String(activePlan?.playback_session_id||''),
+    togglePictureInPicture
   };
 })();
