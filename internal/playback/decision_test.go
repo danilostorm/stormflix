@@ -77,3 +77,53 @@ func TestRemuxWhenOnlyContainerIsUnsupported(t *testing.T) {
 		t.Fatalf("unexpected plan: %+v", plan)
 	}
 }
+
+func TestRemuxContainerWithDTSUsesAACBecauseMP4CannotCopyDTS(t *testing.T) {
+	req := baseRequest()
+	req.Capabilities.AudioCodecs = append(req.Capabilities.AudioCodecs, "dts")
+	source := Source{Container: "mkv", Streams: []Stream{{Index: 0, Type: "video", Codec: "h264"}, {Index: 1, Type: "audio", Codec: "dts", Language: "pt-BR"}}}
+	plan := Decide(source, req)
+	if plan.Mode != ModeAudioCompatibility || !plan.AudioTranscode || plan.VideoTranscode {
+		t.Fatalf("expected AAC compatibility for DTS->MP4, got %+v", plan)
+	}
+}
+
+func TestDecodeProfileRejectsUnsupportedResolutionWithoutVideoTranscode(t *testing.T) {
+	req := baseRequest()
+	req.Capabilities.VideoProfiles = []VideoProfile{{Codec: "h264", MaxWidth: 1920, MaxHeight: 1080, MaxFrameRate: 60}}
+	source := Source{Container: "mp4", Streams: []Stream{{Index: 0, Type: "video", Codec: "h264", Width: 3840, Height: 2160, FrameRate: 30}, {Index: 1, Type: "audio", Codec: "aac"}}}
+	plan := Decide(source, req)
+	if plan.Available || plan.Mode != ModeUnsupported || plan.VideoTranscode || plan.ReasonCode != "video_resolution_unsupported" {
+		t.Fatalf("unexpected plan: %+v", plan)
+	}
+}
+
+func TestDecodeProfileRejectsKnownUnsupportedHDR(t *testing.T) {
+	req := baseRequest()
+	req.Capabilities.VideoProfiles = []VideoProfile{{Codec: "h264", MaxWidth: 3840, MaxHeight: 2160, MaxFrameRate: 60, HDRKnown: true, HDRTypes: []string{}}}
+	source := Source{Container: "mp4", Streams: []Stream{{Index: 0, Type: "video", Codec: "h264", Width: 1920, Height: 1080, FrameRate: 24, HDR: "hdr10"}, {Index: 1, Type: "audio", Codec: "aac"}}}
+	plan := Decide(source, req)
+	if plan.Available || plan.ReasonCode != "video_hdr_unsupported" || plan.VideoTranscode {
+		t.Fatalf("unexpected plan: %+v", plan)
+	}
+}
+
+func TestDecodeProfileAllowsAdvertisedHDR(t *testing.T) {
+	req := baseRequest()
+	req.Capabilities.VideoProfiles = []VideoProfile{{Codec: "h264", MaxWidth: 3840, MaxHeight: 2160, MaxFrameRate: 60, HDRKnown: true, HDRTypes: []string{"hdr10"}}}
+	source := Source{Container: "mp4", Streams: []Stream{{Index: 0, Type: "video", Codec: "h264", Width: 1920, Height: 1080, FrameRate: 24, HDR: "hdr10"}, {Index: 1, Type: "audio", Codec: "aac"}}}
+	plan := Decide(source, req)
+	if !plan.Available || plan.Mode != ModeDirectPlay {
+		t.Fatalf("unexpected plan: %+v", plan)
+	}
+}
+
+func TestDirectPlayBitrateLimitIsExplicitAndNeverTranscodesVideo(t *testing.T) {
+	req := baseRequest()
+	req.Capabilities.DirectPlayMaxBitrateKbps = 10000
+	source := Source{Container: "mp4", BitrateKbps: 25000, Streams: []Stream{{Index: 0, Type: "video", Codec: "h264"}, {Index: 1, Type: "audio", Codec: "aac"}}}
+	plan := Decide(source, req)
+	if plan.Available || plan.ReasonCode != "direct_play_bitrate_limit" || plan.VideoTranscode {
+		t.Fatalf("unexpected plan: %+v", plan)
+	}
+}
