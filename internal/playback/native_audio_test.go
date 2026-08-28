@@ -16,6 +16,9 @@ func TestNativeClientKeepsOriginalMultiAudioWhenAnyTrackIsSupported(t *testing.T
 	if plan.Mode != ModeDirectPlay || !plan.Available || !plan.ClientSelectsAudio || plan.AudioTranscode || plan.VideoTranscode {
 		t.Fatalf("expected native multi-audio direct play, got %+v", plan)
 	}
+	if plan.AudioStream != -1 || plan.AudioCodec != "" || plan.SourceAudioCodec != "" {
+		t.Fatalf("native audio selection must not pin the unsupported preferred stream: %+v", plan)
+	}
 }
 
 func TestNativeClientUsesAACCompatibilityWhenNoAudioTrackIsSupported(t *testing.T) {
@@ -30,5 +33,22 @@ func TestNativeClientUsesAACCompatibilityWhenNoAudioTrackIsSupported(t *testing.
 	plan := DecideForClient(source, req)
 	if plan.Mode != ModeAudioCompatibility || !plan.AudioTranscode || plan.VideoTranscode {
 		t.Fatalf("expected audio-only compatibility, got %+v", plan)
+	}
+}
+
+func TestNativeAudioSelectionCannotBypassResolutionLimit(t *testing.T) {
+	req := baseRequest()
+	req.ClientKind = "tv"
+	req.Capabilities.Containers = append(req.Capabilities.Containers, "mkv")
+	req.Capabilities.NativeAudioTrackSelection = true
+	req.Capabilities.VideoProfiles = []VideoProfile{{Codec: "h264", MaxWidth: 1920, MaxHeight: 1080}}
+	source := Source{Container: "mkv", Streams: []Stream{
+		{Index: 0, Type: "video", Codec: "h264", Width: 3840, Height: 2160},
+		{Index: 1, Type: "audio", Codec: "dts", Language: "pt-BR"},
+		{Index: 2, Type: "audio", Codec: "aac", Language: "eng"},
+	}}
+	plan := DecideForClient(source, req)
+	if plan.Available || plan.ReasonCode != "video_resolution_unsupported" || plan.VideoTranscode {
+		t.Fatalf("native audio override bypassed video policy: %+v", plan)
 	}
 }
