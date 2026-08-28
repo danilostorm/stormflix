@@ -67,7 +67,7 @@ func (s *server) playbackPlan(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	plan := playback.Decide(source, in)
+	plan := playback.DecideForClient(source, in)
 	plan.MediaID = id
 	plan.ResumePositionSeconds = resumePosition
 	if plan.Available {

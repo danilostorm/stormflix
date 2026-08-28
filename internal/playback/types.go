@@ -8,11 +8,12 @@ const (
 )
 
 type Capabilities struct {
-	Containers              []string `json:"containers"`
-	VideoCodecs             []string `json:"video_codecs"`
-	AudioCodecs             []string `json:"audio_codecs"`
-	AllowRemux              bool     `json:"allow_remux"`
-	AllowAudioCompatibility bool     `json:"allow_audio_compatibility"`
+	Containers                []string `json:"containers"`
+	VideoCodecs               []string `json:"video_codecs"`
+	AudioCodecs               []string `json:"audio_codecs"`
+	AllowRemux                bool     `json:"allow_remux"`
+	AllowAudioCompatibility   bool     `json:"allow_audio_compatibility"`
+	NativeAudioTrackSelection bool     `json:"native_audio_track_selection"`
 }
 
 type Request struct {
@@ -57,6 +58,7 @@ type Plan struct {
 	AudioStream           int     `json:"audio_stream"`
 	AudioTranscode        bool    `json:"audio_transcode"`
 	VideoTranscode        bool    `json:"video_transcode"`
+	ClientSelectsAudio    bool    `json:"client_selects_audio"`
 	URL                   string  `json:"url,omitempty"`
 	PrepareURL            string  `json:"prepare_url,omitempty"`
 	ResumePositionSeconds float64 `json:"resume_position_seconds,omitempty"`
