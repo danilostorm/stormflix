@@ -7,6 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/danilostorm/stormflix/internal/media"
@@ -71,19 +74,45 @@ func (s *server) playbackPlan(w http.ResponseWriter, r *http.Request) {
 	plan.MediaID = id
 	plan.ResumePositionSeconds = resumePosition
 	if plan.Available {
-		plan.PlaybackSessionID = newPlaybackSessionID()
-		switch plan.Mode {
-		case playback.ModeDirectPlay:
-			plan.URL = fmt.Sprintf("/api/v1/media/%d/stream", id)
-		case playback.ModeRemux:
-			plan.URL = fmt.Sprintf("/api/v1/media/%d/remux", id)
-			plan.PrepareURL = fmt.Sprintf("/api/v1/media/%d/remux/prepare", id)
-		case playback.ModeAudioCompatibility:
-			plan.URL = fmt.Sprintf("/api/v1/media/%d/remux?audio=aac", id)
-			plan.PrepareURL = fmt.Sprintf("/api/v1/media/%d/remux/prepare?audio=aac", id)
+		plan.PlaybackSessionID = normalizePlaybackSessionID(in.PlaybackSessionID)
+		if plan.PlaybackSessionID == "" {
+			plan.PlaybackSessionID = newPlaybackSessionID()
 		}
+		plan.URL, plan.PrepareURL = playbackExecutionURLs(id, plan)
 	}
 	writeJSON(w, http.StatusOK, plan)
+}
+
+func playbackExecutionURLs(id int64, plan playback.Plan) (string, string) {
+	if plan.Mode == playback.ModeDirectPlay {
+		return fmt.Sprintf("/api/v1/media/%d/stream", id), ""
+	}
+	values := url.Values{}
+	if plan.AudioStream >= 0 {
+		values.Set("audio_stream", strconv.Itoa(plan.AudioStream))
+	}
+	if plan.Mode == playback.ModeAudioCompatibility {
+		values.Set("audio", "aac")
+	}
+	suffix := ""
+	if encoded := values.Encode(); encoded != "" {
+		suffix = "?" + encoded
+	}
+	return fmt.Sprintf("/api/v1/media/%d/remux%s", id, suffix), fmt.Sprintf("/api/v1/media/%d/remux/prepare%s", id, suffix)
+}
+
+func normalizePlaybackSessionID(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 128 {
+		return ""
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' || r == ':' {
+			continue
+		}
+		return ""
+	}
+	return value
 }
 
 func newPlaybackSessionID() string {
