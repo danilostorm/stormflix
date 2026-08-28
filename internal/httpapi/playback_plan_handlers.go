@@ -14,6 +14,7 @@ import (
 
 	"github.com/danilostorm/stormflix/internal/media"
 	"github.com/danilostorm/stormflix/internal/playback"
+	"github.com/danilostorm/stormflix/internal/webcompat"
 )
 
 func (s *server) playbackPlan(w http.ResponseWriter, r *http.Request) {
@@ -78,7 +79,46 @@ func (s *server) playbackPlan(w http.ResponseWriter, r *http.Request) {
 		if plan.PlaybackSessionID == "" {
 			plan.PlaybackSessionID = newPlaybackSessionID()
 		}
-		plan.URL, plan.PrepareURL = playbackExecutionURLs(id, plan)
+
+		if strings.EqualFold(strings.TrimSpace(in.ClientKind), "web") {
+			if plan.Mode == playback.ModeDirectPlay {
+				// A source/version switch can keep the same logical playback session.
+				// If the previous source used HLS, Direct Play must discard those
+				// fragments immediately instead of leaving them for idle cleanup.
+				s.hlsCache.CloseSession(u.ID, plan.PlaybackSessionID)
+				plan.URL, plan.PrepareURL = playbackExecutionURLs(id, plan)
+			} else {
+				hlsAudioTranscode := webcompat.NeedsHLSAAC(plan.AudioCodec, plan.AudioTranscode)
+				spec := webcompat.HLSSpec{
+					VideoStream:       plan.VideoStream,
+					AudioStream:       plan.AudioStream,
+					VideoCodec:        plan.VideoCodec,
+					AudioCodec:        plan.AudioCodec,
+					SourceAudioCodec:  plan.SourceAudioCodec,
+					AudioTranscode:    hlsAudioTranscode,
+					DurationSeconds:   source.DurationSeconds,
+					SourceBitrateKbps: plan.SourceBitrateKbps,
+				}
+				if err := s.hlsCache.PrepareSession(plan.PlaybackSessionID, u.ID, id, item.Path, spec); err != nil {
+					plan.Available = false
+					plan.Mode = playback.ModeUnsupported
+					plan.ReasonCode = "hls_session_prepare_failed"
+					plan.Reason = err.Error()
+					plan.URL = ""
+					plan.PrepareURL = ""
+				} else {
+					if hlsAudioTranscode {
+						plan.Mode = playback.ModeAudioCompatibility
+						plan.AudioTranscode = true
+						plan.AudioCodec = "aac"
+					}
+					plan.URL = fmt.Sprintf("/api/v1/media/%d/hls/%s/index.m3u8", id, plan.PlaybackSessionID)
+					plan.PrepareURL = ""
+				}
+			}
+		} else {
+			plan.URL, plan.PrepareURL = playbackExecutionURLs(id, plan)
+		}
 	}
 	writeJSON(w, http.StatusOK, plan)
 }
