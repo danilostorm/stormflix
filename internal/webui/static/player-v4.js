@@ -240,8 +240,8 @@
   player.addEventListener('durationchange',updateProgressVisual);
   player.addEventListener('loadedmetadata',()=>{refreshMetadata();refreshResolution();updateProgressVisual()});
   player.addEventListener('dblclick',()=>sfToggleFullscreen());
-  document.addEventListener('enterpictureinpicture',()=>modal.classList.add('sf-v4-pip-active'));
-  document.addEventListener('leavepictureinpicture',()=>modal.classList.remove('sf-v4-pip-active'));
+  player.addEventListener('enterpictureinpicture',()=>modal.classList.add('sf-v4-pip-active'));
+  player.addEventListener('leavepictureinpicture',()=>modal.classList.remove('sf-v4-pip-active'));
 
   const basePlayMedia=playMedia;
   playMedia=async function(item){
