@@ -33,6 +33,22 @@ func (s *server) updateSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("metadata language cannot be empty"))
 		return
 	}
+	if in.CompatCacheMaxBytes != nil && *in.CompatCacheMaxBytes < 0 {
+		writeError(w, http.StatusBadRequest, errors.New("compatibility cache limit cannot be negative"))
+		return
+	}
+	if in.CompatCacheTTLHours != nil && *in.CompatCacheTTLHours < 0 {
+		writeError(w, http.StatusBadRequest, errors.New("compatibility cache TTL cannot be negative"))
+		return
+	}
+	if in.CompatCacheMinFreeBytes != nil && *in.CompatCacheMinFreeBytes < 0 {
+		writeError(w, http.StatusBadRequest, errors.New("minimum free disk reserve cannot be negative"))
+		return
+	}
+	if in.CompatCacheMinFreePercent != nil && (*in.CompatCacheMinFreePercent < 0 || *in.CompatCacheMinFreePercent > 95) {
+		writeError(w, http.StatusBadRequest, errors.New("minimum free disk percent must be between 0 and 95"))
+		return
+	}
 
 	candidateDir := s.config.AssetDir
 	candidateURL := s.config.AssetPublicBaseURL
@@ -64,9 +80,10 @@ func (s *server) updateSettings(w http.ResponseWriter, r *http.Request) {
 	s.metadata.Configure(effective)
 	s.subtitles.Configure(effective)
 	music.ConfigureProviders(effective.LastFMAPIKey)
+	s.compatCache.Configure(compatCachePolicy(effective))
 	s.config = effective
 	uid := currentUser(r).ID
-	s.admin.Log(r.Context(), "info", "settings", "Runtime settings updated", &uid, "agents and asset storage reloaded without restart")
+	s.admin.Log(r.Context(), "info", "settings", "Runtime settings updated", &uid, "agents, asset storage and playback cache policy reloaded without restart")
 	out, err := s.settings.Public(r.Context(), s.baseConfig)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
