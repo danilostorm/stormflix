@@ -88,25 +88,22 @@
         request(`/categories/${encodeURIComponent(root.slug)}`),
         childPromise
       ]);
-      const childRows=results
-        .map(({child,data})=>({id:`category-${child.slug}`,title:child.name,items:categoryItems(data)}))
-        .filter(row=>row.items.length);
-      const usedTitles=new Set(childRows.map(row=>normalizeSectionKey(row.title)));
-      const genreRows=categoryGenreRows(root,rootData,usedTitles);
-      const rows=[...childRows,...genreRows];
-      const allItems=categoryItems(rootData);
 
-      // If there is no configured child hierarchy, genres become the visible
-      // section structure and the complete catalog stays available at the end.
-      // This prevents a root such as Filmes/Séries/Animes from degrading into
-      // one enormous rail while still keeping titles with incomplete metadata
-      // reachable through "Todos em ...".
-      if(!children.length&&allItems.length){
-        rows.push({id:`category-${root.slug}-all`,title:`Todos em ${root.name}`,items:allItems});
+      // Explicit/configured children have first claim on a title. When sibling
+      // categories overlap, the first configured category wins so the same
+      // movie/series never appears twice on the root page.
+      const assigned=new Set();
+      const childRows=[];
+      for(const {child,data} of results){
+        const items=claimUniqueItems(categoryItems(data),assigned);
+        if(items.length)childRows.push({id:`category-${child.slug}`,title:child.name,items});
       }
-      if(!rows.length){
-        rows.push({id:`category-${root.slug}`,title:`Todos em ${root.name}`,items:allItems});
-      }
+
+      // Metadata classification receives only titles not already claimed by a
+      // configured category and assigns every remaining title to exactly one
+      // Brazilian-Portuguese genre. Missing/unknown metadata falls into Outros.
+      const genreRows=categoryGenreRows(root,rootData,assigned);
+      const rows=mergeSectionRows([...childRows,...genreRows]);
       renderRows(rows);
       window.scrollTo({top:0,behavior:'smooth'});
     }catch(err){target.innerHTML=`<div class="empty-state error">${escapeHTML(err.message)}</div>`}
@@ -140,8 +137,8 @@
       if(aggregate){
         renderRows([{id:`category-${category.slug}`,title:`Tudo em ${root.name}`,items}]);
       }else{
-        const genreRows=categoryGenreRows(category,data,new Set());
-        renderRows(genreRows.length?[{id:`category-${category.slug}`,title:category.name,items},...genreRows]:[{id:`category-${category.slug}`,title:category.name,items}]);
+        const rows=categoryGenreRows(category,data,new Set());
+        renderRows(rows.length?rows:[{id:`category-${category.slug}`,title:category.name,items}]);
       }
       window.scrollTo({top:0,behavior:'smooth'});
     }catch(err){target.innerHTML=`<div class="empty-state error">${escapeHTML(err.message)}</div>`}
@@ -163,58 +160,127 @@
     return [...series,...mediaItems];
   }
 
+  function itemCategoryKey(item){
+    if(item?.entity_type==='series'||Number(item?.series_id||0)>0)return `s:${Number(item.series_id||item.id||0)}`;
+    return `m:${Number(item?.id||0)}`;
+  }
+
+  function claimUniqueItems(items,assigned){
+    const out=[];
+    for(const item of items){
+      const key=itemCategoryKey(item);
+      if(assigned.has(key))continue;
+      assigned.add(key);out.push(item);
+    }
+    return out;
+  }
+
+  function mergeSectionRows(rows){
+    const merged=[];
+    const byTitle=new Map();
+    for(const row of rows){
+      if(!row?.items?.length)continue;
+      const sectionKey=normalizeSectionKey(row.title);
+      const existing=byTitle.get(sectionKey);
+      if(!existing){
+        const next={id:row.id,title:row.title,items:[...row.items]};
+        byTitle.set(sectionKey,next);merged.push(next);continue;
+      }
+      const seen=new Set(existing.items.map(itemCategoryKey));
+      for(const item of row.items){
+        const key=itemCategoryKey(item);if(seen.has(key))continue;
+        seen.add(key);existing.items.push(item);
+      }
+    }
+    return merged;
+  }
+
   function normalizeSectionKey(value){
     return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
   }
 
   function canonicalGenre(value){
-    const raw=String(value||'').trim();
-    if(!raw)return null;
-    const key=normalizeSectionKey(raw);
-    const aliases={
-      action:['acao','action'],adventure:['aventura','adventure'],animation:['animacao','animation'],
-      comedy:['comedia','comedy'],crime:['crime'],documentary:['documentario','documentary'],
-      drama:['drama'],family:['familia','family'],fantasy:['fantasia','fantasy'],history:['historia','history'],
-      horror:['terror','horror'],music:['musica','music'],mystery:['misterio','mystery'],
-      romance:['romance'],sciencefiction:['ficcao-cientifica','science-fiction','sci-fi'],thriller:['suspense','thriller'],
-      war:['guerra','war'],western:['faroeste','western'],actionadventure:['acao-e-aventura','action-adventure'],
-      kids:['infantil','kids'],reality:['reality'],scififantasy:['sci-fi-fantasy','sci-fi-fantasia'],
-      soap:['novela','soap'],talk:['talk'],warpolitics:['guerra-politica','war-politics']
+    const key=normalizeSectionKey(value);
+    if(!key)return null;
+    const map={
+      'acao':['action','acao'],
+      'aventura':['adventure','aventura'],
+      'animacao':['animation','animacao'],
+      'comedia':['comedy','comedia'],
+      'crime':['crime'],
+      'documentarios':['documentary','documentario','documentarios'],
+      'drama':['drama'],
+      'familia':['family','familia'],
+      'fantasia':['fantasy','fantasia'],
+      'historia':['history','historia'],
+      'terror':['horror','terror'],
+      'musica':['music','musica'],
+      'misterio':['mystery','misterio'],
+      'romance':['romance'],
+      'ficcao-cientifica':['science-fiction','sci-fi','ficcao-cientifica'],
+      'suspense':['thriller','suspense'],
+      'guerra':['war','guerra'],
+      'faroeste':['western','faroeste'],
+      'acao-e-aventura':['action-adventure','acao-e-aventura'],
+      'infantil':['kids','infantil'],
+      'reality-show':['reality','reality-show'],
+      'ficcao-cientifica-e-fantasia':['sci-fi-fantasy','science-fiction-fantasy','ficcao-cientifica-e-fantasia','ficcao-cientifica-fantasia'],
+      'novelas':['soap','novela','novelas'],
+      'programas-de-entrevista':['talk','talk-show','talk-shows','programa-de-entrevista','programas-de-entrevista'],
+      'guerra-e-politica':['war-politics','guerra-politica','guerra-e-politica'],
+      'filmes-para-tv':['tv-movie','television-movie','filme-para-tv','filmes-para-tv'],
+      'noticias':['news','noticia','noticias'],
+      'psicologico':['psychological','psicologico'],
+      'cotidiano':['slice-of-life','cotidiano'],
+      'esportes':['sports','sport','esporte','esportes'],
+      'sobrenatural':['supernatural','sobrenatural'],
+      'garotas-magicas':['mahou-shoujo','magical-girl','magical-girls','garotas-magicas'],
+      'mecha':['mecha'],
+      'artes-marciais':['martial-arts','artes-marciais']
     };
     const titles={
-      action:'Ação',adventure:'Aventura',animation:'Animação',comedy:'Comédia',crime:'Crime',documentary:'Documentários',
-      drama:'Drama',family:'Família',fantasy:'Fantasia',history:'História',horror:'Terror',music:'Música',mystery:'Mistério',
-      romance:'Romance',sciencefiction:'Ficção científica',thriller:'Suspense',war:'Guerra',western:'Faroeste',
-      actionadventure:'Ação e aventura',kids:'Infantil',reality:'Reality',scififantasy:'Ficção científica e fantasia',
-      soap:'Novelas',talk:'Talk shows',warpolitics:'Guerra e política'
+      'acao':'Ação','aventura':'Aventura','animacao':'Animação','comedia':'Comédia','crime':'Crime',
+      'documentarios':'Documentários','drama':'Drama','familia':'Família','fantasia':'Fantasia','historia':'História',
+      'terror':'Terror','musica':'Música','misterio':'Mistério','romance':'Romance','ficcao-cientifica':'Ficção científica',
+      'suspense':'Suspense','guerra':'Guerra','faroeste':'Faroeste','acao-e-aventura':'Ação e aventura',
+      'infantil':'Infantil','reality-show':'Reality show','ficcao-cientifica-e-fantasia':'Ficção científica e fantasia',
+      'novelas':'Novelas','programas-de-entrevista':'Programas de entrevista','guerra-e-politica':'Guerra e política',
+      'filmes-para-tv':'Filmes para TV','noticias':'Notícias','psicologico':'Psicológico','cotidiano':'Cotidiano',
+      'esportes':'Esportes','sobrenatural':'Sobrenatural','garotas-magicas':'Garotas mágicas','mecha':'Mecha','artes-marciais':'Artes marciais'
     };
-    for(const [name,values] of Object.entries(aliases)){
-      if(values.includes(key))return {key:name,title:titles[name]};
+    for(const [name,aliases] of Object.entries(map)){
+      if(aliases.includes(key))return {key:name,title:titles[name]};
     }
-    return {key:`genre-${key}`,title:raw};
+    return null;
   }
 
-  function categoryGenreRows(root,data,usedTitles){
-    const items=categoryItems(data);
-    if(items.length<2)return [];
+  function preferredGenre(item){
+    const genres=Array.isArray(item?.genres)?item.genres:[];
+    for(const value of genres){
+      const genre=canonicalGenre(value);
+      if(genre)return genre;
+    }
+    return {key:'outros',title:'Outros'};
+  }
+
+  function categoryGenreRows(root,data,assigned){
     const groups=new Map();
-    for(const item of items){
-      const seenGenres=new Set();
-      const genres=Array.isArray(item?.genres)?item.genres:[];
-      for(const value of genres){
-        const genre=canonicalGenre(value);
-        if(!genre||seenGenres.has(genre.key))continue;
-        seenGenres.add(genre.key);
-        let group=groups.get(genre.key);
-        if(!group){group={title:genre.title,count:0,items:[]};groups.set(genre.key,group)}
-        group.count++;
-        if(group.items.length<30)group.items.push(item);
-      }
+    for(const item of categoryItems(data)){
+      const itemKey=itemCategoryKey(item);
+      if(assigned.has(itemKey))continue;
+      const genre=preferredGenre(item);
+      let group=groups.get(genre.key);
+      if(!group){group={title:genre.title,items:[]};groups.set(genre.key,group)}
+      group.items.push(item);
+      assigned.add(itemKey);
     }
     return [...groups.entries()]
-      .filter(([,group])=>group.count>=2&&!usedTitles.has(normalizeSectionKey(group.title)))
-      .sort((a,b)=>b[1].count-a[1].count||a[1].title.localeCompare(b[1].title,'pt-BR'))
-      .slice(0,8)
+      .filter(([,group])=>group.items.length>0)
+      .sort((a,b)=>{
+        if(a[0]==='outros')return 1;
+        if(b[0]==='outros')return -1;
+        return b[1].items.length-a[1].items.length||a[1].title.localeCompare(b[1].title,'pt-BR');
+      })
       .map(([key,group])=>({id:`category-${root.slug}-genre-${key}`,title:group.title,items:group.items}));
   }
 
