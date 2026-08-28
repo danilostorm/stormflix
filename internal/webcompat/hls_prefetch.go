@@ -96,10 +96,17 @@ func (m *HLSManager) prefetchFollowingBatch(userID, mediaID int64, sessionID str
 		}
 		active := current.worker
 		if active != nil {
-			// Another request (for example, a seek) has priority. Never cancel an
-			// active user-requested batch merely to satisfy speculative prefetch.
-			current.mu.Unlock()
-			return
+			if active == waitWorker {
+				// runBatch closes worker.done immediately before clearing the worker
+				// pointer. Seeing the exact completed worker here is therefore safe:
+				// hand ownership forward so prefetch can start without a tiny race.
+				current.worker = nil
+			} else {
+				// Another request (for example, a seek) has priority. Never cancel an
+				// active user-requested batch merely to satisfy speculative prefetch.
+				current.mu.Unlock()
+				return
+			}
 		}
 		current.mu.Unlock()
 
