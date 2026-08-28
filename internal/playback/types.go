@@ -26,6 +26,7 @@ type Capabilities struct {
 	AllowRemux                bool           `json:"allow_remux"`
 	AllowAudioCompatibility   bool           `json:"allow_audio_compatibility"`
 	NativeAudioTrackSelection bool           `json:"native_audio_track_selection"`
+	ServerSelectsAudio        bool           `json:"server_selects_audio,omitempty"`
 	DirectPlayMaxBitrateKbps  int64          `json:"direct_play_max_bitrate_kbps,omitempty"`
 	PictureInPicture          bool           `json:"picture_in_picture,omitempty"`
 	MediaSession              bool           `json:"media_session,omitempty"`
