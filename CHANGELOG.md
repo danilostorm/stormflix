@@ -4,6 +4,24 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 
 ## 2026-08-27
 
+### Unified playback completion
+
+- Completed the native StormFlix Playback Core for **Web, Android, Android TV and Fire TV** behind the same `/api/v1/media/{id}/playback/plan` contract.
+- Playback planning now carries real client capabilities for containers, video/audio codecs, maximum decode resolution/frame-rate, known HDR support, optional bitrate limits, subtitle formats, PiP and Media Session support.
+- Source probing now records video dimensions, frame rate, HDR transfer mode and bitrate in addition to codecs/container.
+- Direct Play remains the first choice and **video is never silently transcoded or tone-mapped**. Unsupported video capability is returned explicitly.
+- Fixed MP4 compatibility planning so DTS/other non-MP4-copy-compatible audio cannot be mislabeled as a pure remux; video remains stream-copy while only audio falls back to AAC-LC.
+- Added exact `audio_stream` propagation from PlaybackPlan through compatibility preparation and range-served remux output. The execution adapter can no longer silently choose a different language track from the one selected by the planner.
+- Browsers now declare server-side audio selection because HTML multi-audio selection is not reliably exposed across engines. If the preferred track is not the default track, StormFlix performs a stream-copy remux that pins the preferred audio without re-encoding video.
+- Web source switches preserve the same playback session, keep ordered progress monotonic, expose Picture-in-Picture when supported and maintain Media Session position state.
+- Removed the web planner-outage raw-stream bypass: native StormFlix playback policy now remains authoritative rather than silently falling back to a second source-selection path.
+- Android/TV Media3 now publishes actual MediaCodec decoder capabilities and consumes PlaybackPlan before loading every source.
+- Android/TV preserves native multi-audio Direct Play when at least one local audio decoder can handle a track, while server-side AAC compatibility remains available when no usable track exists.
+- Android alternative-source fallback now tests each physical version through PlaybackPlan rather than guessing compatibility from quality labels alone.
+- Added native Media3 `MediaSession`; phone/tablet playback adds Picture-in-Picture while TV/Fire keeps remote/D-pad-first behavior.
+- Android app advanced to **0.3.0 / versionCode 11**.
+- Added regression tests for native multi-audio selection, exact remux audio execution, HDR/resolution/frame-rate policy, bitrate policy, server-selected browser audio and playback-session URL behavior.
+
 ### Catalog identity and metadata
 
 - Added scanner-owned episodic identity (`media_series_identity`) so folder hierarchy determines show/season/episode before external metadata providers.
@@ -63,7 +81,7 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 - Fixed required `UserDto` fields and non-null Jellyfin `UserData` objects.
 - Fixed Jellyfin artwork delivery for clients whose image loader does not carry the native StormFlix session.
 
-### Playback
+### Playback foundation
 
 - Added `docs/PLAYBACK_ARCHITECTURE.md` defining the native StormFlix playback architecture for Web, Android and TV/Fire while keeping the Jellyfin facade isolated.
 - Added `internal/playback` with a capability-driven source probe and deterministic Playback Decision Engine for `direct_play`, `remux`, `audio_compatibility` and explicit `unsupported` results.
