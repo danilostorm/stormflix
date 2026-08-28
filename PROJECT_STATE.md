@@ -2,7 +2,7 @@
 
 > **Authoritative continuation note.** Any coding agent/session continuing StormFlix must read this file and `AGENTS.md` before changing code. Update this document after meaningful changes.
 
-Last architecture update: **2026-08-27**.
+Last architecture update: **2026-08-28**.
 
 ## Deployment
 
@@ -21,7 +21,7 @@ Server HTTP port: **8090**, normally behind the user's HTTPS reverse proxy.
 
 ## Current versions
 
-- Server version constant: `0.18.0-player-cache`.
+- Server version constant: `0.19.0-dynamic-hls`.
 - Native Android application: `cloud.stormflix.app`, version **0.3.0**, versionCode 11, minSdk 23, targetSdk 36, Java 17, Media3 1.11.0.
 - SQLite remains the supported database with WAL, synchronous=NORMAL, busy timeout, bounded connection pool and targeted indexes.
 
@@ -30,14 +30,15 @@ Server HTTP port: **8090**, normally behind the user's HTTPS reverse proxy.
 1. **Direct Play first. Never silently transcode video.**
 2. Web, Android and TV/Fire use the same native `PlaybackPlan` policy under `/api/v1`.
 3. Jellyfin compatibility remains isolated from native `/api/v1`; native StormFlix clients do not depend on Jellyfin endpoints.
-4. Android/TV may keep the original multi-audio source when Media3 has a usable decoder and choose tracks locally.
-5. Browser multi-audio selection may be pinned server-side because HTML audio-track APIs are inconsistent.
-6. Preferred audio understands `pt-BR → pt → por`, including Português/Dublado/Brasil labels, while explicit profile languages remain authoritative.
-7. If video is supported and only selected audio is incompatible, compatibility mode keeps **video stream-copy** and converts only audio to AAC-LC.
-8. Compatibility MP4 output must remain seekable and HTTP Range/206 capable.
-9. Exact `audio_stream` selected by PlaybackPlan is authoritative through remux/materialization.
+4. Storage origin is not playback policy. A local file, rclone/FUSE mount, Google Drive mount or NFS source is evaluated by its actual streams/capabilities, not by provider name.
+5. Android/TV may keep the original multi-audio source when Media3 has a usable decoder and choose tracks locally.
+6. Browser multi-audio selection may be pinned server-side because HTML audio-track APIs are inconsistent.
+7. Preferred audio understands `pt-BR → pt → por`, including Português/Dublado/Brasil labels, while explicit profile languages remain authoritative.
+8. If video is supported and only selected audio is incompatible, compatibility mode keeps **video stream-copy** and converts only audio to AAC-LC.
+9. Exact `audio_stream` selected by PlaybackPlan is authoritative through execution.
 10. Ordered progress uses playback session + sequence/event ordering; stale writes cannot overwrite newer progress and legitimate backward seeks remain valid.
 11. Unsupported video codec/resolution/frame-rate/HDR/explicit bitrate limits produce an explicit unsupported result. No implicit tone-map or video-transcode fallback exists.
+12. Web compatibility cache is session-scoped and disposable. Normal player close/end must delete that session's HLS cache immediately.
 
 ## Unified native playback architecture — implemented
 
@@ -47,7 +48,9 @@ StormFlix Android ───┼──> /api/v1 ──> Playback Core ──> Medi
 StormFlix TV/Fire ───┘        │
                               ├── Profiles / progress
                               ├── Library access
-                              └── Metadata / subtitles
+                              ├── Metadata / subtitles
+                              ├── Dynamic HLS session cache (Web)
+                              └── Seekable compatibility MP4 cache (native/manual fallback)
 
 Jellyfin clients ──> Jellyfin compatibility facade ──> StormFlix core
 ```
@@ -65,30 +68,93 @@ Native modes:
 
 Source probing includes container, duration, bitrate, codecs, video dimensions, frame rate and HDR transfer classification. Capabilities can carry codec decode profiles, resolution/frame-rate limits, known HDR types, subtitle formats, audio telemetry, PiP/Media Session support and explicit Direct Play bitrate limits.
 
-## StormFlix Web Player v4
+## StormFlix Web Player v4 + dynamic HLS
 
-The earlier 0.17 playback work changed the **playback engine**, but still rendered the old v2/v3 player presentation. Version 0.18 fixes that product gap: the browser now visibly uses **StormFlix Web Player v4**.
-
-`internal/webui/static/playback-core.js` remains the source-policy owner. `player-v4.js`/`player-v4.css` own the new presentation.
+`internal/webui/static/playback-core.js` remains the source-policy/execution owner. `player-v4.js`/`player-v4.css` own the visible player presentation.
 
 Player v4 includes:
 
-- cinematic full-screen overlay instead of the old player bar;
+- cinematic full-screen overlay;
 - SVG controls and responsive desktop/mobile layout;
 - custom played/buffered timeline with seek preview;
 - title, series/episode context and technical playback indicators;
 - playback-mode chip (`Direct Play`, `Remux`, `Áudio AAC`);
 - resolution/quality indicator;
 - play/pause, ±10s, volume/mute;
-- audio and subtitle controls through the existing track/settings system;
-- previous/next episode controls from `/api/v1/media/{id}/neighbors`;
+- audio/subtitle controls;
+- previous/next episode controls;
 - fullscreen and native browser Picture-in-Picture;
-- Media Session position integration through Playback Core;
+- Media Session position integration;
 - automatic control hiding while video plays.
 
 The visual shell does **not** decide codecs or transcodes. PlaybackPlan remains authoritative.
 
+### Direct Play path
+
+Compatible media is served through `/api/v1/media/{id}/stream` with `os.Open` + `http.ServeContent` + HTTP Range/206 semantics.
+
+**Direct Play creates zero StormFlix HLS/compatibility cache.** A Google Drive/rclone mount is read directly through the mount just like local storage; any VFS cache is rclone's responsibility.
+
+### Web remux/audio compatibility path
+
+Web no longer waits for a complete seekable compatibility MP4 to be written before playback.
+
+For a non-Direct-Play Web plan, StormFlix creates a session-scoped dynamic fMP4 HLS timeline:
+
+- `GET /api/v1/media/{id}/hls/{session}/index.m3u8`
+- `GET /api/v1/media/{id}/hls/{session}/init/{batch}.mp4`
+- `GET /api/v1/media/{id}/hls/{session}/segment/{segment}.m4s`
+
+Default execution:
+
+- 6-second segments;
+- 4 segments per FFmpeg batch (~24 seconds);
+- FFmpeg seeks to the requested batch position before input processing;
+- `-c:v copy` is mandatory;
+- exact selected video/audio streams are mapped;
+- audio is stream-copied when compatible with the fMP4/browser path;
+- DTS/TrueHD/Opus/FLAC and other incompatible selected audio is converted to AAC-LC only;
+- HEVC is tagged `hvc1` where needed;
+- Web uses pinned hls.js for MSE browsers, with native HLS fallback where supported.
+
+This means a 20/40/50+ GiB remote movie is not rewritten in full before playback can start. Only the requested small batch is generated.
+
 Web monitoring sends server-issued playback session, monotonic progress sequence and event timestamps.
+
+## Web HLS cache / SSD safety
+
+HLS fragments live under:
+
+`<DataDir>/hls-cache/<playback-session>/`
+
+They are ephemeral session data.
+
+### Hard global defaults
+
+- HLS maximum: **5 GiB globally for all users**, not per user (`STORMFLIX_HLS_CACHE_MAX_BYTES`).
+- Segment duration: **6s** (`STORMFLIX_HLS_SEGMENT_DURATION`).
+- Batch size: **4 segments / ~24s** (`STORMFLIX_HLS_BATCH_SEGMENTS`).
+- Idle/crashed-session fallback TTL: **30m** (`STORMFLIX_HLS_CACHE_IDLE_TTL`).
+- Minimum free disk reserve: **10 GiB OR 5%**, whichever is larger, shared with compatibility-cache safety settings.
+- Old fragments behind the user's current playback position are continuously removed.
+
+Before starting a new FFmpeg batch, the HLS manager estimates its size from source bitrate and reserves capacity. If `current usage + estimated batch` would exceed the global maximum, it evicts oldest disposable fragments first. Sessions with a running FFmpeg worker are not pressure-evicted. If enough safe disk cannot be made available, the new batch is refused instead of allowing the SSD to fill.
+
+### Immediate cleanup on player close/end
+
+This is a required behavior, not an optional periodic cleanup:
+
+1. Web sends `DELETE /api/v1/media/{id}/playback?session=<playback-session-id>` when the movie ends or the player closes.
+2. The server verifies that the HLS session belongs to the authenticated user.
+3. Any FFmpeg worker for that HLS session is cancelled.
+4. The entire `<DataDir>/hls-cache/<session>/` directory is removed immediately.
+5. `beforeunload` sends a best-effort keepalive DELETE when the tab/window disappears without a normal player close.
+
+Source/version switches using the same logical playback session clear old HLS fragments before registering the new source. Switching from HLS compatibility to Direct Play also clears the previous HLS session immediately.
+
+The 30-minute idle TTL exists only for crashes/network loss/clients that never deliver normal cleanup.
+
+At StormFlix startup, the dedicated `hls-cache` directory is cleared because fragments from previous server processes are disposable and should never consume SSD indefinitely.
 
 ## Android / Android TV / Fire TV
 
@@ -107,75 +173,24 @@ Media3 executes the same PlaybackPlan contract as Web.
 - supports native audio/subtitle selection, previous/next episode, MediaSession and phone/tablet PiP;
 - never silently bypasses the planner with raw `/stream` after a planning failure.
 
-## Managed compatibility cache
+The dynamic HLS executor is currently Web-specific. Android/TV still use the existing seekable compatibility MP4 executor when server-side compatibility is required.
 
-`internal/webcompat` remains the seekable FFmpeg execution adapter. It is now fronted by a real `CacheManager`; `data/compat-cache` must never be treated as an unbounded permanent media store.
+## Managed legacy compatibility MP4 cache
 
-### Why the cache exists
+`internal/webcompat/materialize.go` + `CacheManager` remain for Android/TV/manual compatibility paths. Automatic StormFlix Web remux/audio compatibility no longer uses whole-file materialization.
 
-Browsers/devices sometimes need a normal seekable MP4 when the original container/audio combination is not directly usable. StormFlix may therefore materialize an MP4 with:
+The legacy compatibility cache lives at `<DataDir>/compat-cache` and remains managed:
 
-- video stream-copy;
-- exact selected audio stream;
-- audio stream-copy when MP4-compatible, or AAC-LC audio conversion when required;
-- `faststart` and normal HTTP Range/206 serving.
+- maximum persistent usage: **20 GiB** (`STORMFLIX_COMPAT_CACHE_MAX_BYTES`);
+- TTL: **48h** (`STORMFLIX_COMPAT_CACHE_TTL`);
+- cleanup interval: **15m**;
+- LRU target: **85%**;
+- minimum free disk: **10 GiB or 5%**;
+- oversize artifacts are short-lived;
+- active materialization/serving artifacts are protected;
+- path confinement prevents deletion outside `compat-cache`.
 
-A source can be tens of gigabytes, so these artifacts require explicit lifecycle management.
-
-### Default policy
-
-- Maximum persistent usage: **20 GiB** (`STORMFLIX_COMPAT_CACHE_MAX_BYTES`).
-- TTL: **48h** (`STORMFLIX_COMPAT_CACHE_TTL`).
-- Automatic cleanup: enabled.
-- Cleanup interval: **15 minutes**.
-- LRU eviction target after exceeding the limit: **85%** of configured maximum.
-- Minimum free disk reserve: **10 GiB OR 5% of the filesystem**, whichever is larger.
-- Abandoned `.tmp` cleanup age: 1h.
-- An artifact larger than the configured cache maximum is marked **oversize** and treated as short-lived; default idle expiration is 15 minutes.
-
-`0` maximum means intentionally unlimited; this is not the default.
-
-### Cache safety
-
-- Last use is tracked in the cache's own persisted `.stormflix-cache.json` manifest; do not depend only on filesystem atime.
-- A cached MP4 being generated or served is marked active and cannot be evicted.
-- A temporary FFmpeg file belonging to an active materialization is also protected, even when materialization takes longer than the abandoned-temp threshold.
-- Old abandoned `.tmp` files are removed.
-- Eviction is LRU: least recently used inactive artifacts go first.
-- Startup runs cleanup asynchronously so startup is not blocked by a large legacy cache.
-- Before materializing a large file, disk pressure is checked and inactive cache entries are evicted first.
-- If the free-space reserve still cannot be maintained, playback preparation fails cleanly instead of allowing FFmpeg to fill the disk.
-- Cleanup is path-confined to `<DataDir>/compat-cache`; it must never delete `stormflix.db`, WAL files, `assets/`, artwork, original libraries or any other DataDir path.
-
-A legacy cache such as the previously observed ~94 GiB directory is adopted on startup and reduced by TTL/LRU/oversize policy automatically when files are inactive.
-
-### Admin controls
-
-Admin → Configurações now contains **Playback · Cache de compatibilidade**.
-
-It shows:
-
-- current usage;
-- configured limit;
-- file count;
-- active file count;
-- oldest last-used entry;
-- free filesystem space;
-- last cleanup result.
-
-It allows configuring:
-
-- maximum size (5/10/20/50/100 GiB or unlimited);
-- TTL;
-- automatic cleanup;
-- minimum free bytes;
-- minimum free percentage.
-
-`GET /api/v1/admin/playback/cache` returns cache status.
-
-`POST /api/v1/admin/playback/cache/cleanup` performs manual cleanup while preserving active artifacts.
-
-Settings are persisted through the existing generic `settings` table and applied without server restart.
+The existing Admin → Configurações → **Playback · Cache de compatibilidade** controls this legacy seekable-MP4 cache. HLS-specific hard defaults are currently environment-configured; do not claim those Admin controls change the HLS budget unless that UI/settings support is explicitly added later.
 
 ## Jellyfin compatibility facade
 
@@ -311,7 +326,7 @@ If Home becomes slow again, add SQL/query timing first. Do not jump directly to 
 - Phase 10: `series_metadata_overrides`, category `parent_id`, performance indexes.
 - Phase 11: ordered series-child index and cleanup of legacy per-episode manual flags.
 - Phase 12: persistent `scan_jobs` and metadata job type/series/provider fields.
-- Playback cache management adds **no schema migration**; runtime cache settings use the existing key/value `settings` table and cache LRU metadata uses the manifest inside `compat-cache`.
+- Playback cache management adds **no schema migration**. HLS session state is filesystem/in-memory only and disposable.
 
 ## Required validation after relevant changes
 
@@ -324,17 +339,19 @@ Before calling playback/cache work ready:
 - Go server build;
 - Android build/tests when Android code changes.
 
-Cache tests must demonstrate that an artificially oversized cache is reduced below the configured target, active files are preserved, abandoned temporary files are removed, active temp files are preserved, oversize entries expire and cleanup cannot escape the cache directory.
+Dynamic HLS tests must cover playlist layout, immediate session deletion, user ownership, source-switch deletion, idle cleanup, hard-budget eviction and path confinement. Legacy cache tests must continue covering LRU/TTL/active-file/temp/oversize safety.
 
 ## Known pending real-world QA
 
-Implementation is complete, but these behaviors still depend on real environments and should be verified during deployment/QA rather than guessed from unit tests:
+Implementation is code-complete only after CI is green. Real environments still need deployment QA for:
 
-- Player v4 visual/interaction QA on Chrome/Chromium, Firefox and Safari-capable browsers;
-- playback of real H.264/AAC, H.264+DTS, HEVC/AV1 and multi-audio media across browsers/devices;
-- first startup cleanup against the server's existing legacy `compat-cache` size;
+- Player v4 + dynamic HLS on Chrome/Chromium, Firefox and Safari-capable browsers;
+- real H.264/AAC Direct Play from rclone/Google Drive mounts;
+- H.264+DTS/TrueHD and multi-audio Web HLS startup/seek behavior;
+- HEVC/AV1 browser capability behavior without video transcode;
+- actual SSD usage under multiple simultaneous HLS sessions and immediate cleanup after close;
+- existing legacy `compat-cache` startup cleanup;
 - real rclone/Drive scan queue behavior;
-- problematic cartoon/dubbed-anime principal matching while watching `series_refresh`;
 - Jellyfin Android TV/Fire validation after catalog metadata is known-correct.
 
 ## Documentation rule
