@@ -4,12 +4,13 @@ import "strings"
 
 func Decide(source Source, request Request) Plan {
 	plan := Plan{
-		Mode:            ModeUnsupported,
-		ClientKind:      strings.ToLower(strings.TrimSpace(request.ClientKind)),
-		SourceContainer: normalizeContainer(source.Container),
-		Container:       normalizeContainer(source.Container),
-		VideoStream:     -1,
-		AudioStream:     -1,
+		Mode:              ModeUnsupported,
+		ClientKind:        strings.ToLower(strings.TrimSpace(request.ClientKind)),
+		SourceContainer:   normalizeContainer(source.Container),
+		Container:         normalizeContainer(source.Container),
+		VideoStream:       -1,
+		AudioStream:       -1,
+		SourceBitrateKbps: source.BitrateKbps,
 	}
 
 	video, ok := firstStream(source.Streams, "video")
@@ -20,9 +21,40 @@ func Decide(source Source, request Request) Plan {
 	}
 	plan.VideoStream = video.Index
 	plan.VideoCodec = normalizeCodec(video.Codec)
+	plan.VideoWidth = video.Width
+	plan.VideoHeight = video.Height
+	plan.VideoFrameRate = video.FrameRate
+	plan.VideoHDR = strings.ToLower(strings.TrimSpace(video.HDR))
 	if !supports(request.Capabilities.VideoCodecs, plan.VideoCodec, normalizeCodec) {
 		plan.ReasonCode = "video_codec_unsupported"
 		plan.Reason = "video codec " + plan.VideoCodec + " is not supported by this client; StormFlix will not silently transcode video"
+		return plan
+	}
+	if profile, exists := videoProfileFor(request.Capabilities.VideoProfiles, plan.VideoCodec); exists {
+		if profile.MaxWidth > 0 && plan.VideoWidth > profile.MaxWidth {
+			plan.ReasonCode = "video_resolution_unsupported"
+			plan.Reason = "video width exceeds this client's advertised decode profile; StormFlix will not silently transcode video"
+			return plan
+		}
+		if profile.MaxHeight > 0 && plan.VideoHeight > profile.MaxHeight {
+			plan.ReasonCode = "video_resolution_unsupported"
+			plan.Reason = "video height exceeds this client's advertised decode profile; StormFlix will not silently transcode video"
+			return plan
+		}
+		if profile.MaxFrameRate > 0 && plan.VideoFrameRate > profile.MaxFrameRate+0.01 {
+			plan.ReasonCode = "video_framerate_unsupported"
+			plan.Reason = "video frame rate exceeds this client's advertised decode profile; StormFlix will not silently transcode video"
+			return plan
+		}
+		if profile.HDRKnown && plan.VideoHDR != "" && !containsNormalized(profile.HDRTypes, plan.VideoHDR) {
+			plan.ReasonCode = "video_hdr_unsupported"
+			plan.Reason = "the source HDR format is not supported by this client's advertised decode profile; StormFlix will not silently tone-map or transcode video"
+			return plan
+		}
+	}
+	if request.Capabilities.DirectPlayMaxBitrateKbps > 0 && source.BitrateKbps > request.Capabilities.DirectPlayMaxBitrateKbps {
+		plan.ReasonCode = "direct_play_bitrate_limit"
+		plan.Reason = "source bitrate exceeds the client's explicit Direct Play limit; StormFlix will not silently transcode video"
 		return plan
 	}
 
@@ -49,22 +81,13 @@ func Decide(source Source, request Request) Plan {
 	}
 
 	if !audioSupported {
-		if request.Capabilities.AllowAudioCompatibility && supports(request.Capabilities.AudioCodecs, "aac", normalizeCodec) && supports(request.Capabilities.Containers, "mp4", normalizeContainer) {
-			plan.Available = true
-			plan.Mode = ModeAudioCompatibility
-			plan.Container = "mp4"
-			plan.AudioCodec = "aac"
-			plan.AudioTranscode = true
-			plan.ReasonCode = "audio_only_compatibility"
-			plan.Reason = "video is supported and will be copied without re-encoding; selected audio will be converted to AAC"
-			return plan
-		}
-		plan.ReasonCode = "audio_codec_unsupported"
-		plan.Reason = "selected audio codec " + plan.SourceAudioCodec + " is not supported and audio-only compatibility is unavailable"
-		return plan
+		return audioCompatibilityOrUnsupported(plan, request, "selected audio codec "+plan.SourceAudioCodec+" is not supported")
 	}
 
 	if !containerSupported && request.Capabilities.AllowRemux && supports(request.Capabilities.Containers, "mp4", normalizeContainer) {
+		if plan.AudioStream >= 0 && !mp4AudioCopyCompatible(plan.SourceAudioCodec) {
+			return audioCompatibilityOrUnsupported(plan, request, "the selected audio track cannot be safely copied into the MP4 compatibility container")
+		}
 		plan.Available = true
 		plan.Mode = ModeRemux
 		plan.Container = "mp4"
@@ -76,6 +99,51 @@ func Decide(source Source, request Request) Plan {
 	plan.ReasonCode = "container_unsupported"
 	plan.Reason = "container " + plan.SourceContainer + " is not supported by this client and remux is unavailable"
 	return plan
+}
+
+func audioCompatibilityOrUnsupported(plan Plan, request Request, reason string) Plan {
+	if request.Capabilities.AllowAudioCompatibility && supports(request.Capabilities.AudioCodecs, "aac", normalizeCodec) && supports(request.Capabilities.Containers, "mp4", normalizeContainer) {
+		plan.Available = true
+		plan.Mode = ModeAudioCompatibility
+		plan.Container = "mp4"
+		plan.AudioCodec = "aac"
+		plan.AudioTranscode = true
+		plan.ReasonCode = "audio_only_compatibility"
+		plan.Reason = reason + "; video will be copied without re-encoding and selected audio will be converted to AAC"
+		return plan
+	}
+	plan.ReasonCode = "audio_codec_unsupported"
+	plan.Reason = reason + " and audio-only compatibility is unavailable"
+	return plan
+}
+
+func videoProfileFor(profiles []VideoProfile, codec string) (VideoProfile, bool) {
+	codec = normalizeCodec(codec)
+	for _, profile := range profiles {
+		if normalizeCodec(profile.Codec) == codec {
+			return profile, true
+		}
+	}
+	return VideoProfile{}, false
+}
+
+func containsNormalized(values []string, wanted string) bool {
+	wanted = strings.ToLower(strings.TrimSpace(wanted))
+	for _, value := range values {
+		if strings.ToLower(strings.TrimSpace(value)) == wanted {
+			return true
+		}
+	}
+	return false
+}
+
+func mp4AudioCopyCompatible(codec string) bool {
+	switch normalizeCodec(codec) {
+	case "aac", "eac3", "ac3", "mp3":
+		return true
+	default:
+		return false
+	}
 }
 
 func firstStream(streams []Stream, kind string) (Stream, bool) {
