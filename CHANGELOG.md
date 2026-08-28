@@ -2,6 +2,26 @@
 
 This file records user-visible and architectural changes. `PROJECT_STATE.md` is the authoritative current-state handoff.
 
+## 2026-08-28
+
+### Dynamic Web HLS and session cache cleanup
+
+- Replaced automatic Web whole-file compatibility MP4 materialization with **dynamic fMP4 HLS** for browser remux/audio-compatibility playback.
+- Direct Play remains unchanged: compatible mounted media is served directly with HTTP Range and uses **zero StormFlix HLS cache**.
+- Browser compatibility playback now generates only small on-demand batches (default 6-second segments, 4 segments/about 24 seconds per batch) instead of rewriting a complete 20–50+ GiB movie before playback can begin.
+- HLS execution always keeps video stream-copy; exact selected audio is copied when compatible or converted to AAC-LC only when required.
+- Added pinned hls.js execution for MSE browsers with native-HLS fallback where available.
+- Added a dedicated session-scoped `<DataDir>/hls-cache` with a **5 GiB hard global budget shared by all users**, plus the existing 10 GiB/5% free-disk reserve.
+- The HLS manager reserves capacity before launching a batch, evicts oldest disposable fragments when needed, protects sessions with active FFmpeg workers and refuses new generation rather than filling the SSD.
+- Old HLS fragments behind current playback are removed continuously.
+- **Closing or finishing a movie immediately cancels that session's FFmpeg worker and deletes its entire HLS cache directory.** Browser unload also sends best-effort keepalive cleanup.
+- Source/version switches remove the previous HLS fragments before reusing a logical playback session; switching to Direct Play clears any prior HLS session cache as well.
+- Added 30-minute idle-session cleanup as a crash/disconnect fallback, and startup removes all orphaned HLS fragments from previous server processes.
+- Added ownership/path-safety checks so one authenticated user cannot delete another user's HLS session and session IDs cannot escape the dedicated cache directory.
+- Expanded Web audio capability probing with DTS and FLAC checks.
+- Added HLS lifecycle/budget/session-isolation regression tests; existing playback/cache race CI covers the new manager.
+- Server version advanced to **0.19.0-dynamic-hls**.
+
 ## 2026-08-27
 
 ### Web Player v4 and managed compatibility cache
@@ -35,7 +55,7 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 - Removed the web planner-outage raw-stream bypass: native StormFlix playback policy now remains authoritative rather than silently falling back to a second source-selection path.
 - Android/TV Media3 now publishes actual MediaCodec decoder capabilities and consumes PlaybackPlan before loading every source.
 - Android/TV preserves native multi-audio Direct Play when at least one local audio decoder can handle a track, while server-side AAC compatibility remains available when no usable track exists.
-- Android alternative-source fallback now tests each physical version through PlaybackPlan rather than guessing compatibility from quality labels alone.
+- Android alternative-source fallback now tests each physical version through PlaybackPlan rather than guessing compatibility only from labels alone.
 - Added native Media3 `MediaSession`; phone/tablet playback adds Picture-in-Picture while TV/Fire keeps remote/D-pad-first behavior.
 - Android app advanced to **0.3.0 / versionCode 11**.
 - Added regression tests for native multi-audio selection, exact remux audio execution, HDR/resolution/frame-rate policy, bitrate policy, server-selected browser audio and playback-session URL behavior.
