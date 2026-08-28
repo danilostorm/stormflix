@@ -22,7 +22,7 @@ import (
 )
 
 const sessionCookie = "stormflix_session"
-const version = "0.18.0-player-cache"
+const version = "0.19.0-dynamic-hls"
 
 type contextKey string
 
@@ -40,6 +40,7 @@ type server struct {
 	assets      *assets.Store
 	settings    *appsettings.Service
 	compatCache *webcompat.CacheManager
+	hlsCache    *webcompat.HLSManager
 	baseConfig  config.Config
 	config      config.Config
 	startedAt   time.Time
@@ -63,16 +64,21 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	if err != nil {
 		panic(err)
 	}
+	hlsCache, err := newHLSCache(effective)
+	if err != nil {
+		panic(err)
+	}
 	if err := admin.EnsureMonitoring(db); err != nil {
 		panic(err)
 	}
 	music.ConfigureProviders(effective.LastFMAPIKey)
-	s := &server{db: db, libraries: libraries, media: media.NewService(db), music: music.NewService(db), auth: auth.NewService(db), admin: admin.NewService(db), assets: assetStore, settings: settingsService, compatCache: compatCache, baseConfig: cfg, config: effective, startedAt: time.Now()}
+	s := &server{db: db, libraries: libraries, media: media.NewService(db), music: music.NewService(db), auth: auth.NewService(db), admin: admin.NewService(db), assets: assetStore, settings: settingsService, compatCache: compatCache, hlsCache: hlsCache, baseConfig: cfg, config: effective, startedAt: time.Now()}
 	s.metadata = metadata.NewService(db, effective, assetStore)
 	s.metadata.ResumeQueuedJobs()
 	s.subtitles = subtitles.NewService(db, effective, assetStore)
 	s.auth.Cleanup(context.Background())
 	s.compatCache.Start(context.Background())
+	s.hlsCache.Start(context.Background())
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
@@ -114,6 +120,9 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("GET /api/v1/media/{id}/compatibility", s.requireAuth(s.mediaCompatibility))
 	mux.HandleFunc("POST /api/v1/media/{id}/remux/prepare", s.requireAuth(s.prepareRemuxMedia))
 	mux.HandleFunc("GET /api/v1/media/{id}/remux", s.requireAuth(s.remuxMedia))
+	mux.HandleFunc("GET /api/v1/media/{id}/hls/{session}/index.m3u8", s.requireAuth(s.hlsPlaylist))
+	mux.HandleFunc("GET /api/v1/media/{id}/hls/{session}/init/{batch}.mp4", s.requireAuth(s.hlsInitSegment))
+	mux.HandleFunc("GET /api/v1/media/{id}/hls/{session}/segment/{segment}.m4s", s.requireAuth(s.hlsMediaSegment))
 	mux.HandleFunc("GET /api/v1/media/{id}/versions", s.requireAuth(s.mediaVersions))
 	mux.HandleFunc("GET /api/v1/media/{id}/subtitles", s.requireAuth(s.mediaSubtitles))
 	mux.HandleFunc("GET /api/v1/media/{id}/subtitles/{subtitle_id}/vtt", s.requireAuth(s.subtitleVTT))
