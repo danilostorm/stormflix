@@ -9,6 +9,7 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 - Replaced automatic Web whole-file compatibility MP4 materialization with **dynamic fMP4 HLS** for browser remux/audio-compatibility playback.
 - Direct Play remains unchanged: compatible mounted media is served directly with HTTP Range and uses **zero StormFlix HLS cache**.
 - Browser compatibility playback now generates only small on-demand batches (default 6-second segments, 4 segments/about 24 seconds per batch) instead of rewriting a complete 20–50+ GiB movie before playback can begin.
+- Fixed periodic Web buffering on rclone/Google Drive sources: after serving a segment, StormFlix now warms the **next 24-second HLS batch in the background** instead of waiting until the browser reaches the batch boundary. Prefetch remains bounded to one batch ahead, yields to seeks/user-requested batches and still obeys the 5 GiB global HLS cache plus free-disk reserve.
 - HLS execution always keeps video stream-copy; exact selected audio is copied when compatible or converted to AAC-LC only when required.
 - Added pinned hls.js execution for MSE browsers with native-HLS fallback where available.
 - Added a dedicated session-scoped `<DataDir>/hls-cache` with a **5 GiB hard global budget shared by all users**, plus the existing 10 GiB/5% free-disk reserve.

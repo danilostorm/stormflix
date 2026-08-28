@@ -119,6 +119,8 @@ Default execution:
 
 This means a 20/40/50+ GiB remote movie is not rewritten in full before playback can start. Only the requested small batch is generated.
 
+To prevent periodic stalls at each 24-second batch boundary on rclone/Google Drive, Web HLS segment delivery now keeps **one batch ahead warm in the background**. After a requested segment is served, the manager waits for the active batch to finish and pre-generates the next batch if no user-requested worker/seek has taken priority. This remains bounded: it never intentionally walks the whole movie ahead, speculative prefetch yields to seeks, and every batch still passes the same global cache/free-disk checks.
+
 Web monitoring sends server-issued playback session, monotonic progress sequence and event timestamps.
 
 ## Web HLS cache / SSD safety
@@ -137,6 +139,7 @@ They are ephemeral session data.
 - Idle/crashed-session fallback TTL: **30m** (`STORMFLIX_HLS_CACHE_IDLE_TTL`).
 - Minimum free disk reserve: **10 GiB OR 5%**, whichever is larger, shared with compatibility-cache safety settings.
 - Old fragments behind the user's current playback position are continuously removed.
+- Web streaming keeps at most the normal requested batch plus a bounded speculative next batch; the speculative batch uses the same global budget and is not allowed to override an active seek/user-requested batch.
 
 Before starting a new FFmpeg batch, the HLS manager estimates its size from source bitrate and reserves capacity. If `current usage + estimated batch` would exceed the global maximum, it evicts oldest disposable fragments first. Sessions with a running FFmpeg worker are not pressure-evicted. If enough safe disk cannot be made available, the new batch is refused instead of allowing the SSD to fill.
 
@@ -339,7 +342,7 @@ Before calling playback/cache work ready:
 - Go server build;
 - Android build/tests when Android code changes.
 
-Dynamic HLS tests must cover playlist layout, immediate session deletion, user ownership, source-switch deletion, idle cleanup, hard-budget eviction and path confinement. Legacy cache tests must continue covering LRU/TTL/active-file/temp/oversize safety.
+Dynamic HLS tests must cover playlist layout, immediate session deletion, user ownership, source-switch deletion, idle cleanup, hard-budget eviction, bounded next-batch prefetch and path confinement. Legacy cache tests must continue covering LRU/TTL/active-file/temp/oversize safety.
 
 ## Known pending real-world QA
 

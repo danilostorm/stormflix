@@ -108,7 +108,7 @@ func (s *server) hlsMediaSegment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u := currentUser(r)
-	path, err := s.hlsCache.SegmentPath(r.Context(), u.ID, id, r.PathValue("session"), segment)
+	path, err := s.hlsCache.SegmentPathBuffered(r.Context(), u.ID, id, r.PathValue("session"), segment)
 	if err != nil {
 		writeError(w, http.StatusUnprocessableEntity, err)
 		return
