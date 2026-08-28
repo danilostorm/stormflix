@@ -26,7 +26,12 @@ func newCompatCache(cfg config.Config) (*webcompat.CacheManager, error) {
 }
 
 func (s *server) compatCacheStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.compatCache.Status())
+	// Embed the legacy fields to keep the existing Admin UI/API contract stable
+	// while exposing the new session-scoped Web HLS cache alongside it.
+	writeJSON(w, http.StatusOK, struct {
+		webcompat.CacheStatus
+		HLS webcompat.HLSStatus `json:"hls"`
+	}{CacheStatus: s.compatCache.Status(), HLS: s.hlsCache.Status()})
 }
 
 func (s *server) cleanupCompatCache(w http.ResponseWriter, r *http.Request) {
@@ -35,10 +40,20 @@ func (s *server) cleanupCompatCache(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	// HLS normal lifecycle cleanup is immediate on playback close. Manual Admin
+	// cleanup only applies stale/pressure cleanup and never terminates a healthy
+	// active movie session.
+	if err := s.hlsCache.Cleanup(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
 	uid := currentUser(r).ID
-	s.admin.Log(r.Context(), "info", "playback", "Compatibility cache cleaned", &uid,
+	s.admin.Log(r.Context(), "info", "playback", "Playback caches cleaned", &uid,
 		formatCompatCacheCleanup(result))
-	writeJSON(w, http.StatusOK, result)
+	writeJSON(w, http.StatusOK, struct {
+		webcompat.CacheCleanupResult
+		HLS webcompat.HLSStatus `json:"hls"`
+	}{CacheCleanupResult: result, HLS: s.hlsCache.Status()})
 }
 
 func formatCompatCacheCleanup(result webcompat.CacheCleanupResult) string {
