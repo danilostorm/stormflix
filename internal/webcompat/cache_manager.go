@@ -152,10 +152,11 @@ func normalizeCachePolicy(policy CachePolicy) CachePolicy {
 }
 
 func (m *CacheManager) Configure(policy CachePolicy) {
+	normalized := normalizeCachePolicy(policy)
 	m.mu.Lock()
-	m.policy = normalizeCachePolicy(policy)
+	m.policy = normalized
 	m.mu.Unlock()
-	if policy.AutoCleanup {
+	if normalized.AutoCleanup {
 		go func() {
 			if _, err := m.Cleanup(context.Background(), false, "configuration"); err != nil {
 				log.Printf("stormflix compat cache cleanup after configuration: %v", err)
@@ -218,7 +219,9 @@ func (m *CacheManager) MaterializeSeekable(ctx context.Context, source string, p
 	if stat, err := os.Stat(finalPath); err == nil && stat.Size() > 4096 {
 		path, err := MaterializeSeekable(ctx, source, plan, m.dir, cacheKey)
 		if err == nil {
-			m.record(path, stat.Size())
+			if current, statErr := os.Stat(path); statErr == nil {
+				m.record(path, current.Size())
+			}
 		}
 		return path, err
 	}
@@ -309,6 +312,9 @@ func (m *CacheManager) Status() CacheStatus {
 }
 
 func (m *CacheManager) Cleanup(ctx context.Context, manual bool, reason string) (CacheCleanupResult, error) {
+	if err := ctx.Err(); err != nil {
+		return CacheCleanupResult{}, err
+	}
 	if reason == "" {
 		if manual {
 			reason = "manual"
@@ -417,6 +423,7 @@ func (m *CacheManager) ensureCapacity(estimated int64) error {
 				return err
 			}
 		}
+
 	}
 
 	free, total, err := diskSpace(m.dir)
@@ -589,6 +596,17 @@ func (m *CacheManager) cleanupTempsLocked(now time.Time, result *CacheCleanupRes
 		}
 		info, err := item.Info()
 		if err != nil || now.Sub(info.ModTime()) < m.policy.TempMaxAge {
+			continue
+		}
+		activeTemp := false
+		for activeName, count := range m.active {
+			if count > 0 && strings.HasPrefix(item.Name(), activeName+".") {
+				activeTemp = true
+				break
+			}
+		}
+		if activeTemp {
+			result.ActiveSkipped++
 			continue
 		}
 		path := filepath.Join(m.dir, item.Name())
