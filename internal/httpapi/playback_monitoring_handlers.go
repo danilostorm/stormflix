@@ -53,6 +53,9 @@ func (s *server) playbackHeartbeat(w http.ResponseWriter, r *http.Request) {
 	if decodeJSON(w, r, &in) != nil {
 		return
 	}
+	if session := normalizePlaybackSessionID(in.PlaybackSession); session != "" {
+		s.hlsCache.TouchSession(u.ID, session)
+	}
 	hb := admin.PlaybackHeartbeat{
 		PositionSeconds:  in.PositionSeconds,
 		DurationSeconds:  in.DurationSeconds,
@@ -149,12 +152,17 @@ func (s *server) playbackStop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u := currentUser(r)
+	session := normalizePlaybackSessionID(r.URL.Query().Get("session"))
+	cacheCleared := false
+	if session != "" {
+		cacheCleared = s.hlsCache.CloseSession(u.ID, session)
+	}
 	device := shortDevice(r.UserAgent())
 	if err := s.admin.FinishPlayback(r.Context(), u.ID, id, device); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true, "hls_cache_cleared": cacheCleared})
 }
 
 func (s *server) monitoringOverview(w http.ResponseWriter, r *http.Request) {
