@@ -137,8 +137,10 @@
   }
 
   function itemCategoryKey(item){
-    if(item?.entity_type==='series'||Number(item?.series_id||0)>0)return `s:${Number(item.series_id||item.id||0)}`;
-    return `m:${Number(item?.id||0)}`;
+    if(item?.entity_type==='series'||item?.series_id!=null){
+      return `s:${String(item.series_id??item.id??'')}`;
+    }
+    return `m:${String(item?.id??'')}`;
   }
 
   function mergeUniqueItems(...groups){
