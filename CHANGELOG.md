@@ -2,6 +2,20 @@
 
 This file records user-visible and architectural changes. `PROJECT_STATE.md` is the authoritative current-state handoff.
 
+## 2026-08-29
+
+### Drive path relocation and stable Admin operations
+
+- Changing a library's Drive/rclone source root now preserves existing catalog media IDs when the old/new roots form an unambiguous one-for-one replacement.
+- Existing media paths are rewritten to the new physical root instead of creating new catalog items; episodic `media_series_identity.source_root` follows the relocation.
+- Because metadata, artwork, subtitles, watch progress and related records stay attached to the same `media_id`, a mount-path change alone no longer requires downloading covers or matching metadata again.
+- A subsequent normal scan updates the already-relocated media row at the new path rather than recreating it. Non-refresh metadata jobs continue skipping already matched items.
+- Relocation deliberately avoids guessing when source additions/removals are ambiguous and does not destructively merge path collisions.
+- Added regression coverage proving that media ID, matched provider metadata and selected artwork survive a source-root change and the next scan.
+- Fixed the Admin flashing during long scan-all operations: library polling now updates status/counts/source health/buttons in place when the library structure itself did not change.
+- Fixed the same full-page redraw behavior in **Metadados & Capas**: summary counters, job progress and action state are patched without rebuilding the entire section every polling interval.
+- **Metadados & Capas** now includes bulk **Buscar em todas** and **Atualizar todas** actions while retaining individual per-library controls. Bulk jobs run sequentially across active video libraries; normal bulk search preserves already matched titles, while explicit update-all refreshes them.
+
 ## 2026-08-28
 
 ### Automatic exclusive categories in pt-BR
