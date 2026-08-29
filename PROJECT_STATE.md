@@ -102,27 +102,41 @@ Admin → **Fila & atividades** merges scan jobs, metadata jobs and `series_refr
 
 ## Home menus / gallery sections
 
-`library_categories.parent_id` now has a clear two-level presentation meaning for the native Web interface:
+`library_categories.parent_id` has a clear two-level presentation meaning for the native Web interface:
 
 - `parent_id IS NULL` = **Menu da Home** shown in the top navigation;
 - direct child of a root = **Seção da galeria** rendered as its own horizontal rail inside that menu.
 
 The system roots **Filmes**, **Séries** and **Animes** remain. Administrators may create additional root menus such as **Desenhos**. Custom active roots are inserted in the top navigation before Música. Direct child sections never appear as top-menu buttons, category explorer chips or secondary navigation.
 
-When a Home menu has active child sections:
+### Presentation contract when sections exist
 
-1. sections are rendered in configured `sort_order`;
-2. each child is fetched through the existing category/library permission path;
-3. selected libraries determine that section's catalog scope;
-4. overlapping titles are de-duplicated, with the first configured section claiming the title;
-5. only configured child sections are rendered for that menu; automatic genres do not add extra rails behind them;
-6. empty sections are not rendered.
+Opening a Home menu with configured child sections must render this shape:
 
-When a Home menu has **no active child sections**, the previous automatic metadata organization remains as a compatibility fallback: each title is assigned to one primary normalized pt-BR genre, unknown/missing genre becomes **Outros**, empty groups are hidden and Outros stays last.
+```text
+Animes                 ← aggregate/general rail
+  [all titles]
+
+Animes Dublados        ← configured section
+  [titles from selected libraries]
+
+Filmes Animes          ← configured section
+  [titles from selected libraries]
+```
+
+The parent/general rail is **never replaced by creating a section**. Child sections are stacked below it in `sort_order`. A work may intentionally appear once in the general rail and again in one or more relevant child sections; this is normal shelf behavior, not a duplicate bug.
+
+Configured sections are **library-scoped**. The selected `library_ids` are authoritative for membership. For a direct child section, `kind` is an organizational/presentation hint and must not filter a valid work out of that selected library. In particular, an Anime-labeled section backed by a `mixed` library must still show anime films whose external metadata type is `movie`.
+
+The Web obtains the root aggregate plus each child payload. The aggregate merges unique works from the root payload and child payloads, so intentionally mixed child libraries also contribute to the general rail. Series identity keys must preserve their string IDs; never coerce scanner series keys to numbers for de-duplication.
+
+Empty child sections are omitted from rendering, but one empty/new section must not hide the root/general rail or any populated sibling section.
+
+When a Home menu has **no active child sections**, the existing automatic metadata organization remains as a compatibility fallback: each title is assigned to one primary normalized pt-BR genre, unknown/missing genre becomes **Outros**, empty groups are hidden and Outros stays last.
 
 Admin → **Menus da Home** is the presentation editor. It has root menu cards, `+ Novo menu da Home`, `+ Nova seção`, order/type/active controls and a video-library picker. Section editing allows moving a section to another Home menu. System roots cannot be deleted; custom roots with child sections must have those children removed/moved first.
 
-The recommended organizer follows the new model:
+The recommended organizer follows the model:
 
 - Filmes → 4K / UHD, Animação, Outros filmes;
 - Séries → Séries de TV;
@@ -149,7 +163,7 @@ SQLite remains intentional. Current optimizations include targeted indexes, a sh
 Before presenting relevant work as ready:
 
 - JavaScript syntax checks, including public category navigation and Admin Home-menu editor;
-- `go test ./...` including the Home-menu organizer regression test;
+- `go test ./...` including Home-menu/category regression tests;
 - `go test -race ./internal/playback ./internal/webcompat` when playback/cache concurrency is touched;
 - Go server build;
 - Android build/tests only when Android code changes.
@@ -163,8 +177,10 @@ Real deployment should still validate:
 - Player v4 + dynamic HLS on target browsers and mounted storage;
 - SSD use under concurrent HLS sessions and immediate cleanup after close;
 - custom Home menu creation such as **Desenhos** and its appearance before Música;
-- child sections such as **Animes Dublados** appearing only as gallery rails, never as menu/subnav items;
-- section ordering, overlap de-duplication and profile/library permission filtering with the real catalog;
+- **Animes** general rail remaining visible after adding multiple child sections;
+- multiple child sections stacking below the general rail in configured order;
+- `mixed` anime-film libraries appearing inside Anime child sections even when TMDB reports `media_type=movie`;
+- profile/library permission filtering with the real catalog;
 - real Drive/rclone root changes preserving IDs/artwork and smooth scan/metadata polling;
 - Jellyfin Android TV/Fire after catalog metadata is known-correct.
 
