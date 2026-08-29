@@ -5,7 +5,7 @@
   const kindLabel=value=>({movie:'Filmes',series:'Séries / desenhos',anime:'Animes',mixed:'Misto',other:'Outros'})[value]||value||'Misto';
   const roots=()=>categoryItems.filter(c=>!c.parent_id).sort(sortCategory);
   const childrenOf=id=>categoryItems.filter(c=>Number(c.parent_id||0)===Number(id)).sort(sortCategory);
-  const libraryByID=id=>(window.libs||[]).find(l=>Number(l.id)===Number(id));
+  const libraryByID=id=>(libs||[]).find(l=>Number(l.id)===Number(id));
 
   function init(){
     const nav=document.querySelector('nav [data-page="categories"]');
@@ -16,7 +16,7 @@
     const root=document.querySelector('#categories');if(!root)return;
     root.innerHTML='<div class="catalog-admin-loading">Carregando menus da Home…</div>';
     try{
-      if(!Array.isArray(window.libs)||!window.libs.length)window.libs=await req('/admin/storage');
+      if(!Array.isArray(libs)||!libs.length)libs=await req('/admin/storage');
       categoryItems=await req('/admin/categories');
       render(root);
     }catch(err){root.innerHTML=`<div class="panel"><p class="offline">${esc(err.message)}</p></div>`}
@@ -148,7 +148,7 @@
 
         <div class="home-menu-library-picker">
           <div><b>${isSection?'Bibliotecas desta seção':'Bibliotecas diretas deste menu'}</b><small>${isSection?'Os títulos dessas bibliotecas formarão esta fileira da galeria.':'Usadas principalmente quando o menu ainda não possui seções manuais.'}</small></div>
-          <div class="home-menu-library-grid">${(window.libs||[]).filter(l=>l.kind!=='music').map(l=>`<label><input type="checkbox" data-category-lib="${l.id}" ${selectedIDs.has(Number(l.id))?'checked':''}><span><b>${esc(l.name)}</b><small>${esc(l.kind||'')}</small></span></label>`).join('')||'<p>Nenhuma biblioteca de vídeo cadastrada.</p>'}</div>
+          <div class="home-menu-library-grid">${(libs||[]).filter(l=>l.kind!=='music').map(l=>`<label><input type="checkbox" data-category-lib="${l.id}" ${selectedIDs.has(Number(l.id))?'checked':''}><span><b>${esc(l.name)}</b><small>${esc(l.kind||'')}</small></span></label>`).join('')||'<p>Nenhuma biblioteca de vídeo cadastrada.</p>'}</div>
         </div>
         <div class="home-menu-editor-buttons"><button class="primary" type="submit">Salvar ${isSection?'seção':'menu'}</button></div>
       </form>
