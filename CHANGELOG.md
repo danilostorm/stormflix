@@ -7,14 +7,18 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 ### Home menus and gallery sections
 
 - Reformulated the old category-tree presentation into a clearer two-level Home model: **root categories are Home menu buttons** and their direct children are **gallery sections**.
-- Admin → **Menus da Home** now has a dedicated visual editor for creating custom root menus such as **Desenhos**, editing their display order/type, and adding sections directly under each menu.
-- Child sections such as **Animes Dublados** no longer appear in the top menu, category explorer or secondary navigation. Opening the parent menu renders those children as separate horizontal rails in configured order.
-- When a Home menu has at least one configured section, those sections become authoritative for that menu's presentation. A root with no manual sections keeps the previous automatic primary-genre grouping as a compatibility fallback.
-- Section membership continues to use the existing library/category associations, so a section can be built by selecting one or more video libraries without changing media files, metadata or playback behavior.
-- The recommended organizer now understands the new model. When `animation_series` libraries exist it creates/reuses a **Desenhos** Home menu and places the reserved `series-desenhos` section below it; the legacy `series-animes` section under Séries is disabled when the organizer is explicitly run.
+- Admin → **Menus da Home** has a dedicated visual editor for creating custom root menus such as **Desenhos**, editing their display order/type, and adding sections directly under each menu.
+- Child sections such as **Animes Dublados** never appear in the top menu, category explorer or secondary navigation.
+- Fixed the first real-catalog regression found after rollout: creating manual sections no longer replaces the parent catalog rail. Opening **Animes**, for example, keeps the general **Animes** rail first and stacks **Animes Dublados**, **Filmes Animes** and other configured sections below it in order.
+- Each configured section is independent. A title may legitimately appear in the general parent rail and again in a relevant section, matching normal streaming-service shelf behavior.
+- Manual gallery sections are now **library-scoped**: the libraries selected in Admin define which works belong to that section. The section type no longer hides a TMDB movie just because the section is labeled Anime, which fixes mixed libraries such as **Filmes Animes**.
+- The parent aggregate merges titles returned by its own category scope with titles exposed by child sections, preserving anime films or other intentionally mixed works in the general rail.
+- Fixed series identity merging in the Web category UI to preserve string series IDs instead of coercing them to numbers.
+- A root with no manual sections keeps the previous automatic primary-genre grouping as a compatibility fallback.
+- The recommended organizer understands the new model. When `animation_series` libraries exist it creates/reuses a **Desenhos** Home menu and places the reserved `series-desenhos` section below it; the legacy `series-animes` section under Séries is disabled when the organizer is explicitly run.
 - Added responsive Admin styling for Home menu cards, section rows, library chips and the menu/section editor.
-- Added a regression test covering the recommended **Desenhos** Home menu hierarchy and animation-library assignment.
-- CI now syntax-checks `admin-categories.js` in addition to the public category navigation.
+- Added regression coverage for the recommended **Desenhos** hierarchy and for an Anime-labeled gallery section backed by a mixed library containing movie metadata.
+- CI syntax-checks `admin-categories.js` and the public category navigation.
 
 ### Drive path relocation and stable Admin operations
 
