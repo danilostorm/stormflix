@@ -81,23 +81,30 @@
     try{
       const sections=childrenOf(root.id);
       if(sections.length){
-        // A configured section is authoritative for presentation. When a Home
-        // menu has children, the page contains only those child sections in the
-        // configured order. The children never become top/sub navigation.
-        const results=await Promise.all(sections.map(async section=>({section,data:await request(`/categories/${encodeURIComponent(section.slug)}`)})));
-        const claimed=new Set();
-        const rows=[];
+        // The root aggregate remains the first rail. Configured child sections
+        // are additional rails below it, exactly matching the Admin hierarchy.
+        // A title may therefore appear once in the aggregate and again in a
+        // relevant child section, as users expect from streaming-style shelves.
+        const [rootData,results]=await Promise.all([
+          request(`/categories/${encodeURIComponent(root.slug)}`),
+          Promise.all(sections.map(async section=>({section,data:await request(`/categories/${encodeURIComponent(section.slug)}`)})))
+        ]);
+        const sectionRows=[];
         for(const {section,data} of results){
-          const items=claimUniqueItems(categoryItems(data),claimed);
-          if(items.length)rows.push({id:`home-menu-${root.slug}-section-${section.slug}`,title:section.name,items});
+          const items=categoryItems(data);
+          if(items.length)sectionRows.push({id:`home-menu-${root.slug}-section-${section.slug}`,title:section.name,items});
         }
+        const aggregateItems=mergeUniqueItems(categoryItems(rootData),...sectionRows.map(row=>row.items));
+        const rows=[];
+        if(aggregateItems.length)rows.push({id:`home-menu-${root.slug}`,title:root.name,items:aggregateItems});
+        rows.push(...sectionRows);
         if(rows.length)renderRows(rows);
-        else target.innerHTML='<div class="empty-state">Este menu ainda não possui títulos nas seções configuradas.</div>';
+        else target.innerHTML='<div class="empty-state">Este menu ainda não possui títulos.</div>';
       }else{
         // Compatibility fallback for existing installations: a root without
         // explicit sections continues to be organized automatically by primary
-        // metadata genre. Once the admin creates a section, manual sections take
-        // over presentation for that root.
+        // metadata genre. Once sections are created they are added below the
+        // aggregate rail instead of replacing it.
         const data=await request(`/categories/${encodeURIComponent(root.slug)}`);
         const rows=categoryGenreRows(root,data,new Set());
         const items=categoryItems(data);
@@ -134,13 +141,16 @@
     return `m:${Number(item?.id||0)}`;
   }
 
-  function claimUniqueItems(items,claimed){
+  function mergeUniqueItems(...groups){
     const out=[];
-    for(const item of items){
-      const key=itemCategoryKey(item);
-      if(claimed.has(key))continue;
-      claimed.add(key);
-      out.push(item);
+    const seen=new Set();
+    for(const items of groups){
+      for(const item of items||[]){
+        const key=itemCategoryKey(item);
+        if(seen.has(key))continue;
+        seen.add(key);
+        out.push(item);
+      }
     }
     return out;
   }
