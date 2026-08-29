@@ -4,6 +4,18 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 
 ## 2026-08-29
 
+### Home menus and gallery sections
+
+- Reformulated the old category-tree presentation into a clearer two-level Home model: **root categories are Home menu buttons** and their direct children are **gallery sections**.
+- Admin → **Menus da Home** now has a dedicated visual editor for creating custom root menus such as **Desenhos**, editing their display order/type, and adding sections directly under each menu.
+- Child sections such as **Animes Dublados** no longer appear in the top menu, category explorer or secondary navigation. Opening the parent menu renders those children as separate horizontal rails in configured order.
+- When a Home menu has at least one configured section, those sections become authoritative for that menu's presentation. A root with no manual sections keeps the previous automatic primary-genre grouping as a compatibility fallback.
+- Section membership continues to use the existing library/category associations, so a section can be built by selecting one or more video libraries without changing media files, metadata or playback behavior.
+- The recommended organizer now understands the new model. When `animation_series` libraries exist it creates/reuses a **Desenhos** Home menu and places the reserved `series-desenhos` section below it; the legacy `series-animes` section under Séries is disabled when the organizer is explicitly run.
+- Added responsive Admin styling for Home menu cards, section rows, library chips and the menu/section editor.
+- Added a regression test covering the recommended **Desenhos** Home menu hierarchy and animation-library assignment.
+- CI now syntax-checks `admin-categories.js` in addition to the public category navigation.
+
 ### Drive path relocation and stable Admin operations
 
 - Changing a library's Drive/rclone source root now preserves existing catalog media IDs when the old/new roots form an unambiguous one-for-one replacement.
