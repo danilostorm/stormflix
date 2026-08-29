@@ -83,7 +83,7 @@ func (s *server) updateLibrary(w http.ResponseWriter, r *http.Request) {
 	if len(paths) == 0 && strings.TrimSpace(in.Path) != "" {
 		paths = []string{in.Path}
 	}
-	v, err := s.libraries.AdminUpdateMulti(r.Context(), id, in.Name, in.Kind, paths, in.Enabled)
+	v, err := s.libraries.AdminUpdateMultiPreservingCatalog(r.Context(), id, in.Name, in.Kind, paths, in.Enabled)
 	if err != nil {
 		writeError(w, 400, err)
 		return
