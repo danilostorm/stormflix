@@ -82,8 +82,10 @@ func (s *server) browseCategory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Browsing a parent aggregates all descendant libraries. Browsing a child
-	// stays scoped to that branch. This keeps the top navigation clean while
-	// preserving an "everything in Filmes/Séries/Animes" view.
+	// stays scoped to that branch. Direct children are manually configured
+	// gallery sections, so their selected libraries define membership; the
+	// category kind is a presentation hint and must not hide a movie stored in
+	// an anime-film library (or another intentionally mixed library).
 	ids, err := s.categoryTreeLibraries(r.Context(), c.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
@@ -106,14 +108,16 @@ func (s *server) browseCategory(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, response)
 		return
 	}
-	if c.Kind == "series" || c.Kind == "anime" || c.Kind == "mixed" {
+
+	manualSection := c.ParentID != nil
+	if manualSection || c.Kind == "series" || c.Kind == "anime" || c.Kind == "mixed" {
 		response.Series, err = s.media.SeriesList(r.Context(), ids, "")
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
 	}
-	if c.Kind != "series" {
+	if manualSection || c.Kind != "series" {
 		items, listErr := s.media.List(r.Context(), 0, "", 500, 0, ids)
 		if listErr != nil {
 			writeError(w, http.StatusInternalServerError, listErr)
@@ -123,14 +127,16 @@ func (s *server) browseCategory(w http.ResponseWriter, r *http.Request) {
 			if item.EpisodeNumber > 0 || item.MediaType == "series" {
 				continue
 			}
-			switch c.Kind {
-			case "movie":
-				if item.MediaType != "movie" {
-					continue
-				}
-			case "anime":
-				if item.MediaType != "anime" {
-					continue
+			if !manualSection {
+				switch c.Kind {
+				case "movie":
+					if item.MediaType != "movie" {
+						continue
+					}
+				case "anime":
+					if item.MediaType != "anime" {
+						continue
+					}
 				}
 			}
 			response.Media = append(response.Media, item)

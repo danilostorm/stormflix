@@ -43,7 +43,7 @@
         </div>
 
         <div class="phase2-hint home-menu-admin-hint">
-          <b>Como funciona:</b> crie um menu como Filmes, Séries, Animes ou Desenhos. Depois use <b>+ Nova seção</b> dentro dele. Quando um menu possui seções, a Home mostra somente essas seções, na ordem configurada; elas não aparecem como botões no menu principal. Um menu sem seções mantém o agrupamento automático por gênero como compatibilidade.
+          <b>Como funciona:</b> ao abrir um menu como Animes, a primeira fileira continua sendo o catálogo geral <b>Animes</b>. Cada <b>+ Nova seção</b> é acrescentada logo abaixo, na ordem configurada, sem virar botão no menu principal. As bibliotecas marcadas em cada seção definem quais títulos aparecem naquela fileira.
         </div>
 
         <div id="category-form"></div>
@@ -137,11 +137,11 @@
     const isSection=!!parentMenu;
     const selectedIDs=new Set((c.library_ids||[]).map(Number));
     host.innerHTML=`<section class="home-menu-editor-card">
-      <div class="home-menu-editor-head"><div><p class="kicker">${isSection?'Seção da galeria':'Menu da Home'}</p><h3>${c.id?'Editar':'Criar'} ${isSection?'seção':'menu'}</h3><small>${isSection?`Esta seção ficará dentro de ${esc(parentMenu.name)} e não aparecerá na navegação principal.`:'Este item aparecerá na navegação principal da Home quando estiver ativo e tiver conteúdo/seções.'}</small></div><button type="button" id="category-cancel">Fechar</button></div>
+      <div class="home-menu-editor-head"><div><p class="kicker">${isSection?'Seção da galeria':'Menu da Home'}</p><h3>${c.id?'Editar':'Criar'} ${isSection?'seção':'menu'}</h3><small>${isSection?`Esta seção ficará dentro de ${esc(parentMenu.name)}, aparecerá abaixo da fileira geral e não entrará na navegação principal.`:'Este item aparecerá na navegação principal da Home quando estiver ativo e tiver conteúdo/seções.'}</small></div><button type="button" id="category-cancel">Fechar</button></div>
       <form id="category-editor" class="home-menu-editor-form">
         <label><span>Nome</span><input id="category-name" value="${esc(c.name)}" placeholder="${isSection?'Ex.: Animes Dublados':'Ex.: Desenhos'}" required></label>
         <label><span>Slug</span><input id="category-slug" value="${esc(c.slug)}" placeholder="${isSection?'animes-dublados':'desenhos'}" ${c.system?'disabled':''} required></label>
-        <label><span>Tipo de conteúdo</span><select id="category-kind">${['movie','series','anime','mixed','other'].map(k=>`<option value="${k}" ${k===c.kind?'selected':''}>${esc(kindLabel(k))}</option>`).join('')}</select></label>
+        <label><span>${isSection?'Tipo da seção':'Tipo de conteúdo'}</span><select id="category-kind">${['movie','series','anime','mixed','other'].map(k=>`<option value="${k}" ${k===c.kind?'selected':''}>${esc(kindLabel(k))}</option>`).join('')}</select>${isSection?'<small>Nas seções, as bibliotecas selecionadas definem os títulos. Este tipo serve para organização/identificação e não elimina filmes de uma biblioteca de anime, por exemplo.</small>':''}</label>
         ${isSection?`<label><span>Menu da Home</span><select id="category-parent">${roots().map(root=>`<option value="${root.id}" ${Number(root.id)===Number(parentMenu.id)?'selected':''}>${esc(root.name)}</option>`).join('')}</select></label>`:''}
         <label><span>Ordem</span><input id="category-order" type="number" value="${Number(c.sort_order||0)}" step="1"></label>
         <label class="home-menu-toggle"><input id="category-active" type="checkbox" ${c.active?'checked':''}><span>Ativo</span></label>
