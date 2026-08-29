@@ -2,7 +2,7 @@
 
 > **Authoritative continuation note.** Any coding agent/session continuing StormFlix must read this file and `AGENTS.md` before changing code. Update this document after meaningful changes.
 
-Last architecture update: **2026-08-28**.
+Last architecture update: **2026-08-29**.
 
 ## Deployment
 
@@ -150,6 +150,14 @@ Western series/cartoons preferred chain:
 
 Anime with seasons combines scanner identity with TMDB TV, TheTVDB, AniList/AniDB/MAL recovery and the native HAMA-style Anime-Lists mapping bridge.
 
+### Source-root relocation without metadata rebuild
+
+Changing a library's physical Drive/rclone mount path must not turn unchanged media into new catalog identities. When configured source roots are replaced in an unambiguous one-for-one mapping, the Admin library update now rewrites each existing `media.path` from the old root to the new root while preserving the same `media.id`. Episodic `media_series_identity.source_root` follows the relocation while scanner series/season/episode identity remains intact.
+
+Because metadata, artwork, subtitles, watch progress and related state are keyed by `media_id`, existing matched metadata and downloaded covers remain attached. A normal subsequent scan sees the rewritten new path and updates the existing row instead of creating a second media item. Normal non-refresh metadata jobs continue skipping already matched titles, so a Drive path move alone does not trigger cover/metadata downloads again.
+
+Relocation is intentionally conservative: source reordering does not count as a move, ambiguous add/remove counts are not guessed, and a target-path collision is not destructively merged. Those cases fall back to normal scan/consolidation behavior.
+
 ## Manual matching — principal series only
 
 Admin → Catálogo defaults to **Obras principais**. Episodic manual matching is stored once at principal-series level in `series_metadata_overrides`; scanner identities are rebuilt while season/episode numbers are preserved, a queued `series_refresh` updates current episodes, and future episodes inherit the same override.
@@ -161,6 +169,12 @@ Episode rows in **Arquivos / diagnóstico** do not expose normal manual matching
 `scan_jobs` is persistent FIFO. Library scans are serialized one at a time to avoid rclone/FUSE + SQLite contention. Duplicate active entries are avoided, queued/running work can be cancelled, restart safely requeues unfinished jobs, and an unreachable mount preserves the previous catalog instead of treating it as deletion.
 
 Admin → **Fila & atividades** merges scan jobs, metadata jobs and `series_refresh` work.
+
+### Stable Admin scan/metadata polling
+
+The Admin no longer needs to rebuild the complete Bibliotecas or Metadados & Capas DOM every polling interval. While scan jobs are active, stable library structure is patched in place (counts, status, source health, queue message and button state). Full rendering is reserved for an actual structural library/source change. Metadata polling similarly patches summary counters, job rows and action states without replacing the whole page, preventing the visible flashing that previously happened about every two seconds.
+
+Metadados & Capas keeps individual `Buscar metadados`, `Reprocessar erros` and `Atualizar tudo` controls per library and also exposes bulk `Buscar em todas` and `Atualizar todas`. Bulk work is sequential across active video libraries to avoid hammering providers. `Buscar em todas` is non-refresh and preserves already matched metadata; `Atualizar todas` deliberately reprocesses all eligible titles.
 
 ## Categories / automatic catalog organization
 
@@ -189,7 +203,7 @@ SQLite remains intentional. Current optimizations include targeted indexes, 20-s
 - Phase 10: `series_metadata_overrides`, category `parent_id`, performance indexes.
 - Phase 11: ordered series-child index and cleanup of legacy episode manual flags.
 - Phase 12: persistent `scan_jobs` and metadata job type/series/provider fields.
-- Playback/cache and automatic genre presentation changes add no schema migration.
+- Playback/cache, source-root relocation and automatic genre presentation changes add no schema migration.
 
 ## Required validation
 
@@ -201,6 +215,8 @@ Before presenting relevant work as ready:
 - Go server build;
 - Android build/tests when Android code changes.
 
+Source-root relocation tests must prove that the same `media.id`, matched metadata and selected artwork survive a physical root change and remain the same after the next scan.
+
 ## Known pending real-world QA
 
 Real deployment should still validate:
@@ -211,6 +227,7 @@ Real deployment should still validate:
 - HEVC/AV1 browser capability behavior without video transcode;
 - SSD use under concurrent HLS sessions and immediate cleanup after close;
 - automatic exclusive category rails against real TMDB/TV/anime metadata, including `Outros` recovery after metadata refresh;
+- real Drive/rclone mount-root changes preserving media IDs/artwork and the smooth Admin polling behavior during scan-all/metadata-all;
 - Jellyfin Android TV/Fire after catalog metadata is known-correct.
 
 ## Documentation rule
