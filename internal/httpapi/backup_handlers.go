@@ -68,9 +68,12 @@ func (s *server) ensureAutomaticBackup(ctx context.Context, note string) (map[st
 	var path string
 	err := s.db.QueryRowContext(ctx, `SELECT id,path FROM system_backups WHERE kind='auto' AND status='ready' AND created_at>=datetime('now','-30 minutes') ORDER BY id DESC LIMIT 1`).Scan(&id, &path)
 	if err == nil {
-		return map[string]any{"id": id, "path": path, "reused": true}, nil
-	}
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		if info, statErr := os.Stat(path); statErr == nil && info.Size() > 0 {
+			return map[string]any{"id": id, "path": path, "reused": true}, nil
+		}
+		// A stale database row must not satisfy the safety requirement.
+		_, _ = s.db.ExecContext(ctx, `UPDATE system_backups SET status='missing' WHERE id=?`, id)
+	} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
 	return s.createBackup(ctx, "auto", note)
@@ -159,8 +162,9 @@ func (s *server) scheduleBackupRestore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, copyErr := io.Copy(output, input)
+	syncErr := output.Sync()
 	closeErr := output.Close()
-	if copyErr != nil || closeErr != nil {
+	if copyErr != nil || syncErr != nil || closeErr != nil {
 		_ = os.Remove(restorePath)
 		writeError(w, http.StatusInternalServerError, errors.New("could not stage backup restore"))
 		return
