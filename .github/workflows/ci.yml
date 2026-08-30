@@ -42,6 +42,7 @@ jobs:
           node --check internal/webui/static/admin/admin-catalog.js
           node --check internal/webui/static/admin/admin-categories.js
           node --check internal/webui/static/admin/admin-automation.js
+          node --check internal/webui/static/admin/admin-transcode.js
           node --check internal/webui/static/admin/admin-music.js
           node --check internal/webui/static/admin/admin-library-metadata.js
           node --check internal/webui/static/admin/admin-jobs.js
