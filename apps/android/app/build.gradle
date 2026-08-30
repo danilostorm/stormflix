@@ -1,4 +1,4 @@
-// StormFlix Android 0.5.0 - Playback Engine v5 universal compatibility and quality switching
+// StormFlix Android 0.5.1 - Playback Engine v5 universal compatibility, quality switching and screen/zoom modes
 plugins {
     id 'com.android.application'
 }
@@ -11,8 +11,8 @@ android {
         applicationId 'cloud.stormflix.app'
         minSdk 23
         targetSdk 36
-        versionCode 14
-        versionName '0.5.0'
+        versionCode 15
+        versionName '0.5.1'
     }
 
     buildTypes {
