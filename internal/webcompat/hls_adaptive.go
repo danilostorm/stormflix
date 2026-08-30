@@ -24,18 +24,35 @@ type HLSSessionDiagnostics struct {
 	AheadBatches      int     `json:"ahead_batches"`
 }
 
+func (m *HLSManager) ownedAdaptiveSession(userID int64, sessionID string) (*hlsSession, error) {
+	m.mu.Lock()
+	session := m.sessions[sessionID]
+	if session == nil || session.UserID != userID {
+		m.mu.Unlock()
+		return nil, errors.New("HLS session not found")
+	}
+	session.LastTouch = time.Now()
+	m.mu.Unlock()
+
+	// Closed is protected by the per-session mutex because stopSession can run
+	// after the manager map lookup while a telemetry request is in flight.
+	session.mu.Lock()
+	closed := session.Closed
+	session.mu.Unlock()
+	if closed {
+		return nil, errors.New("HLS session not found")
+	}
+	return session, nil
+}
+
 // TuneSession changes only speculative headroom. The global cache budget and
 // free-disk reserve remain hard limits enforced by ensureCapacity, so hundreds
 // of users can never make this adaptive policy grow the SSD without bound.
 func (m *HLSManager) TuneSession(userID int64, sessionID string, bufferSeconds, readMbps float64) (HLSSessionDiagnostics, error) {
-	m.mu.Lock()
-	session := m.sessions[sessionID]
-	if session == nil || session.UserID != userID || session.Closed {
-		m.mu.Unlock()
-		return HLSSessionDiagnostics{}, errors.New("HLS session not found")
+	session, err := m.ownedAdaptiveSession(userID, sessionID)
+	if err != nil {
+		return HLSSessionDiagnostics{}, err
 	}
-	session.LastTouch = time.Now()
-	m.mu.Unlock()
 
 	ahead := 1
 	sourceMbps := float64(session.Spec.SourceBitrateKbps) / 1000.0
@@ -99,17 +116,17 @@ func adaptiveAheadBatches(sessionID string) int {
 }
 
 func (m *HLSManager) SessionDiagnostics(userID int64, sessionID string) (HLSSessionDiagnostics, error) {
-	m.mu.Lock()
-	session := m.sessions[sessionID]
-	if session == nil || session.UserID != userID || session.Closed {
-		m.mu.Unlock()
-		return HLSSessionDiagnostics{}, errors.New("HLS session not found")
+	session, err := m.ownedAdaptiveSession(userID, sessionID)
+	if err != nil {
+		return HLSSessionDiagnostics{}, err
 	}
-	mediaID := session.MediaID
-	dir := session.Dir
-	bitrate := session.Spec.SourceBitrateKbps
-	m.mu.Unlock()
-	return HLSSessionDiagnostics{SessionID: sessionID, MediaID: mediaID, CacheBytes: hlsSessionDirSize(dir), SourceBitrateKbps: bitrate, AheadBatches: adaptiveAheadBatches(sessionID)}, nil
+	return HLSSessionDiagnostics{
+		SessionID: sessionID,
+		MediaID: session.MediaID,
+		CacheBytes: hlsSessionDirSize(session.Dir),
+		SourceBitrateKbps: session.Spec.SourceBitrateKbps,
+		AheadBatches: adaptiveAheadBatches(sessionID),
+	}, nil
 }
 
 func hlsSessionDirSize(root string) int64 {
