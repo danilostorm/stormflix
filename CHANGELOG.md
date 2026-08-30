@@ -4,6 +4,15 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 
 ## 2026-08-30
 
+### Android 0.5.3 PlaybackPlan JSON compatibility retry
+
+- Bumped the native Android/Android TV/Fire TV package to **0.5.3 / versionCode 17** after a real phone reproduced a black player at `00:00 / 00:00` with the toast `Não foi possível preparar a reprodução: invalid JSON ...`.
+- Confirmed that the failure happens before Media3 receives a media URL: the native app is rejected while POSTing `/api/v1/media/{id}/playback/plan`.
+- The app still sends the complete Playback Engine v5 capability document first. Only when that endpoint specifically returns HTTP 400 with an invalid-JSON message does `ApiClient` retry once with a conservative capability envelope containing the core container/video/audio support needed for authoritative planning.
+- The compatibility retry remains inside PlaybackPlan and therefore preserves **Direct Play first**. It does not silently enable video transcoding or bypass the server planner, and unrelated HTTP errors are not hidden.
+- Updated native API User-Agent and PlaybackPlan `client_version` to 0.5.3.
+- Added real-device QA coverage requirement for this exact full-capability rejection → minimal-capability retry path.
+
 ### Playback Engine v5, Web Player v5 and Android 0.5.0
 
 - Advanced the server to **0.21.0-playback-v5** and the native Android/Android TV/Fire TV app to **0.5.0 / versionCode 14**.
@@ -27,7 +36,7 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 ### Android 0.4.1 autoplay, instant compatibility streaming and Releases
 
 - Added streaming-style **next episode autoplay** to Web, Android, Android TV and Fire TV. Episodic playback uses the existing `/media/{id}/neighbors` identity and presents a 10-second “A seguir” countdown before starting the next episode.
-- Autoplay is enabled by default but remains user-controllable. Web stores the preference locally and exposes it in Player v4 settings; Android/TV/Fire stores the setting in app preferences and exposes it in the native player menu.
+- Autoplay is enabled by default but remains user-controllable. Web stores the preference locally and exposes it in Player v4 settings; Android/TV/Fire stores the setting in app preferences and exposes the setting in the native player menu.
 - Bumped native Android to **0.4.1 / versionCode 13** and added the Media3 HLS module.
 - Removed the long Android/TV compatibility startup caused by complete seekable-MP4 materialization. StormFlix Android, Android TV and Fire TV now use the same **dynamic fMP4 HLS** compatibility engine as Web: small on-demand batches, bounded prefetch, video stream-copy and AAC conversion only for an incompatible selected audio track.
 - Direct Play remains first and unchanged: compatible mounted/rclone media still streams directly with HTTP Range and creates no HLS compatibility cache.

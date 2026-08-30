@@ -22,7 +22,7 @@ Server HTTP port: **8090**, normally behind HTTPS reverse proxy.
 ## Current versions
 
 - Server: **`0.21.0-playback-v5`**.
-- Android package: `cloud.stormflix.app`, version **0.5.0**, versionCode **14**, minSdk 23, targetSdk 36, Java 17, Media3 1.11.0.
+- Android package: `cloud.stormflix.app`, version **0.5.3**, versionCode **17**, minSdk 23, targetSdk 36, Java 17, Media3 1.11.0.
 - Jellyfin compatibility facade advertises numeric compatibility version `10.11.6` to satisfy current official-client version parsing; this does **not** turn StormFlix into Jellyfin or change the native server version.
 - SQLite remains the production catalog database with WAL, `synchronous=NORMAL`, busy timeout, bounded connection pool and targeted indexes.
 - PostgreSQL remains a separate planned scale-out phase. It is deliberately not mixed into Playback Engine v5 because existing migrations, backup/restore semantics and queries contain SQLite-specific behavior.
@@ -172,11 +172,13 @@ Player v5 adds:
 
 Web HLS continues using hls.js 1.7.1 with native-HLS fallback where available. This CDN dependency remains a future self-hosting consideration, not a server playback-policy dependency.
 
-## StormFlix Android / Android TV / Fire TV 0.5.0
+## StormFlix Android / Android TV / Fire TV 0.5.3
 
 The native app remains a single Media3 package with touch and remote behavior. It publishes real MediaCodec video/audio capabilities and opts into PlaybackPlan v5 video transcoding.
 
-Version **0.5.0 / versionCode 14** adds:
+Version **0.5.3 / versionCode 17** keeps the full PlaybackPlan v5 capability advertisement from 0.5.x and adds a targeted compatibility retry for real devices that receive `400 invalid JSON body` before Media3 gets a media URL. The app first sends the complete capability document. Only when `/playback/plan` specifically rejects that JSON with HTTP 400 does it retry with a conservative capability envelope. The retry still uses the authoritative PlaybackPlan, preserves Direct Play first, and does not silently enable video transcoding. Other HTTP failures are not masked.
+
+The 0.5.x native line includes:
 
 - PlaybackPlan v5 capability advertisement (`allow_video_transcode=true`);
 - max transcode bitrate guidance: 25 Mbps for TV/Fire, 16 Mbps for phone/tablet;
@@ -188,7 +190,7 @@ Version **0.5.0 / versionCode 14** adds:
 - proper HLS/transcode session ID on playback DELETE so temporary cache is removed when leaving/changing episode;
 - Media3 HLS support from the prior 0.4.1 work remains active.
 
-Native multi-audio Direct Play is still preserved when any decoder-supported track can be selected locally. If only the desired audio is incompatible, the server keeps video stream-copy and produces AAC. If video itself is incompatible, PlaybackPlan v5 may instead produce explicit video transcode.
+Native multi-audio Direct Play is still preserved when any decoder-supported track can be selected locally. If only the desired audio is incompatible, the server keeps video stream-copy and produces AAC. If video itself is incompatible, PlaybackPlan v5 may instead produce explicit video transcode when the full v5 capability negotiation succeeds.
 
 ### Episodic autoplay
 
@@ -337,6 +339,7 @@ Architecture/tests do not replace real host/device/storage validation. Check:
 - sustained transcode speed remains above realtime for the expected concurrent user count;
 - transcode cache never exceeds budget/free-space reserve and disappears promptly after playback closes;
 - Android phone, Android TV and Fire TV quality changes do not reset progress;
+- Android 0.5.3 real-device QA must include a server returning `400 invalid JSON body` for the full capability document and confirm the minimal PlaybackPlan retry starts playback instead of leaving the player at 00:00/00:00;
 - audio/subtitle selection, previous/next and 10-second autoplay continue working after transcode/quality changes;
 - Admin Playback Engine v5 panel reports encoder, hardware, FPS, speed, cache and errors correctly;
 - official Jellyfin compatibility routes remain unaffected.

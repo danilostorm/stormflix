@@ -1,6 +1,7 @@
 package cloud.stormflix.app;
 
 import android.content.Context;
+import android.util.Log;
 
 import org.json.JSONObject;
 
@@ -12,9 +13,13 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 public final class ApiClient {
+    private static final String TAG = "StormFlixApi";
+    private static final String VERSION = "0.5.3";
+
     public static final class ApiException extends IOException {
         public final int status;
         ApiException(int status, String message) { super(message); this.status = status; }
@@ -37,8 +42,65 @@ public final class ApiClient {
     }
 
     public String get(String path) throws IOException { return request("GET", path, null); }
-    public String post(String path, JSONObject body) throws IOException { return request("POST", path, body == null ? "{}" : body.toString()); }
+
+    public String post(String path, JSONObject body) throws IOException {
+        JSONObject payload = body == null ? new JSONObject() : body;
+        try {
+            return request("POST", path, payload.toString());
+        } catch (ApiException first) {
+            if (!shouldRetryPlaybackPlan(path, first)) throw first;
+
+            // Some deployed StormFlix servers still use the older strict JSON
+            // decoder for PlaybackPlan. Retry only this very specific 400 with a
+            // conservative capability envelope that older v5 servers understand.
+            // Direct Play stays first; this fallback never silently requests a
+            // video transcode or bypasses the authoritative PlaybackPlan.
+            try {
+                JSONObject compatible = minimalPlaybackPlanPayload(payload);
+                Log.w(TAG, "PlaybackPlan rejected full capability JSON; retrying minimal compatibility payload");
+                return request("POST", path, compatible.toString());
+            } catch (ApiException second) {
+                throw new ApiException(second.status,
+                    "PlaybackPlan recusou JSON completo e compatível: " + String.valueOf(second.getMessage()));
+            } catch (Exception buildError) {
+                Log.w(TAG, "Could not build PlaybackPlan compatibility payload", buildError);
+                throw first;
+            }
+        }
+    }
+
     public String delete(String path) throws IOException { return request("DELETE", path, null); }
+
+    private static boolean shouldRetryPlaybackPlan(String path, ApiException error) {
+        if (error == null || error.status != 400 || path == null || !path.contains("/playback/plan")) return false;
+        String message = String.valueOf(error.getMessage()).toLowerCase(Locale.ROOT);
+        return message.contains("invalid json") || message.contains("json inválido") || message.contains("json invalido");
+    }
+
+    private static JSONObject minimalPlaybackPlanPayload(JSONObject source) throws Exception {
+        JSONObject out = new JSONObject();
+        String clientKind = source.optString("client_kind", "android").trim();
+        if (clientKind.isEmpty()) clientKind = "android";
+        out.put("client_kind", clientKind);
+
+        String preferredAudio = source.optString("preferred_audio_language", "").trim();
+        if (!preferredAudio.isEmpty()) out.put("preferred_audio_language", preferredAudio);
+
+        JSONObject sourceCaps = source.optJSONObject("capabilities");
+        JSONObject caps = new JSONObject();
+        if (sourceCaps != null) {
+            if (sourceCaps.has("containers")) caps.put("containers", sourceCaps.get("containers"));
+            if (sourceCaps.has("video_codecs")) caps.put("video_codecs", sourceCaps.get("video_codecs"));
+            if (sourceCaps.has("audio_codecs")) caps.put("audio_codecs", sourceCaps.get("audio_codecs"));
+            caps.put("allow_remux", sourceCaps.optBoolean("allow_remux", true));
+            caps.put("allow_audio_compatibility", sourceCaps.optBoolean("allow_audio_compatibility", true));
+        } else {
+            caps.put("allow_remux", true);
+            caps.put("allow_audio_compatibility", true);
+        }
+        out.put("capabilities", caps);
+        return out;
+    }
 
     private String request(String method, String path, String body) throws IOException {
         HttpURLConnection c = open(apiUrl(path));
@@ -77,7 +139,7 @@ public final class ApiClient {
         c.setConnectTimeout(15000);
         c.setReadTimeout(1200000);
         c.setInstanceFollowRedirects(true);
-        c.setRequestProperty("User-Agent", "StormFlix-Android/0.5.2");
+        c.setRequestProperty("User-Agent", "StormFlix-Android/" + VERSION);
         String cookies = store.cookieHeader();
         if (!cookies.isEmpty()) c.setRequestProperty("Cookie", cookies);
         return c;
