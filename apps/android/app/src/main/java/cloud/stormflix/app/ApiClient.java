@@ -77,7 +77,7 @@ public final class ApiClient {
         c.setConnectTimeout(15000);
         c.setReadTimeout(1200000);
         c.setInstanceFollowRedirects(true);
-        c.setRequestProperty("User-Agent", "StormFlix-Android/" + BuildConfig.VERSION_NAME);
+        c.setRequestProperty("User-Agent", "StormFlix-Android/0.5.2");
         String cookies = store.cookieHeader();
         if (!cookies.isEmpty()) c.setRequestProperty("Cookie", cookies);
         return c;
