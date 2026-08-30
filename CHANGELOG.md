@@ -4,6 +4,26 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 
 ## 2026-08-30
 
+### Playback Engine v5, Web Player v5 and Android 0.5.0
+
+- Advanced the server to **0.21.0-playback-v5** and the native Android/Android TV/Fire TV app to **0.5.0 / versionCode 14**.
+- Preserved **Direct Play first** as the primary playback rule. Video transcoding is never a hidden bypass: it is selected only by the authoritative PlaybackPlan when the client explicitly advertises `allow_video_transcode` or when the user explicitly selects a quality lower than the source.
+- Added the native `video_transcode` PlaybackPlan mode after Direct Play → Remux → audio-only AAC compatibility. Unsupported video codec, decoder resolution/FPS/HDR limits, explicit Direct Play bitrate limits and user quality caps now produce a structured transcode plan when a safe target exists instead of simply failing playback.
+- Added persistent playback quality options **Auto / Original / 4K / 1440p / 1080p / 720p / 480p**. Choosing a lower quality than a compatible source now intentionally produces `reason_code=quality_limit`; `Original` continues preserving compatible Direct Play and the system never upscales lower-resolution media.
+- Added the bounded `internal/transcode` fMP4 HLS engine. Video is generated on demand in small batches rather than materializing an entire movie from rclone/Drive before playback begins.
+- Transcode cache defaults to **5 GiB globally**, 4-second fMP4 segments, five segments per batch, 20-minute crash/idle cleanup and the existing 10 GiB/5% free-disk safety reserve. Playback close/end cancels the worker and deletes the session directory immediately.
+- Added FFmpeg encoder discovery and hardware-first SDR encoding with automatic CPU fallback: NVIDIA NVENC, Intel Quick Sync, VAAPI and CPU encoders are selected according to what the installed FFmpeg actually exposes.
+- Added explicit HDR→SDR tone-map planning. The reliable v5 path uses `zscale` + software `tonemap` before encoding when the client cannot accept the source HDR mode; Admin exposes whether the host FFmpeg has the required filters.
+- Added per-session transcode diagnostics including source/output codec, output resolution/bitrate, chosen encoder/hardware, FPS, realtime speed, cache bytes, tone mapping and last FFmpeg error.
+- Added **Web Player v5** over the existing Player v4 control base, with quality selection, PlaybackPlan diagnostics, Direct Play/Remux/Audio Transcode/Video Transcode status and source→output technical information while preserving seek, PiP, fullscreen, subtitles, audio and episode controls.
+- Web quality changes re-plan at the current playback position and preserve play/pause state. Browser capabilities now explicitly advertise video-transcode support and a conservative maximum target bitrate derived from available network information when present.
+- Added native Android/TV/Fire quality controls with the same Auto/Original/4K/1440p/1080p/720p/480p choices. Quality changes persist locally, request a new PlaybackPlan and restore the current playback position instead of restarting from 00:00.
+- Android player information now reports the canonical playback mode, source/output resolution, target bitrate, encoder, hardware and tone mapping. The app also sends the playback session ID when closing a session so HLS/transcode cache is cleaned immediately.
+- Android/TV/Fire continues preserving native multi-audio Direct Play when possible; if only the selected audio is incompatible, video remains stream-copy and only audio becomes AAC.
+- Added an Admin **Playback Engine v5** panel under Saúde & Automação showing detected FFmpeg/hardware, preferred H.264 encoder, active video-transcode sessions, cache usage, tone-map readiness and live per-session encoder/FPS/speed/error metrics.
+- Expanded decision regressions for explicit quality downshift and Original-quality Direct Play, and CI now syntax-checks the transcode Admin UI and race-tests `internal/transcode` alongside playback/webcompat.
+- Jellyfin compatibility remains isolated and unchanged as a source-of-truth boundary. SQLite/PostgreSQL work remains a separate database migration phase rather than being mixed into this playback release.
+
 ### Android 0.4.1 autoplay, instant compatibility streaming and Releases
 
 - Added streaming-style **next episode autoplay** to Web, Android, Android TV and Fire TV. Episodic playback uses the existing `/media/{id}/neighbors` identity and presents a 10-second “A seguir” countdown before starting the next episode.
@@ -33,7 +53,7 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 - Bumped native StormFlix Android to **0.4.0 / versionCode 12** and updated its User-Agent.
 - Android Home navigation is now server-driven by `/categories` plus selected-profile `/profiles/home-menus`, so custom root menus such as **Desenhos** appear automatically on phone, Android TV and Fire TV and follow profile visibility/order.
 - Added `CategoryBrowseActivity`, a generic native two-level menu browser that keeps the parent aggregate and renders configured child gallery sections through the same `/categories/{slug}/smart` server rules used by Web.
-- Direct Play, exact audio selection, PlaybackPlan authority and the no-silent-video-transcode invariant are unchanged.
+- Direct Play, exact audio selection, PlaybackPlan authority and the no-silent-video-transcode invariant are unchanged for that release.
 
 ### Platform automation and catalog intelligence
 
@@ -51,7 +71,7 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 - Added per-profile Home menu visibility/order through `profile_home_menus`; public navigation applies the selected profile preferences without bypassing profile/kids/library access filtering.
 - Added large-catalog Web rendering in bounded chunks (28 cards per rail), IntersectionObserver loading, lazy image decode/fetch priority and one-day private browser caching for authenticated local artwork. External `AssetPublicBaseURL` remains the CDN path.
 - Added Web playback telemetry for current buffer depth, estimated read throughput, source bitrate, codec, playback mode and HLS cache usage. Admin “Reproduzindo agora” receives the enriched superset without breaking older consumers.
-- Dynamic HLS prefetch is now adaptive: normal operation stays one batch ahead and low buffer/slow reads may raise speculative headroom to at most three small batches. The existing **single global HLS SSD budget and free-space reserve remain hard limits**, and video remains stream-copy only.
+- Dynamic HLS prefetch is now adaptive: normal operation stays one batch ahead and low buffer/slow reads may raise speculative headroom to at most three small batches. The existing **single global HLS SSD budget and free-space reserve remain hard limits**, and video remains stream-copy only on that compatibility engine.
 - Added schema **Phase 13** for smart rules, technical media cache, catalog audit history, profile Home preferences, backup registry and playback diagnostics.
 - Added regression tests for smart rule normalization, pt-BR dub/sub classification, episode-safe duplicate detection, read-only scan preview, adaptive HLS bounds, Phase 13 migration and validated staged database restore.
 - CI now syntax-checks the automation/large-catalog scripts in addition to existing Web/Admin scripts, runs the full Go suite, playback/webcompat race tests and the server build.
@@ -134,7 +154,7 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 ### Unified playback completion
 
 - Completed the native Playback Core contract for Web, Android, Android TV and Fire TV under `/api/v1/media/{id}/playback/plan`.
-- Direct Play remains first choice; video is never silently transcoded or tone-mapped.
+- Direct Play remains first choice; that release did not yet include video transcoding.
 - Added exact audio-stream propagation, preferred-language selection, browser server-side audio pinning where required and ordered progress/session handling.
 - Android/TV publishes MediaCodec capabilities, preserves multi-audio Direct Play where possible and evaluates alternative sources through PlaybackPlan.
 
