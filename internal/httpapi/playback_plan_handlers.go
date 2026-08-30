@@ -59,7 +59,10 @@ func (s *server) playbackPlan(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	source, err := playback.Probe(r.Context(), item.Path)
+	// Reuse the Phase 13 technical snapshot when it matches modified_unix. This
+	// keeps PlaybackPlan identical while avoiding another ffprobe/rclone read for
+	// media the background technical indexer has already inspected.
+	source, err := s.probeMediaSource(r.Context(), id, item.Path, item.ModifiedUnix)
 	if err != nil {
 		writeJSON(w, http.StatusOK, playback.Plan{
 			Available:  false,
