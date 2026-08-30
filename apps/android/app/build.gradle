@@ -1,4 +1,4 @@
-// StormFlix Android 0.6.0 - mobile WebView shell reusing the Web Playback Engine
+// StormFlix Android 0.6.1 - native catalog UI + unified Web Video Player
 plugins {
     id 'com.android.application'
 }
@@ -11,8 +11,8 @@ android {
         applicationId 'cloud.stormflix.app'
         minSdk 23
         targetSdk 36
-        versionCode 18
-        versionName '0.6.0'
+        versionCode 19
+        versionName '0.6.1'
     }
 
     buildTypes {
@@ -29,9 +29,9 @@ android {
 }
 
 dependencies {
-    // Kept for the native Android TV / Fire TV player path.
+    // Video playback no longer uses Media3. It is provided by Android System
+    // WebView + the StormFlix Web Playback Engine on phone/tablet/TV/Fire TV.
+    // Keep ExoPlayer only because the native MusicActivity still uses it for
+    // audio playback and listening progress.
     implementation 'androidx.media3:media3-exoplayer:1.11.0'
-    implementation 'androidx.media3:media3-exoplayer-hls:1.11.0'
-    implementation 'androidx.media3:media3-ui:1.11.0'
-    implementation 'androidx.media3:media3-session:1.11.0'
 }
