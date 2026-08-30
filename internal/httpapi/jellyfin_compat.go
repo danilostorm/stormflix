@@ -80,8 +80,6 @@ func (s *server) jellyfinBranding(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Jellyfin exposes System/Ping publicly and some clients use it while
-// validating or refreshing a saved endpoint.
 func (s *server) jellyfinPing(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(s.config.ServerName)
 	if name == "" {
@@ -94,16 +92,15 @@ func (s *server) jellyfinPing(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) jellyfinEndpoint(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
-		"IsLocal":     false,
-		"IsInNetwork": false,
-	})
+	writeJSON(w, http.StatusOK, map[string]any{"IsLocal": false, "IsInNetwork": false})
 }
 
-// registerJellyfinRoutes exposes the same compatibility surface both under the
-// historical /jellyfin-api prefix and at the HTTP root. All protocol-facing
-// JSON goes through jellyfinCompatWrap so strict Jellyfin SDK UUID/DTO rules do
-// not leak into StormFlix's native integer/string ids.
+// registerJellyfinRoutes exposes the compatibility facade both under the
+// historical /jellyfin-api prefix and at the root paths used by official
+// clients. The matrix below is intentionally based on the current official
+// Jellyfin Android WebView and Android TV/Fire TV client source. Optional
+// features that StormFlix does not implement return strict empty DTO shapes;
+// playback/catalog state always comes from native StormFlix services.
 func (s *server) registerJellyfinRoutes(mux *http.ServeMux, prefix string) {
 	p := strings.TrimSuffix(prefix, "/")
 	route := func(path string) string { return p + path }
@@ -112,11 +109,22 @@ func (s *server) registerJellyfinRoutes(mux *http.ServeMux, prefix string) {
 		return s.jellyfinCompatWrap(s.jellyfinRequireAuth(s.jellyfinNormalizeLibraryScope(h)))
 	}
 
+	// Register native WebView bootstrap only once. Official Jellyfin Android
+	// loads the bare server root; after StormFlix login the deferred bundle uses
+	// this same-origin endpoint to populate the credentials expected by the
+	// Android native shell.
+	if p != "" {
+		mux.HandleFunc("GET /api/v1/compat/jellyfin-mobile-bridge", s.requireAuth(s.jellyfinMobileBridge))
+	}
+
+	// Discovery / connection / authentication.
 	mux.HandleFunc("GET "+route("/System/Info/Public"), compat(s.jellyfinCompatInfo))
 	mux.HandleFunc("GET "+route("/System/Ping"), s.jellyfinPingJSON)
 	mux.HandleFunc("POST "+route("/System/Ping"), s.jellyfinPingJSON)
 	mux.HandleFunc("GET "+route("/Users/Public"), compat(s.jellyfinPublicUsers))
 	mux.HandleFunc("GET "+route("/Branding/Configuration"), compat(s.jellyfinBranding))
+	mux.HandleFunc("GET "+route("/Startup/Configuration"), compat(s.jellyfinPublicConfiguration))
+	mux.HandleFunc("GET "+route("/QuickConnect/Enabled"), compat(s.jellyfinQuickConnectEnabled))
 	mux.HandleFunc("POST "+route("/Users/AuthenticateByName"), compat(s.jellyfinTVAuthenticateMinimal))
 
 	// Critical Android/Android TV post-login startup sequence.
@@ -127,14 +135,16 @@ func (s *server) registerJellyfinRoutes(mux *http.ServeMux, prefix string) {
 	mux.HandleFunc("POST "+route("/Sessions/Capabilities"), authed(s.jellyfinCapabilities))
 	mux.HandleFunc("POST "+route("/Sessions/Capabilities/Full"), authed(s.jellyfinCapabilities))
 	mux.HandleFunc("POST "+route("/Sessions/Logout"), authed(s.jellyfinLogout))
+	mux.HandleFunc("GET "+route("/Sessions"), authed(s.jellyfinEmptyList))
 
-	// Modern SDK routes used by Jellyfin Android TV 0.19.x while building Home.
-	// Keep the older /Users/{id}/... aliases below for legacy clients.
+	// Home/catalog routes used by modern Android TV and SDK clients.
 	mux.HandleFunc("GET "+route("/UserViews"), authed(s.jellyfinRichViews))
 	mux.HandleFunc("GET "+route("/UserViews/GroupingOptions"), authed(s.jellyfinUserViewGroupingOptions))
 	mux.HandleFunc("GET "+route("/UserItems/Resume"), authed(s.jellyfinResume))
 	mux.HandleFunc("GET "+route("/Items/Latest"), authed(s.jellyfinLatestCatalog))
 	mux.HandleFunc("GET "+route("/Items"), authed(s.jellyfinCatalogItems))
+	mux.HandleFunc("GET "+route("/Genres"), authed(s.jellyfinEmptyItems))
+	mux.HandleFunc("GET "+route("/Persons"), authed(s.jellyfinEmptyItems))
 	mux.HandleFunc("POST "+route("/ClientLog/Document"), authed(s.jellyfinClientLogDocument))
 
 	mux.HandleFunc("GET "+route("/Users/{id}"), authed(s.jellyfinCurrentUser))
@@ -143,11 +153,18 @@ func (s *server) registerJellyfinRoutes(mux *http.ServeMux, prefix string) {
 	mux.HandleFunc("GET "+route("/Users/{id}/Items"), authed(s.jellyfinCatalogItems))
 	mux.HandleFunc("GET "+route("/Users/{id}/Items/Resume"), authed(s.jellyfinResume))
 	mux.HandleFunc("GET "+route("/Users/{id}/Items/Latest"), authed(s.jellyfinLatestCatalog))
+	mux.HandleFunc("GET "+route("/Users/{id}/Suggestions"), authed(s.jellyfinEmptyItems))
 	mux.HandleFunc("GET "+route("/Shows/NextUp"), authed(s.jellyfinNextUp))
+	mux.HandleFunc("GET "+route("/Shows/Upcoming"), authed(s.jellyfinEmptyItems))
 	mux.HandleFunc("GET "+route("/Items/{id}"), authed(s.jellyfinCatalogItem))
-	// Android TV's image pipeline intentionally performs these GETs without
-	// the session token. Only read-only artwork is public; everything else stays
-	// behind jellyfinRequireAuth.
+	mux.HandleFunc("GET "+route("/Items/{id}/Similar"), authed(s.jellyfinEmptyItems))
+	mux.HandleFunc("GET "+route("/Items/{id}/ThemeSongs"), authed(s.jellyfinEmptyItems))
+	mux.HandleFunc("GET "+route("/Items/{id}/ThemeVideos"), authed(s.jellyfinEmptyItems))
+	mux.HandleFunc("GET "+route("/Items/{id}/SpecialFeatures"), authed(s.jellyfinEmptyItems))
+	mux.HandleFunc("GET "+route("/Items/{id}/Intros"), authed(s.jellyfinEmptyItems))
+
+	// Android TV's image pipeline intentionally performs these GETs without the
+	// session token. Only read-only artwork is public.
 	mux.HandleFunc("GET "+route("/Items/{id}/Images/{kind}"), compat(s.jellyfinPublicCatalogImage))
 	mux.HandleFunc("GET "+route("/Items/{id}/PlaybackInfo"), authed(s.jellyfinPlaybackInfo))
 	mux.HandleFunc("POST "+route("/Items/{id}/PlaybackInfo"), authed(s.jellyfinPlaybackInfo))
@@ -156,6 +173,7 @@ func (s *server) registerJellyfinRoutes(mux *http.ServeMux, prefix string) {
 	mux.HandleFunc("GET "+route("/Videos/{id}/stream"), authed(s.jellyfinStream))
 	mux.HandleFunc("GET "+route("/Audio/{id}/stream"), authed(s.jellyfinStream))
 	mux.HandleFunc("GET "+route("/Videos/{id}/{subtitle_id}/Subtitles/{index}/Stream.vtt"), authed(s.jellyfinSubtitle))
+	mux.HandleFunc("GET "+route("/Playback/BitrateTest"), authed(s.jellyfinPlaybackBitrateTest))
 	mux.HandleFunc("POST "+route("/Sessions/Playing"), authed(s.jellyfinProgress))
 	mux.HandleFunc("POST "+route("/Sessions/Playing/Progress"), authed(s.jellyfinProgress))
 	mux.HandleFunc("POST "+route("/Sessions/Playing/Stopped"), authed(s.jellyfinStopped))
@@ -167,41 +185,22 @@ type jellyfinStatusRecorder struct {
 }
 
 func (w *jellyfinStatusRecorder) WriteHeader(status int) {
-	if w.status == 0 {
-		w.status = status
-	}
+	if w.status == 0 { w.status = status }
 	w.ResponseWriter.WriteHeader(status)
 }
-
 func (w *jellyfinStatusRecorder) Write(data []byte) (int, error) {
-	if w.status == 0 {
-		w.status = http.StatusOK
-	}
+	if w.status == 0 { w.status = http.StatusOK }
 	return w.ResponseWriter.Write(data)
 }
 
 func isJellyfinRequestPath(path string) bool {
-	if strings.HasPrefix(path, "/jellyfin-api/") {
-		return true
-	}
+	if strings.HasPrefix(path, "/jellyfin-api/") { return true }
 	for _, prefix := range []string{
-		"/System/",
-		"/Users/",
-		"/UserViews",
-		"/UserItems/",
-		"/Branding/",
-		"/DisplayPreferences/",
-		"/Library/",
-		"/Items",
-		"/Shows/",
-		"/Videos/",
-		"/Audio/",
-		"/Sessions/",
-		"/ClientLog/",
+		"/System/", "/Users/", "/UserViews", "/UserItems/", "/Branding/", "/Startup/", "/QuickConnect/",
+		"/DisplayPreferences/", "/Library/", "/Items", "/Shows/", "/Genres", "/Persons", "/Playback/",
+		"/Videos/", "/Audio/", "/Sessions/", "/ClientLog/",
 	} {
-		if strings.HasPrefix(path, prefix) {
-			return true
-		}
+		if strings.HasPrefix(path, prefix) { return true }
 	}
 	return false
 }
@@ -214,9 +213,7 @@ func safeJellyfinQuery(values url.Values) string {
 			copyValues.Set(key, "[redacted]")
 			continue
 		}
-		for _, value := range list {
-			copyValues.Add(key, value)
-		}
+		for _, value := range list { copyValues.Add(key, value) }
 	}
 	return copyValues.Encode()
 }
@@ -231,24 +228,19 @@ func (s *server) jellyfinTrace(next http.Handler) http.Handler {
 		recorder := &jellyfinStatusRecorder{ResponseWriter: w}
 		next.ServeHTTP(recorder, r)
 		status := recorder.status
-		if status == 0 {
-			status = http.StatusOK
-		}
+		if status == 0 { status = http.StatusOK }
 		detail := fmt.Sprintf(
 			"method=%s path=%s query=%q status=%d host=%q forwarded_host=%q forwarded_proto=%q ua=%q accept=%q content_type=%q auth_present=%t elapsed_ms=%d",
-			r.Method,
-			r.URL.Path,
-			safeJellyfinQuery(r.URL.Query()),
-			status,
-			r.Host,
-			r.Header.Get("X-Forwarded-Host"),
-			r.Header.Get("X-Forwarded-Proto"),
-			shortDevice(r.UserAgent()),
-			r.Header.Get("Accept"),
-			r.Header.Get("Content-Type"),
-			jellyfinToken(r) != "",
-			time.Since(started).Milliseconds(),
+			r.Method, r.URL.Path, safeJellyfinQuery(r.URL.Query()), status, r.Host,
+			r.Header.Get("X-Forwarded-Host"), r.Header.Get("X-Forwarded-Proto"), shortDevice(r.UserAgent()),
+			r.Header.Get("Accept"), r.Header.Get("Content-Type"), jellyfinToken(r) != "", time.Since(started).Milliseconds(),
 		)
-		s.admin.Log(r.Context(), "info", "jellyfin", "JELLYFIN_REQUEST", nil, detail)
+		level := "info"
+		message := "JELLYFIN_REQUEST"
+		if status == http.StatusNotFound || status >= 500 {
+			level = "warn"
+			message = "JELLYFIN_COMPAT_GAP"
+		}
+		s.admin.Log(r.Context(), level, "jellyfin", message, nil, detail)
 	})
 }
