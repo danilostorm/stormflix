@@ -21,9 +21,9 @@
   <link rel="stylesheet" href="/category-nav.css">
   <link rel="stylesheet" href="/mobile-v2.css">
   <link rel="stylesheet" href="/rail-nav-v2.css">
-  <link rel="stylesheet" href="/player-v3.css">
   <link rel="stylesheet" href="/player-v4.css">
   <link rel="stylesheet" href="/player-v5.css">
+  <link rel="stylesheet" href="/player-audio-v53.css">
 </head>
 <body>
 <div id="login" class="login-overlay hidden">
@@ -123,7 +123,7 @@
               <div><span>Direção</span><b id="detail-directors">—</b></div>
               <div><span>Gêneros</span><b id="detail-genres">—</b></div>
               <div><span>Biblioteca</span><b id="detail-library">—</b></div>
-              <div><span>Formato</span><b id="detail-format">Playback Engine v5</b></div>
+              <div><span>Formato</span><b id="detail-format">Playback Engine v5.3</b></div>
               <div id="theme-info-wrap" class="hidden"><span>Abertura</span><b id="theme-info"></b></div>
             </aside>
           </div>
@@ -138,7 +138,7 @@
 <div id="player-modal" class="player-modal hidden" role="dialog" aria-label="Player StormFlix">
   <div class="player-bar"><strong id="player-title"></strong><div class="player-top-actions"><button id="player-settings-top" class="player-top-settings" type="button" aria-label="Configurações do player">⚙</button><button id="player-close" aria-label="Fechar player">✕</button></div></div>
   <video id="player" controls playsinline preload="metadata"></video>
-  <div id="player-help" class="player-help hidden">O StormFlix vai escolher Direct Play, remux ou transcodificação automaticamente.</div>
+  <div id="player-help" class="player-help hidden">O StormFlix vai escolher Direct Play, Direct Stream ou transcodificação automaticamente.</div>
 </div>
 
 <audio id="theme-audio" preload="none"></audio>
@@ -165,15 +165,13 @@
 <script src="/ux-v3.js" defer></script>
 <script src="/source-selector.js" defer></script>
 <script src="/person-ui.js" defer></script>
-<script src="/webcompat.js" defer></script>
-<!-- Load HLS support while the visitor is still browsing the catalog so Play
-     does not pay a third-party script download penalty. playback-core-v52
-     retains its dynamic loader as a resilience fallback if this is blocked. -->
+<!-- Web v5.3 owns compatibility and track selection through one playback session.
+     The legacy webcompat/player-v3 monkey patches are intentionally not loaded. -->
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.7.1/dist/hls.min.js" defer></script>
-<script src="/playback-core-v52.js" defer></script>
-<script src="/player-v3.js" defer></script>
+<script src="/playback-core-v53.js" defer></script>
 <script src="/player-v4.js" defer></script>
 <script src="/player-v5.js" defer></script>
+<script src="/player-audio-v53.js" defer></script>
 <script src="/player-monitor.js" defer></script>
 <script src="/autoplay-next.js" defer></script>
 <script src="/continue-watching.js" defer></script>
