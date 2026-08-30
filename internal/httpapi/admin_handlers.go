@@ -182,15 +182,15 @@ func (s *server) serverInfo(w http.ResponseWriter, r *http.Request) {
 	runtime.ReadMemStats(&m)
 	engine := transcode.Detect()
 	transcodeCache := map[string]any{}
-	transcodeSessions := 0
+	transcodeSessions := []transcode.SessionInfo{}
 	if manager, err := transcode.ForDataDir(s.config.DataDir); err == nil {
 		transcodeCache = manager.CacheStatus()
-		transcodeSessions = len(manager.Sessions())
+		transcodeSessions = manager.Sessions()
 	}
 	writeJSON(w, 200, map[string]any{
 		"name": "StormFlix", "version": version, "go": runtime.Version(), "os": runtime.GOOS, "arch": runtime.GOARCH, "cpus": runtime.NumCPU(),
 		"memory_alloc_bytes": m.Alloc, "memory_sys_bytes": m.Sys, "uptime_seconds": int64(time.Since(s.startedAt).Seconds()), "database": s.config.DatabasePath(),
 		"direct_play_first": true, "direct_play_only": false, "transcoding_enabled": engine.FFmpegPath != "", "transcode_engine": engine,
-		"transcode_cache": transcodeCache, "transcode_sessions": transcodeSessions,
+		"transcode_cache": transcodeCache, "transcode_sessions": len(transcodeSessions), "transcode_session_details": transcodeSessions,
 	})
 }
