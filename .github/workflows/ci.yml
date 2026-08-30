@@ -48,6 +48,7 @@ jobs:
           node --check internal/webui/static/admin/admin-time.js
           node --check internal/webui/static/admin/admin-smooth-operations.js
           node --check internal/webui/static/app.js
+          node --check internal/webui/static/main.stormflix.bundle.js
           node --check internal/webui/static/catalog-performance.js
           node --check internal/webui/static/series-ui.js
           node --check internal/webui/static/series-rules.js

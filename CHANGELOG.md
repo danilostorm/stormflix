@@ -4,6 +4,23 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 
 ## 2026-08-29
 
+### Android 0.4.0 and official Jellyfin client compatibility v2
+
+- Audited the current official `jellyfin/jellyfin-android` WebView connection flow and `jellyfin/jellyfin-androidtv` native SDK usage instead of guessing client endpoint names.
+- Added an official Jellyfin Android WebView bridge. When the official Android wrapper loads the StormFlix server root, its existing `main.*.bundle.js` interception injects Jellyfin NativeShell while StormFlix continues rendering the StormFlix Web layout.
+- After a successful StormFlix Web login, `/api/v1/compat/jellyfin-mobile-bridge` derives the authenticated user/token from the same-origin HttpOnly StormFlix session, writes the `jellyfin_credentials` shape expected by the official wrapper and triggers `/Sessions/Capabilities/Full` so the native Android shell can finish session setup.
+- The WebView bridge is limited to pages exposing Jellyfin native JS interfaces and removes only the current StormFlix origin's mirrored credentials after logout/401. Ordinary browsers are unaffected.
+- Documented the unavoidable platform boundary: official **Jellyfin Android TV / Fire TV is native Leanback UI**, not a WebView, so a server cannot replace that UI with HTML. The StormFlix native app is the route for the StormFlix layout on TV/Fire; official Jellyfin TV/Fire consumes the compatibility facade.
+- Expanded the isolated Jellyfin facade with current-client startup and optional surfaces including Startup Configuration, Quick Connect capability declaration, Sessions list, Genres, Persons, Suggestions, Upcoming, Similar, Theme/Special/Intro query endpoints and Playback BitrateTest while preserving existing UserViews/Items/Latest/Resume/NextUp/PlaybackInfo/seasons/episodes/images/streams/progress routes.
+- Unsupported optional Jellyfin features return correctly shaped empty DTOs rather than fake catalog state. Quick Connect explicitly advertises `false` because StormFlix does not implement that protocol.
+- Jellyfin tracing now marks 404/5xx client calls as `JELLYFIN_COMPAT_GAP`, allowing real Android/TV/Fire traffic to identify future compatibility gaps without logging tokens or passwords.
+- Added route-registration regression coverage for the official Android/TV compatibility matrix and expanded the embedded WebView bridge test to lock `jellyfin_credentials`, bridge URL, `Sessions/Capabilities/Full` and token-header behavior.
+- CI now syntax-checks `main.stormflix.bundle.js`.
+- Bumped native StormFlix Android to **0.4.0 / versionCode 12** and updated its User-Agent.
+- Android Home navigation is now server-driven by `/categories` plus selected-profile `/profiles/home-menus`, so custom root menus such as **Desenhos** appear automatically on phone, Android TV and Fire TV and follow profile visibility/order.
+- Added `CategoryBrowseActivity`, a generic native two-level menu browser that keeps the parent aggregate and renders configured child gallery sections through the same `/categories/{slug}/smart` server rules used by Web.
+- Direct Play, exact audio selection, PlaybackPlan authority and the no-silent-video-transcode invariant are unchanged.
+
 ### Platform automation and catalog intelligence
 
 - Added **smart Home sections** that can select titles by library scope and/or persistent rules: genre, media type, year range, minimum rating, recent additions, minimum/maximum resolution, HDR/SDR, Brazilian-Portuguese audio, Brazilian-Portuguese subtitles, dub/sub status and metadata readiness.

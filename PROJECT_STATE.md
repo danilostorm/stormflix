@@ -22,7 +22,8 @@ Server HTTP port: **8090**, normally behind HTTPS reverse proxy.
 ## Current versions
 
 - Server: `0.20.0-platform-automation`.
-- Android package: `cloud.stormflix.app`, version **0.3.0**, versionCode 11, minSdk 23, targetSdk 36, Java 17, Media3 1.11.0.
+- Android package: `cloud.stormflix.app`, version **0.4.0**, versionCode 12, minSdk 23, targetSdk 36, Java 17, Media3 1.11.0.
+- Jellyfin compatibility facade advertises numeric compatibility version `10.11.6` to satisfy current official-client version parsing; this does **not** turn StormFlix into Jellyfin or change the native server version.
 - SQLite remains the native catalog database with WAL, `synchronous=NORMAL`, busy timeout, bounded connection pool and targeted indexes.
 
 ## Non-negotiable invariants
@@ -50,7 +51,7 @@ StormFlix TV/Fire ───┘        │
                               ├── Dynamic HLS session cache (Web)
                               └── Seekable compatibility MP4 cache (native/manual fallback)
 
-Jellyfin clients ──> compatibility facade ──> StormFlix core
+Official Jellyfin clients ──> isolated compatibility facade ──> StormFlix core
 ```
 
 Native modes remain `direct_play`, `remux`, `audio_compatibility` and `unsupported`.
@@ -73,9 +74,42 @@ Admin “Reproduzindo agora” returns the enriched playback superset while pres
 
 `internal/webcompat/materialize.go` + `CacheManager` remain for Android/TV/manual compatibility paths. Defaults: 20 GiB max, 48h TTL, 15m cleanup, LRU target 85%, free-space reserve, active-file protection and short-lived oversize artifacts.
 
-## Android / Android TV / Fire TV
+## StormFlix Android / Android TV / Fire TV
 
-Media3 consumes the same PlaybackPlan contract, publishes MediaCodec capabilities, preserves native multi-audio Direct Play where possible, supports source/version selection and ordered progress, and does not silently bypass the planner. This platform-automation release does not change Android source/version.
+The native app is one package with touch + remote/Leanback behavior. Media3 consumes the same PlaybackPlan contract, publishes MediaCodec capabilities, preserves native multi-audio Direct Play where possible, supports source/version selection and ordered progress, and does not silently bypass the planner.
+
+Version **0.4.0** changes Home navigation from hard-coded `Filmes / Séries / Animes` to server-driven root categories from `/api/v1/categories` plus the selected profile's `/api/v1/profiles/home-menus` visibility/order. Custom roots such as **Desenhos** therefore appear automatically on phone, Android TV and Fire TV.
+
+`CategoryBrowseActivity` is the generic two-level native catalog browser. It loads the root aggregate and resolves each direct child through `/categories/{slug}/smart`, so gallery sections such as **Animes Dublados**, **Animes Legendados**, **Filmes Animes** or custom sections use the same server rules as Web instead of duplicating classification logic in Android.
+
+## Official Jellyfin Android / Android TV / Fire TV compatibility
+
+The compatibility work is based on current upstream official clients, not guessed route names.
+
+### Official Jellyfin Android phone/tablet
+
+The official Android app is a WebView wrapper. Its current `JellyfinWebViewClient`:
+
+1. loads the configured server root `/`;
+2. intercepts the first `main.*.bundle.js` request and injects Jellyfin's native shell;
+3. watches `Sessions/Capabilities/Full`;
+4. reads `localStorage.jellyfin_credentials` and extracts `Servers[0].UserId` + `AccessToken` for native session setup.
+
+StormFlix deliberately emits `/main.stormflix.bundle.js` only when a Jellyfin native JS interface is present. The deferred bridge keeps the **StormFlix Web layout** rendered, polls the same-origin authenticated bridge `/api/v1/compat/jellyfin-mobile-bridge`, writes the credentials shape expected by the official wrapper, and triggers `/Sessions/Capabilities/Full`. Before StormFlix login it remains harmless; after logout/401 it removes only the credentials belonging to the current StormFlix origin.
+
+The bridge endpoint never trusts a browser-supplied user ID. It derives the current user and token from the already-authenticated StormFlix HttpOnly session and is itself protected by native StormFlix authentication.
+
+### Official Jellyfin Android TV / Fire TV
+
+The official Jellyfin TV application is a **native Android/Leanback application**, not a WebView. A server cannot legitimately replace that native UI with StormFlix HTML after login. Therefore:
+
+- official Jellyfin TV/Fire keeps Jellyfin's native UI and consumes the compatibility facade;
+- the StormFlix native app is the supported path when the desired TV/Fire UI is the StormFlix layout;
+- the facade is expanded around the current official SDK calls (`UserViews`, `Items`, `Latest`, `Resume`, `NextUp`, `PlaybackInfo`, sessions/progress, images, seasons/episodes, direct streams and optional discovery/query surfaces).
+
+Optional official-client features StormFlix does not implement return correctly shaped empty DTOs instead of malformed fake data. `QuickConnect/Enabled` explicitly returns false because StormFlix supports its own username/password authentication rather than advertising an unsupported Jellyfin protocol.
+
+Every recognized Jellyfin request is traced without logging auth secrets. HTTP 404 and 5xx compatibility requests are tagged `JELLYFIN_COMPAT_GAP`, allowing real Android/TV/Fire traffic to reveal future endpoint gaps in Admin logs without weakening the native API.
 
 ## Scanner identity, metadata and sources
 
@@ -120,7 +154,7 @@ Admin → **Menus da Home** supports drag/drop ordering and live preview before 
 
 ### Profile-specific Home
 
-`profile_home_menus` stores root-menu visibility and order per profile. Public navigation merges these preferences with active root categories. Profile/kids/library restrictions remain authoritative after smart filtering.
+`profile_home_menus` stores root-menu visibility and order per profile. Web and Android navigation merge these preferences with active root categories. Profile/kids/library restrictions remain authoritative after smart filtering.
 
 ## Technical catalog index
 
@@ -177,23 +211,29 @@ Authenticated local `/assets/` responses use private one-day browser caching wit
 - Phase 12: persistent `scan_jobs` and metadata job type/series/provider fields.
 - **Phase 13:** category smart rules, `media_technical`, `catalog_changes`, `profile_home_menus`, `system_backups` and playback diagnostic columns.
 
-Migrations are forward/startup migrations. Phase 13 does not move/delete source media.
+Migrations are forward/startup migrations. Android/Jellyfin compatibility v2 adds no destructive database migration.
 
 ## Required validation before merge/release
 
-- JavaScript syntax checks for public Web + Admin, including automation and large-catalog scripts.
+- JavaScript syntax checks for public Web + Admin, including the deferred Jellyfin Android bridge bundle.
 - `go test ./...`.
 - `go test -race ./internal/playback ./internal/webcompat` when playback/cache concurrency changes.
 - `go build -trimpath ./cmd/stormflix`.
-- Exact PR-head CI must be green before merge.
-- Post-merge `main` CI must also be green before deployment is presented as ready.
-- Android workflow is required only when Android source changes.
+- Android Gradle debug APK build when Android source/version changes.
+- Exact PR-head CI **and** Android workflow must be green before merge for this release.
+- Post-merge `main` CI **and** Android workflow must also be green before deployment is presented as ready.
 
-Automation regression coverage includes smart rule normalization, recommended technical shelves, pt-BR stream classification, episode-safe duplicates, read-only scan preview, profile-specific Home ordering/visibility, adaptive HLS bounds, automatic SQLite backup/reuse, Phase 13 migration, valid staged restore and corrupt-restore quarantine.
+Compatibility regression coverage includes official-client route registration and the embedded Android WebView credential bridge. Existing automation/playback/scanner regression coverage remains mandatory.
 
 ## Real-world QA after deployment
 
 Architecture/tests do not replace device/storage validation. Check representative mounted media for Direct Play, remux/audio-compatibility, multi-audio pt-BR selection, 4K/HDR where supported, dynamic-HLS buffer diagnostics, SSD budget/cleanup, smart Dublado/Legendado/4K rails, profile-specific menu ordering, dry-run scan against real mounts and backup/restore from the Admin flow.
+
+For this Android/Jellyfin phase additionally test:
+
+- official Jellyfin Android phone: server connect → StormFlix login page → StormFlix Home layout → credentials/native shell setup;
+- official Jellyfin Android TV and Fire TV: login, Home views, item details, resume/latest/next-up, PlaybackInfo, direct stream, audio/subtitle selection and progress;
+- StormFlix Android 0.4.0 phone + Android TV + Fire TV: custom root menus (including Desenhos), child gallery sections, profile menu order/visibility, search/detail/player.
 
 ## Documentation rule
 
