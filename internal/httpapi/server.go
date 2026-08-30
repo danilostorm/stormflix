@@ -22,7 +22,7 @@ import (
 )
 
 const sessionCookie = "stormflix_session"
-const version = "0.21.0-playback-v5"
+const version = "0.22.0-web-playback-v53"
 
 type contextKey string
 
@@ -127,7 +127,10 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("GET /api/v1/media/{id}/versions", s.requireAuth(s.mediaVersions))
 	mux.HandleFunc("GET /api/v1/media/{id}/subtitles", s.requireAuth(s.mediaSubtitles))
 	mux.HandleFunc("GET /api/v1/media/{id}/subtitles/{subtitle_id}/vtt", s.requireAuth(s.subtitleVTT))
+	mux.HandleFunc("GET /api/v1/media/{id}/playback/streams", s.requireAuth(s.playbackStreams))
 	mux.HandleFunc("POST /api/v1/media/{id}/playback/plan", s.requireAuth(s.playbackPlan))
+	mux.HandleFunc("GET /api/v1/media/{id}/webstream/{session}/index.m3u8", s.requireAuth(s.webStreamPlaylist))
+	mux.HandleFunc("GET /api/v1/media/{id}/webstream/{session}/{file}", s.requireAuth(s.webStreamFragment))
 	mux.HandleFunc("POST /api/v1/media/{id}/playback", s.requireAuth(s.playbackHeartbeat))
 	mux.HandleFunc("POST /api/v1/media/{id}/playback/event", s.requireAuth(s.playbackEvent))
 	mux.HandleFunc("POST /api/v1/media/{id}/playback/telemetry", s.requireAuth(s.playbackTelemetry))
