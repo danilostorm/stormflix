@@ -1,4 +1,4 @@
-// StormFlix Android 0.5.3 - PlaybackPlan JSON compatibility retry
+// StormFlix Android 0.6.0 - mobile WebView shell reusing the Web Playback Engine
 plugins {
     id 'com.android.application'
 }
@@ -11,8 +11,8 @@ android {
         applicationId 'cloud.stormflix.app'
         minSdk 23
         targetSdk 36
-        versionCode 17
-        versionName '0.5.3'
+        versionCode 18
+        versionName '0.6.0'
     }
 
     buildTypes {
@@ -29,6 +29,7 @@ android {
 }
 
 dependencies {
+    // Kept for the native Android TV / Fire TV player path.
     implementation 'androidx.media3:media3-exoplayer:1.11.0'
     implementation 'androidx.media3:media3-exoplayer-hls:1.11.0'
     implementation 'androidx.media3:media3-ui:1.11.0'
