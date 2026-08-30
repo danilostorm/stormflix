@@ -86,8 +86,10 @@ func Load() Config {
 		CompatCacheOversizeTTL:     envDuration("STORMFLIX_COMPAT_CACHE_OVERSIZE_TTL", 15*time.Minute),
 		HLSCacheMaxBytes:           envInt64("STORMFLIX_HLS_CACHE_MAX_BYTES", 5<<30),
 		HLSCacheIdleTTL:            envDuration("STORMFLIX_HLS_CACHE_IDLE_TTL", 30*time.Minute),
-		HLSSegmentDuration:         envDuration("STORMFLIX_HLS_SEGMENT_DURATION", 6*time.Second),
-		HLSBatchSegments:           envInt("STORMFLIX_HLS_BATCH_SEGMENTS", 4),
+		// Short fragments let Web playback deliver the first frame quickly. The
+		// batch still keeps a healthy buffer ahead without materializing a movie.
+		HLSSegmentDuration:         envDuration("STORMFLIX_HLS_SEGMENT_DURATION", 2*time.Second),
+		HLSBatchSegments:           envInt("STORMFLIX_HLS_BATCH_SEGMENTS", 8),
 		BootstrapLibraryName:       env("STORMFLIX_BOOTSTRAP_LIBRARY_NAME", "Media"),
 		BootstrapLibraryPath:       os.Getenv("STORMFLIX_BOOTSTRAP_LIBRARY_PATH"),
 	}
