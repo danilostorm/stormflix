@@ -26,20 +26,32 @@ import org.json.JSONObject;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
+    private static final class HomeMenu {
+        long id;
+        String name = "";
+        String slug = "";
+        int sortOrder;
+        boolean visible = true;
+    }
+
     private final ExecutorService io = Executors.newFixedThreadPool(3);
     private final Handler main = new Handler(Looper.getMainLooper());
     private ApiClient api;
     private ImageLoader images;
     private LinearLayout page;
     private LinearLayout content;
+    private LinearLayout topNav;
     private boolean supports4k;
 
     @Override protected void onCreate(Bundle state) {
@@ -50,12 +62,16 @@ public class MainActivity extends Activity {
         if (!api.store().signedIn()) { startActivity(new Intent(this, LoginActivity.class)); finish(); return; }
         if (api.store().profileCookie().isEmpty()) { startActivity(new Intent(this, ProfileActivity.class)); finish(); return; }
         buildShell();
+        loadNavigation();
         loadHome();
     }
 
     @Override protected void onResume() {
         super.onResume();
-        if (content != null && api != null && api.store().signedIn()) loadHome();
+        if (content != null && api != null && api.store().signedIn()) {
+            loadNavigation();
+            loadHome();
+        }
     }
 
     private void buildShell() {
@@ -66,19 +82,10 @@ public class MainActivity extends Activity {
         HorizontalScrollView topScroll = new HorizontalScrollView(this);
         topScroll.setHorizontalScrollBarEnabled(false);
         topScroll.setFocusable(false);
-        LinearLayout top = Ui.horizontal(this, 12);
-        top.setBackgroundColor(Color.rgb(7, 8, 12));
-        TextView brand = Ui.title(this, "STORMFLIX", 22);
-        top.addView(brand, Ui.margin(this, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 8, 0, 26, 0));
-        addNav(top, "Início", this::loadHome);
-        addNav(top, "Filmes", () -> loadCategory("Filmes", "movie"));
-        addNav(top, "Séries", () -> openSeries("series"));
-        addNav(top, "Animes", () -> openSeries("anime"));
-        addNav(top, "Música", () -> startActivity(new Intent(this, MusicActivity.class)));
-        addNav(top, "Buscar", this::searchDialog);
-        addNav(top, "Perfis", () -> startActivity(new Intent(this, ProfileActivity.class)));
-        addNav(top, "Sair", this::logout);
-        topScroll.addView(top);
+        topNav = Ui.horizontal(this, 12);
+        topNav.setBackgroundColor(Color.rgb(7, 8, 12));
+        renderDefaultNavigation();
+        topScroll.addView(topNav);
         page.addView(topScroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, 66)));
 
         ScrollView scroll = new ScrollView(this);
@@ -87,19 +94,89 @@ public class MainActivity extends Activity {
         scroll.addView(content, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         page.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
         setContentView(page);
-        RemoteUi.focusFirst(top);
+        RemoteUi.focusFirst(topNav);
+    }
+
+    private void renderDefaultNavigation() {
+        List<HomeMenu> defaults = new ArrayList<>();
+        defaults.add(menu("Filmes", "movie", 10));
+        defaults.add(menu("Séries", "series", 20));
+        defaults.add(menu("Animes", "anime", 30));
+        renderNavigation(defaults);
+    }
+
+    private HomeMenu menu(String name, String slug, int order) {
+        HomeMenu menu = new HomeMenu();
+        menu.name = name;
+        menu.slug = slug;
+        menu.sortOrder = order;
+        return menu;
+    }
+
+    private void loadNavigation() {
+        io.submit(() -> {
+            try {
+                JSONArray categories = new JSONArray(api.get("/categories"));
+                JSONArray preferences = new JSONArray(api.get("/profiles/home-menus"));
+                Map<Long, JSONObject> prefs = new HashMap<>();
+                for (int i = 0; i < preferences.length(); i++) {
+                    JSONObject pref = preferences.optJSONObject(i);
+                    if (pref != null) prefs.put(pref.optLong("category_id"), pref);
+                }
+
+                List<HomeMenu> menus = new ArrayList<>();
+                for (int i = 0; i < categories.length(); i++) {
+                    JSONObject category = categories.optJSONObject(i);
+                    if (category == null || (category.has("parent_id") && !category.isNull("parent_id"))) continue;
+                    HomeMenu menu = new HomeMenu();
+                    menu.id = category.optLong("id");
+                    menu.name = category.optString("name", "Menu");
+                    menu.slug = category.optString("slug", "");
+                    menu.sortOrder = category.optInt("sort_order", 0);
+                    JSONObject pref = prefs.get(menu.id);
+                    if (pref != null) {
+                        menu.visible = pref.optBoolean("visible", true);
+                        menu.sortOrder = pref.optInt("sort_order", menu.sortOrder);
+                    }
+                    if (menu.visible && !menu.slug.isEmpty()) menus.add(menu);
+                }
+                menus.sort(Comparator.comparingInt((HomeMenu value) -> value.sortOrder).thenComparingLong(value -> value.id));
+                if (!menus.isEmpty()) main.post(() -> renderNavigation(menus));
+            } catch (Exception ignored) {
+                // Keep the built-in fallback navigation when the dynamic menu
+                // endpoint is temporarily unavailable. Catalog content itself
+                // will still surface the actionable network/auth error.
+            }
+        });
+    }
+
+    private void renderNavigation(List<HomeMenu> menus) {
+        if (topNav == null) return;
+        topNav.removeAllViews();
+        TextView brand = Ui.title(this, "STORMFLIX", 22);
+        topNav.addView(brand, Ui.margin(this, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 8, 0, 26, 0));
+        addNav(topNav, "Início", this::loadHome);
+        for (HomeMenu menu : menus) {
+            addNav(topNav, menu.name, () -> openCategory(menu));
+        }
+        addNav(topNav, "Música", () -> startActivity(new Intent(this, MusicActivity.class)));
+        addNav(topNav, "Buscar", this::searchDialog);
+        addNav(topNav, "Perfis", () -> startActivity(new Intent(this, ProfileActivity.class)));
+        addNav(topNav, "Sair", this::logout);
+        RemoteUi.focusFirst(topNav);
+    }
+
+    private void openCategory(HomeMenu menu) {
+        Intent intent = new Intent(this, CategoryBrowseActivity.class);
+        intent.putExtra("category_slug", menu.slug);
+        intent.putExtra("category_title", menu.name);
+        startActivity(intent);
     }
 
     private void addNav(LinearLayout top, String title, Runnable action) {
         Button b = Ui.button(this, title, false);
         b.setOnClickListener(v -> action.run());
         top.addView(b, Ui.margin(this, ViewGroup.LayoutParams.WRAP_CONTENT, Ui.dp(this, 42), 0, 0, 8, 0));
-    }
-
-    private void openSeries(String kind) {
-        Intent intent = new Intent(this, SeriesBrowseActivity.class);
-        intent.putExtra("filter_kind", kind);
-        startActivity(intent);
     }
 
     private void loading(String label) {
@@ -254,30 +331,6 @@ public class MainActivity extends Activity {
         return holder;
     }
 
-    private void loadCategory(String title, String kind) {
-        loading(title);
-        io.submit(() -> {
-            try {
-                List<Models.Media> all = parseMediaArray(api.get("/media?limit=500"));
-                List<Models.Media> filtered = new ArrayList<>();
-                for (Models.Media m : all) {
-                    String type = m.mediaType.toLowerCase(Locale.ROOT);
-                    boolean match = kind.equals("movie") ? type.equals("movie") || type.equals("film") : type.equals(kind);
-                    if (match && visibleOnDevice(m)) filtered.add(m);
-                }
-                main.post(() -> renderGridLike(title, dedupeMedia(filtered)));
-            } catch (Exception e) { main.post(() -> error(e)); }
-        });
-    }
-
-    private void renderGridLike(String title, List<Models.Media> list) {
-        Ui.clear(content);
-        content.addView(Ui.title(this, title, 30));
-        content.addView(Ui.muted(this, list.size() + " títulos", 12));
-        int chunk = 18;
-        for (int i = 0; i < list.size(); i += chunk) content.addView(row(i == 0 ? title : "", list.subList(i, Math.min(list.size(), i + chunk))));
-    }
-
     private void searchDialog() {
         EditText q = new EditText(this); q.setHint("Filme, série ou anime"); q.setSingleLine(true);
         q.setTextColor(Color.WHITE); q.setHintTextColor(Ui.MUTED); q.setBackground(Ui.round(Color.rgb(30,34,43),9)); q.setPadding(Ui.dp(this,14),0,Ui.dp(this,14),0);
@@ -294,6 +347,14 @@ public class MainActivity extends Activity {
                 main.post(() -> renderGridLike("Resultados para “" + value + "”", list));
             } catch (Exception e) { main.post(() -> error(e)); }
         });
+    }
+
+    private void renderGridLike(String title, List<Models.Media> list) {
+        Ui.clear(content);
+        content.addView(Ui.title(this, title, 30));
+        content.addView(Ui.muted(this, list.size() + " títulos", 12));
+        int chunk = 18;
+        for (int i = 0; i < list.size(); i += chunk) content.addView(row(i == 0 ? title : "", list.subList(i, Math.min(list.size(), i + chunk))));
     }
 
     private List<Models.Media> parseMediaArray(String json) throws Exception {
@@ -328,5 +389,10 @@ public class MainActivity extends Activity {
         }
         Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show();
         Ui.clear(content); content.addView(Ui.title(this, "Não foi possível carregar", 26)); content.addView(Ui.muted(this, e.getMessage(), 13));
+    }
+
+    @Override protected void onDestroy() {
+        io.shutdownNow();
+        super.onDestroy();
     }
 }
