@@ -1,4 +1,4 @@
-// StormFlix Android 0.6.0 - mobile WebView shell reusing the Web Playback Engine
+// StormFlix Android 0.6.1 - native catalog UI + unified Web Playback Engine
 plugins {
     id 'com.android.application'
 }
@@ -11,8 +11,8 @@ android {
         applicationId 'cloud.stormflix.app'
         minSdk 23
         targetSdk 36
-        versionCode 18
-        versionName '0.6.0'
+        versionCode 19
+        versionName '0.6.1'
     }
 
     buildTypes {
@@ -28,10 +28,7 @@ android {
     }
 }
 
+// Playback is provided by Android System WebView + the StormFlix Web Playback
+// Engine. Removing Media3 avoids shipping and maintaining a second player stack.
 dependencies {
-    // Kept for the native Android TV / Fire TV player path.
-    implementation 'androidx.media3:media3-exoplayer:1.11.0'
-    implementation 'androidx.media3:media3-exoplayer-hls:1.11.0'
-    implementation 'androidx.media3:media3-ui:1.11.0'
-    implementation 'androidx.media3:media3-session:1.11.0'
 }
