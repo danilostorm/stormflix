@@ -1,4 +1,4 @@
-// StormFlix Android 0.6.1 - native catalog UI + unified Web Playback Engine
+// StormFlix Android 0.6.1 - native catalog UI + unified Web Video Player
 plugins {
     id 'com.android.application'
 }
@@ -28,7 +28,10 @@ android {
     }
 }
 
-// Playback is provided by Android System WebView + the StormFlix Web Playback
-// Engine. Removing Media3 avoids shipping and maintaining a second player stack.
 dependencies {
+    // Video playback no longer uses Media3. It is provided by Android System
+    // WebView + the StormFlix Web Playback Engine on phone/tablet/TV/Fire TV.
+    // Keep ExoPlayer only because the native MusicActivity still uses it for
+    // audio playback and listening progress.
+    implementation 'androidx.media3:media3-exoplayer:1.11.0'
 }
