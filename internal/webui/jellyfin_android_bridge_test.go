@@ -21,7 +21,17 @@ func TestJellyfinAndroidWebViewBridgeIsEmbedded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handshake bundle is not embedded: %v", err)
 	}
-	if !strings.Contains(string(bundle), "StormFlixJellyfinWebViewBridge") {
-		t.Fatal("unexpected Jellyfin Android handshake bundle content")
+	text := string(bundle)
+	for _, required := range []string{
+		"StormFlixJellyfinWebViewBridge",
+		"jellyfin_credentials",
+		"/api/v1/compat/jellyfin-mobile-bridge",
+		"/Sessions/Capabilities/Full",
+		"X-Emby-Token",
+		"window.NativeInterface",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("Jellyfin Android bridge is missing %q", required)
+		}
 	}
 }
