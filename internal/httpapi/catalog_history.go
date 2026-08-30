@@ -50,29 +50,47 @@ func (s *server) previewLibraryScan(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, preview)
 }
 
+func (s *server) requireAutomaticBackup(w http.ResponseWriter, r *http.Request, note string) bool {
+	if _, err := s.ensureAutomaticBackup(r.Context(), note); err != nil {
+		uid := currentUser(r).ID
+		s.admin.Log(r.Context(), "error", "backup", "Safety backup failed; protected operation aborted", &uid, err.Error())
+		writeError(w, http.StatusInternalServerError, err)
+		return false
+	}
+	return true
+}
+
 func (s *server) scanLibraryWithBackup(w http.ResponseWriter, r *http.Request) {
-	_, _ = s.ensureAutomaticBackup(r.Context(), "antes do scan da biblioteca")
+	if !s.requireAutomaticBackup(w, r, "antes do scan da biblioteca") {
+		return
+	}
 	uid := currentUser(r).ID
 	s.recordCatalogChange(r.Context(), "library", r.PathValue("id"), "scan", "Scan de biblioteca solicitado", "", "", &uid)
 	s.scanLibrary(w, r)
 }
 
 func (s *server) scanAllLibrariesWithBackup(w http.ResponseWriter, r *http.Request) {
-	_, _ = s.ensureAutomaticBackup(r.Context(), "antes do scan de todas as bibliotecas")
+	if !s.requireAutomaticBackup(w, r, "antes do scan de todas as bibliotecas") {
+		return
+	}
 	uid := currentUser(r).ID
 	s.recordCatalogChange(r.Context(), "library", "all", "scan_all", "Scan de todas as bibliotecas solicitado", "", "", &uid)
 	s.scanAllLibraries(w, r)
 }
 
 func (s *server) updateLibraryWithBackup(w http.ResponseWriter, r *http.Request) {
-	_, _ = s.ensureAutomaticBackup(r.Context(), "antes de alterar biblioteca/caminho")
+	if !s.requireAutomaticBackup(w, r, "antes de alterar biblioteca/caminho") {
+		return
+	}
 	uid := currentUser(r).ID
 	s.recordCatalogChange(r.Context(), "library", r.PathValue("id"), "update", "Biblioteca/caminho alterado", "", "", &uid)
 	s.updateLibrary(w, r)
 }
 
 func (s *server) organizeRecommendedCategoriesWithBackup(w http.ResponseWriter, r *http.Request) {
-	_, _ = s.ensureAutomaticBackup(r.Context(), "antes de reorganizar os menus da Home")
+	if !s.requireAutomaticBackup(w, r, "antes de reorganizar os menus da Home") {
+		return
+	}
 	uid := currentUser(r).ID
 	s.recordCatalogChange(r.Context(), "category", "all", "organize", "Estrutura recomendada da Home solicitada", "", "", &uid)
 	s.organizeRecommendedCategories(w, r)
