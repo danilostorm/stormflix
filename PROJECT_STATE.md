@@ -21,114 +21,236 @@ Server HTTP port: **8090**, normally behind HTTPS reverse proxy.
 
 ## Current versions
 
-- Server: `0.20.0-platform-automation`.
-- Android package: `cloud.stormflix.app`, version **0.4.1**, versionCode 13, minSdk 23, targetSdk 36, Java 17, Media3 1.11.0.
+- Server: **`0.21.0-playback-v5`**.
+- Android package: `cloud.stormflix.app`, version **0.5.0**, versionCode **14**, minSdk 23, targetSdk 36, Java 17, Media3 1.11.0.
 - Jellyfin compatibility facade advertises numeric compatibility version `10.11.6` to satisfy current official-client version parsing; this does **not** turn StormFlix into Jellyfin or change the native server version.
-- SQLite remains the native catalog database with WAL, `synchronous=NORMAL`, busy timeout, bounded connection pool and targeted indexes.
-- PostgreSQL is the planned scale-out database direction, but **0.4.1 does not switch databases**. The migration must ship separately with a dual-backend compatibility layer, PostgreSQL migrations, SQLite→PostgreSQL data migrator, validation and rollback because existing code contains SQLite-specific SQL and backup semantics.
+- SQLite remains the production catalog database with WAL, `synchronous=NORMAL`, busy timeout, bounded connection pool and targeted indexes.
+- PostgreSQL remains a separate planned scale-out phase. It is deliberately not mixed into Playback Engine v5 because existing migrations, backup/restore semantics and queries contain SQLite-specific behavior.
 
 ## Non-negotiable invariants
 
 1. Native `/api/v1` is the StormFlix source of truth.
-2. **Direct Play first. Never silently transcode video.**
-3. Web, Android and TV/Fire use `/api/v1/media/{id}/playback/plan`.
+2. **Direct Play is always evaluated first.** Video transcoding must never be a silent bypass around PlaybackPlan.
+3. Web, Android, Android TV and Fire TV use `/api/v1/media/{id}/playback/plan` as the authoritative playback decision.
 4. Jellyfin compatibility is an isolated facade and must not redefine native catalog/playback state.
 5. Scanner-owned episodic identity is authoritative before metadata providers.
 6. Episodic manual matching is principal-series level only.
 7. Profile/kids/library access controls must survive every browse, smart-section and playback path.
 8. Exact selected audio stream remains authoritative. If only audio is incompatible, video stays stream-copy and only audio may be converted to AAC-LC.
-9. Unsupported video capability returns unsupported; no hidden transcode/tone-map fallback.
-10. Ordered progress remains session/sequence aware.
+9. **Explicit video transcoding is allowed only when the client advertises `allow_video_transcode` or the user explicitly requests a lower playback quality.** The returned plan must expose the incompatibility/quality reason, source/target codec, target resolution/bitrate and tone-map state. Unknown legacy clients do not receive the new video-transcode transport.
+10. Ordered progress remains session/sequence aware; changing source/version/quality must preserve progress and seek state.
 
-## Native playback architecture
+## Native Playback Engine v5
+
+Playback policy is now deterministic and shared by Web + native apps:
+
+```text
+1. Direct Play
+   ↓ only if required
+2. Remux / server-side track selection (video + compatible audio copied)
+   ↓ only if audio alone is incompatible
+3. Audio compatibility (video copied, selected audio → AAC-LC)
+   ↓ only if video/device/quality requires it and client opted in
+4. Video transcode (explicit PlaybackPlan v5 HLS session)
+   ↓ if no safe route exists
+5. Unsupported
+```
+
+Native modes are:
+
+- `direct_play`
+- `remux`
+- `audio_compatibility`
+- `video_transcode`
+- `unsupported`
+
+`video_transcode` is selected for explicit incompatibilities such as unsupported video codec, advertised decoder resolution/FPS/HDR limits, explicit Direct Play bitrate limits, or a user-selected quality lower than the source. It is not selected merely because FFmpeg exists.
+
+### User quality policy
+
+Web and Android/TV/Fire expose:
+
+- `Auto`
+- `Original`
+- `4K / 2160p`
+- `1440p`
+- `1080p`
+- `720p`
+- `480p`
+
+`Auto` chooses the best compatibility route from device/network capabilities. `Original` never forces a resolution downshift. Selecting a lower explicit quality than the source produces `reason_code=quality_limit` and an explicit video-transcode plan; StormFlix never upscales a lower-resolution source merely to match a higher setting.
+
+The selected quality is persistent per client. Quality changes during playback rebuild the plan and source while preserving current time and play/pause state.
+
+## Streaming architecture
 
 ```text
 StormFlix Web ───────┐
-StormFlix Android ───┼──> /api/v1 ──> Playback Core ──> Media
+StormFlix Android ───┼──> /api/v1 ──> PlaybackPlan v5 ──> Media/rclone
 StormFlix TV/Fire ───┘        │
-                              ├── Profiles / progress
-                              ├── Library access
+                              ├── HTTP Range Direct Play
+                              ├── Dynamic fMP4 HLS remux/audio compatibility
+                              ├── Dynamic fMP4 HLS video transcode
+                              ├── Profiles / ordered progress
                               ├── Metadata / subtitles
-                              ├── Dynamic HLS session cache (Web/Android/TV/Fire)
-                              └── Seekable compatibility MP4 cache (legacy/manual fallback)
+                              └── bounded session caches
 
 Official Jellyfin clients ──> isolated compatibility facade ──> StormFlix core
 ```
 
-Native modes remain `direct_play`, `remux`, `audio_compatibility` and `unsupported`.
+### Direct Play
 
-### Web Player v4
+Compatible media streams directly from the mounted/rclone source using HTTP Range. It creates **zero StormFlix HLS/transcode cache**. A source/session switch from a previous HLS/transcode route closes the old temporary session before Direct Play begins.
 
-`playback-core.js` owns planning/execution. `player-v4.js`/`player-v4.css` own presentation: custom played/buffered timeline, seek preview, mode/resolution indicators, ±10s, audio/subtitles/settings, previous/next episode, fullscreen, native PiP, Media Session and responsive controls.
+### Dynamic HLS remux / audio compatibility
 
-Compatible media uses HTTP Range Direct Play and creates zero compatibility cache. Web remux/audio compatibility uses session-scoped fMP4 HLS with exact selected streams and mandatory video stream-copy.
+`internal/webcompat/hls_manager.go` remains the lightweight compatibility engine for cases where video does not need recoding.
 
-### Dynamic HLS and diagnostics
+Defaults:
 
-HLS fragments live under `<DataDir>/hls-cache/<playback-session>/` with a 5 GiB global budget, 30-minute crash/idle fallback TTL and 10 GiB or 5% minimum free-disk reserve. Normal close/end cancels the FFmpeg worker and removes the session directory immediately.
+- fMP4 HLS
+- 6-second segments
+- 4 segments/batch by default
+- 5 GiB global HLS cache budget
+- 30-minute idle/crash cleanup
+- 10 GiB or 5% minimum free-space reserve
+- bounded adaptive look-ahead
 
-Web telemetry reports playback mode, source bitrate, buffer seconds, estimated read Mbps, codecs, cache bytes and errors. Adaptive prefetch changes only speculative headroom: normally one batch, at most three small batches during low-buffer/slow-read conditions. Global SSD budget/free-space reserve always wins. Video is never transcoded by this mechanism.
+Video is always stream-copy on this path. Only the exact selected incompatible audio may become AAC-LC.
 
-Since Android 0.4.1, StormFlix Web, Android, Android TV and Fire TV all use this dynamic HLS engine for non-Direct-Play compatibility. This removes the previous Android/TV wait for a complete seekable compatibility MP4 on rclone/Drive sources. Direct Play still bypasses HLS entirely. Unknown legacy clients can still use the complete-MP4 compatibility fallback.
+### Playback Engine v5 video transcode
 
-Admin “Reproduzindo agora” returns the enriched playback superset while preserving the original endpoint shape for older Admin consumers.
+`internal/transcode/manager.go` is a separate bounded engine for explicit `video_transcode` sessions. Session IDs are prefixed `v5t-`, allowing the existing authenticated HLS route family to dispatch either stream-copy HLS or video-transcode HLS without exposing a second public transport contract.
 
-### Managed legacy compatibility MP4 cache
+Default policy:
 
-`internal/webcompat/materialize.go` + `CacheManager` remain for legacy/unknown native and manual compatibility paths. Defaults: 20 GiB max, 48h TTL, 15m cleanup, LRU target 85%, free-space reserve, active-file protection and short-lived oversize artifacts.
+- cache: `<DataDir>/transcode-cache/<playback-session>/`
+- **5 GiB global transcode cache budget**
+- 4-second fMP4 segments
+- 5 segments/batch (about 20 seconds of work at a time)
+- 20-minute idle/crash fallback cleanup
+- 10 GiB or 5% minimum free-space reserve
+- segments behind playback are trimmed
+- normal playback stop/close immediately cancels the FFmpeg worker and removes the entire session directory
 
-## StormFlix Android / Android TV / Fire TV
+Transcoding is on-demand in small batches rather than materializing an entire movie before playback. This is specifically important for Google Drive/rclone mounts.
 
-The native app is one package with touch + remote/Leanback behavior. Media3 consumes the same PlaybackPlan contract, publishes MediaCodec capabilities, preserves native multi-audio Direct Play where possible, supports source/version selection and ordered progress, and does not silently bypass the planner.
+### Hardware acceleration and CPU fallback
 
-Version **0.4.1** includes the 0.4.0 server-driven Home navigation and changes from hard-coded `Filmes / Séries / Animes` to server-driven root categories from `/api/v1/categories` plus the selected profile's `/api/v1/profiles/home-menus` visibility/order. Custom roots such as **Desenhos** therefore appear automatically on phone, Android TV and Fire TV.
+Engine discovery inspects the installed FFmpeg build and available device nodes. Supported encoder candidates include, when present:
 
-`CategoryBrowseActivity` is the generic two-level native catalog browser. It loads the root aggregate and resolves each direct child through `/categories/{slug}/smart`, so gallery sections such as **Animes Dublados**, **Animes Legendados**, **Filmes Animes** or custom sections use the same server rules as Web instead of duplicating classification logic in Android.
+- NVIDIA NVENC: `h264_nvenc`, `hevc_nvenc`, `av1_nvenc`
+- Intel Quick Sync: `h264_qsv`, `hevc_qsv`, `av1_qsv`
+- VAAPI: `h264_vaapi`, `hevc_vaapi`, `av1_vaapi` using `/dev/dri/renderD128` when available
+- CPU fallback: `libx264`, `libx265`, and available AV1 software encoders (`libsvtav1`, `librav1e`, `libaom-av1`)
+
+For normal SDR conversion the engine tries hardware first and falls back to CPU automatically when the candidate fails. The planned encoder/hardware is returned in PlaybackPlan and the actual active encoder/speed/FPS/error is visible in Admin session diagnostics.
+
+### HDR and tone mapping
+
+When the source HDR mode is known to be unsupported by the client and the safe output is SDR/H.264, PlaybackPlan marks `tone_map=true` and adds `tone_map_sdr` to the transcode reasons.
+
+The current reliable tone-map path uses FFmpeg `zscale` + software `tonemap` before encoding. Hardware-specific tone-map surfaces differ substantially by driver, so Playback Engine v5 intentionally prioritizes correctness over pretending that every NVENC/QSV/VAAPI environment can tone-map identically. Normal SDR transcodes still use hardware-first encoding.
+
+If the installed FFmpeg build lacks the required tone-map filters, Admin reports tone-map readiness as limited and real-device QA is required before relying on HDR→SDR playback for that host.
+
+## Web Player v5
+
+`playback-core.js` owns planning/execution and `player-v5.js` / `player-v5.css` layer the v5 experience over the established Player v4 controls.
+
+Player v5 adds:
+
+- persistent Auto/Original/4K/1440p/1080p/720p/480p quality selection;
+- seamless quality replanning at the current playback position;
+- explicit Direct Play / Remux / Audio Transcode / Video Transcode state;
+- source codec/resolution versus output codec/resolution;
+- source/target bitrate;
+- planned encoder and hardware acceleration;
+- HDR tone-map indication;
+- PlaybackPlan reasons/session diagnostics;
+- desktop keyboard shortcuts while preserving touch/fullscreen/PiP/media-session behavior.
+
+Web HLS continues using hls.js 1.7.1 with native-HLS fallback where available. This CDN dependency remains a future self-hosting consideration, not a server playback-policy dependency.
+
+## StormFlix Android / Android TV / Fire TV 0.5.0
+
+The native app remains a single Media3 package with touch and remote behavior. It publishes real MediaCodec video/audio capabilities and opts into PlaybackPlan v5 video transcoding.
+
+Version **0.5.0 / versionCode 14** adds:
+
+- PlaybackPlan v5 capability advertisement (`allow_video_transcode=true`);
+- max transcode bitrate guidance: 25 Mbps for TV/Fire, 16 Mbps for phone/tablet;
+- persistent playback quality selection in the native player menu;
+- Auto/Original/4K/1440p/1080p/720p/480p choices;
+- quality/source replanning without restarting from 00:00;
+- playback information with source/output resolution, target bitrate, encoder, hardware and tone mapping;
+- canonical playback-mode telemetry rather than human-readable mode strings;
+- proper HLS/transcode session ID on playback DELETE so temporary cache is removed when leaving/changing episode;
+- Media3 HLS support from the prior 0.4.1 work remains active.
+
+Native multi-audio Direct Play is still preserved when any decoder-supported track can be selected locally. If only the desired audio is incompatible, the server keeps video stream-copy and produces AAC. If video itself is incompatible, PlaybackPlan v5 may instead produce explicit video transcode.
 
 ### Episodic autoplay
 
-Web and native Android/TV/Fire use `/api/v1/media/{id}/neighbors` for previous/next identity. At natural episode completion, a 10-second **A seguir** countdown can start the next episode automatically. The preference is enabled by default and may be disabled independently in the Web Player v4 or the native player menu. Manual previous/next controls remain available.
+Web and native Android/TV/Fire use `/api/v1/media/{id}/neighbors` for previous/next identity. At natural episode completion, a 10-second **A seguir** countdown can start the next episode automatically. The preference is enabled by default and can be disabled. Manual previous/next controls remain available.
 
 ### Android release channel
 
-`.github/workflows/android.yml` builds the installable APK, publishes the APK plus SHA-256 as an Actions artifact for every validated build and, on successful `main` pushes that change Android, creates a versioned GitHub Release `android-v<version>`. The current automated APK is suitable for direct testing/installation; production store distribution still requires a dedicated persistent release signing key.
+`.github/workflows/android.yml` builds the installable APK and publishes APK + SHA-256 as Actions artifacts. On successful `main` pushes that include Android changes it creates a versioned GitHub Release `android-v<version>`. The automated APK is suitable for direct testing; store production signing remains a separate distribution concern.
+
+## Admin playback/transcode diagnostics
+
+Admin **Reproduzindo agora** retains the enriched playback diagnostics endpoint.
+
+Admin **Saúde & Automação** now also contains a Playback Engine v5 transcode panel showing:
+
+- FFmpeg version;
+- acceleration detected (NVENC / Quick Sync / VAAPI / CPU);
+- preferred H.264 encoder;
+- active video-transcode session count;
+- transcode cache usage/max and free-space reserve;
+- tone-map readiness;
+- per-session title/user/device mapping when available;
+- source/output codec;
+- target quality/bitrate;
+- actual encoder/hardware;
+- FFmpeg FPS and speed relative to realtime;
+- session cache bytes;
+- tone mapping and last error.
+
+Direct Play, Remux and audio-only AAC sessions are intentionally not counted as video-transcode sessions in this panel.
+
+## Managed legacy compatibility MP4 cache
+
+`internal/webcompat/materialize.go` + `CacheManager` remain for legacy/unknown native and manual compatibility paths. Defaults remain 20 GiB max, 48h TTL, periodic cleanup, LRU target, free-space reserve and active-file protection.
+
+Playback Engine v5 does not remove this legacy fallback, but Web/Android/TV/Fire use dynamic HLS paths instead of waiting for a whole compatibility MP4.
 
 ## Official Jellyfin Android / Android TV / Fire TV compatibility
 
-The compatibility work is based on current upstream official clients, not guessed route names.
+The native StormFlix playback rewrite does **not** move the source of truth into Jellyfin. The compatibility facade remains isolated.
 
 ### Official Jellyfin Android phone/tablet
 
-The official Android app is a WebView wrapper. Its current `JellyfinWebViewClient`:
-
-1. loads the configured server root `/`;
-2. intercepts the first `main.*.bundle.js` request and injects Jellyfin's native shell;
-3. watches `Sessions/Capabilities/Full`;
-4. reads `localStorage.jellyfin_credentials` and extracts `Servers[0].UserId` + `AccessToken` for native session setup.
-
-StormFlix deliberately emits `/main.stormflix.bundle.js` only when a Jellyfin native JS interface is present. The deferred bridge keeps the **StormFlix Web layout** rendered, polls the same-origin authenticated bridge `/api/v1/compat/jellyfin-mobile-bridge`, writes the credentials shape expected by the official wrapper, and triggers `/Sessions/Capabilities/Full`. Before StormFlix login it remains harmless; after logout/401 it removes only the credentials belonging to the current StormFlix origin.
-
-The bridge endpoint never trusts a browser-supplied user ID. It derives the current user and token from the already-authenticated StormFlix HttpOnly session and is itself protected by native StormFlix authentication.
+The official Android app is a WebView wrapper. StormFlix emits `/main.stormflix.bundle.js` only when a Jellyfin native JS interface is present. The deferred bridge keeps the StormFlix Web layout, mirrors the already-authenticated StormFlix session into the credential shape expected by the official wrapper and triggers `/Sessions/Capabilities/Full`. Tokens are derived server-side from the authenticated session; browser-supplied user IDs are not trusted.
 
 ### Official Jellyfin Android TV / Fire TV
 
-The official Jellyfin TV application is a **native Android/Leanback application**, not a WebView. A server cannot legitimately replace that native UI with StormFlix HTML after login. Therefore:
+The official TV application is native Android/Leanback, not a WebView. A server cannot replace its native UI with StormFlix HTML. Therefore:
 
 - official Jellyfin TV/Fire keeps Jellyfin's native UI and consumes the compatibility facade;
-- the StormFlix native app is the supported path when the desired TV/Fire UI is the StormFlix layout;
-- the facade is expanded around the current official SDK calls (`UserViews`, `Items`, `Latest`, `Resume`, `NextUp`, `PlaybackInfo`, sessions/progress, images, seasons/episodes, direct streams and optional discovery/query surfaces).
+- the StormFlix native app is the route for the StormFlix UI on TV/Fire;
+- current compatibility surfaces include UserViews, Items, Latest, Resume, NextUp, PlaybackInfo, sessions/progress, images, seasons/episodes, streams and shaped empty optional DTOs where appropriate.
 
-Optional official-client features StormFlix does not implement return correctly shaped empty DTOs instead of malformed fake data. `QuickConnect/Enabled` explicitly returns false because StormFlix supports its own username/password authentication rather than advertising an unsupported Jellyfin protocol.
-
-Every recognized Jellyfin request is traced without logging auth secrets. HTTP 404 and 5xx compatibility requests are tagged `JELLYFIN_COMPAT_GAP`, allowing real Android/TV/Fire traffic to reveal future endpoint gaps in Admin logs without weakening the native API.
+`QuickConnect/Enabled` remains false because StormFlix does not advertise an unsupported Jellyfin Quick Connect implementation. Compatibility 404/5xx calls remain traceable as `JELLYFIN_COMPAT_GAP` without logging secrets.
 
 ## Scanner identity, metadata and sources
 
 Supported video library kinds include `movies`, `series`, `anime`, `mixed`, `anime_series`, `animation_series` and existing special kinds. `media_series_identity` owns source root, stable series key/title, season, episode and absolute episode. External metadata enriches but does not redefine folder identity blindly.
 
-Western series/cartoons prefer `Scanner → TMDB TV → TheTVDB v4 → Fanart.tv`. Anime with seasons combines scanner identity with TMDB TV, TheTVDB, AniList/AniDB/MAL recovery and the native HAMA-style Anime-Lists bridge.
+Western series/cartoons prefer `Scanner → TMDB TV → TheTVDB v4 → Fanart.tv`. Anime with seasons combines scanner identity with TMDB TV, TheTVDB, AniList/AniDB/MAL recovery and the HAMA-style Anime-Lists bridge.
 
-Changing a Drive/rclone source root preserves media IDs when the replacement is unambiguous. Metadata, artwork, subtitles and progress stay attached to the same `media_id`. Ambiguous relocations/collisions are not guessed.
+Changing a Drive/rclone source root preserves media IDs when the replacement is an unambiguous one-for-one mapping. Metadata, artwork, subtitles and progress stay attached to the same `media_id`. Ambiguous relocations/collisions are not guessed.
 
 ## Principal-series manual matching
 
@@ -138,9 +260,9 @@ Admin → Catálogo defaults to **Obras principais**. Episodic manual matching l
 
 `scan_jobs` is persistent FIFO and scans are serialized to protect rclone/FUSE + SQLite. Duplicate active jobs are avoided; queued/running work can be cancelled; restart requeues unfinished jobs; unreachable mounts preserve prior catalog.
 
-`PreviewMulti` is the dry-run path used by Admin **Simular scan**. It traverses the same enabled roots as `ScanMulti`, reports existing/discovered/new/changed/missing/unchanged and never writes media availability or inserts/deletes catalog rows. Offline roots are handled conservatively.
+`PreviewMulti` is the dry-run path used by Admin **Simular scan**. It traverses the same enabled roots as `ScanMulti`, reports existing/discovered/new/changed/missing/unchanged and never mutates catalog rows.
 
-Protected scan, scan-all, library-path and recommended-category operations require a successful automatic database backup before execution. Repeated scan work may reuse a recent snapshot to avoid unnecessary SQLite `VACUUM` pressure, while structural library/source-path changes and recommended Home reorganization always create a fresh exact pre-operation snapshot.
+Protected scan, scan-all, library-path and recommended-category operations require a successful automatic database backup before execution.
 
 ## Smart Home menus and sections
 
@@ -149,70 +271,31 @@ Protected scan, scan-all, library-path and recommended-category operations requi
 - `parent_id IS NULL` = **Menu da Home** in top navigation;
 - direct child = **Seção da galeria** / rail inside that menu.
 
-The parent/general rail is never replaced by child sections. Child sections are stacked by `sort_order`; empty sections are omitted. A title may appear once in the general rail and again in a relevant child rail.
+The parent/general rail is never replaced by child sections. Child sections stack by `sort_order`; empty sections are omitted. A title may appear in the general rail and again in a relevant child rail.
 
 ### Persistent smart rules
 
-Phase 13 adds `rule_mode` and `rules_json` to categories. A child section can use:
+Category rules support library scope and filters for genres, media type, year, rating, recent additions, resolution, HDR/SDR, Brazilian-Portuguese audio/subtitles, technical dub/sub classification and metadata readiness.
 
-- `libraries` — selected library IDs only;
-- `rules` — inherit the menu scope and filter automatically;
-- `both` — selected libraries plus rules.
-
-Supported filters: genres, media types, year range, minimum rating, recently added days, minimum/maximum resolution, HDR/SDR/HDR10/HLG, Brazilian-Portuguese audio, Brazilian-Portuguese subtitles, technical dub/sub classification and metadata-required.
-
-Admin → **Menus da Home** supports drag/drop ordering and live preview before save. The recommended organizer creates technically driven 4K/UHD and Anime Dublado/Legendado shelves; custom items are not deleted.
-
-### Profile-specific Home
-
-`profile_home_menus` stores root-menu visibility and order per profile. Web and Android navigation merge these preferences with active root categories. Profile/kids/library restrictions remain authoritative after smart filtering.
+Admin → **Menus da Home** supports custom root menus such as Desenhos, drag/drop order and live preview. Profile Home preferences continue to control root visibility/order without bypassing kids/library access.
 
 ## Technical catalog index
 
-`media_technical` caches real stream inspection keyed by `media_id` + source `modified_unix`:
+`media_technical` caches stream inspection keyed by `media_id` + `modified_unix`, including video codec/resolution/HDR/bitrate/duration, audio/subtitle languages and technical dub/sub classification.
 
-- video codec/resolution/HDR/bitrate/duration;
-- audio languages;
-- subtitle languages;
-- pt-BR audio/subtitle flags;
-- technical `dublado`, `legendado` or `original` classification;
-- probe status/error/timestamp and serialized source probe.
+The background indexer runs one ffprobe at a time to protect remote mounts. PlaybackPlan reuses a matching serialized technical `playback.Source` snapshot and falls back to live probe when necessary. A cache write failure after a successful probe must not turn a valid playback into failure.
 
-The background indexer runs **one ffprobe at a time** so remote mounts are not hammered. Changed files invalidate their cache. Pending work is automatic; transient probe errors become eligible for retry after 30 minutes. Admin can explicitly requeue all technical analysis.
+Physical versions keep independent technical snapshots while logical cards remain deduplicated.
 
-PlaybackPlan reuses the serialized technical `playback.Source` when its `modified_unix` still matches, avoiding a second ffprobe/rclone read for already indexed media. The technical table remains an optimization only: when a live probe succeeds, a temporary SQLite cache-write failure must not turn that otherwise valid playback into a playback failure.
+## Catalog health, backups and restore
 
-Physical versions keep independent technical snapshots. Logical catalog cards remain deduplicated while `/media/{id}/versions` exposes source/quality alternatives.
+Admin health tracks missing metadata/covers/genres, `Outros`, unavailable titles, technical backlog and duplicate physical versions. Duplicate grouping includes season/episode identity.
 
-## Catalog health and duplicate identity
-
-Admin → **Saúde & Automação** exposes totals for missing metadata, cover, genre, `Outros`, unavailable media, technical backlog and duplicate physical versions.
-
-Duplicate grouping follows logical identity. TMDB-backed episodic keys include media type + season + episode; fallback keys include normalized title + year + media type + season + episode. Different episodes must never be classified as duplicate copies.
-
-`catalog_changes` records protected catalog/admin actions for audit/history.
-
-## Backups and restore
-
-`system_backups` registers SQLite snapshots stored under the database directory's `backups/` folder.
-
-- Scan safety backups may be reused for up to 30 minutes; structural path/category operations create a fresh snapshot.
-- Automatic retention keeps the newest 10 successfully registered snapshots and does not orphan a file if filesystem deletion fails.
-- A registry row whose file is missing cannot satisfy the safety gate.
-- Manual backup is available from Admin.
-- Restore never overwrites the live DB. Admin stages `<database>.restore`, fsyncs it, and requires a restart for activation.
-- On next startup, before opening the primary DB, StormFlix runs SQLite `quick_check` on the staged file.
-- An invalid/corrupt staged restore is renamed to `.restore.invalid-<timestamp>` and the current database continues starting normally instead of entering a restart/502 loop.
-- For a valid restore, the previous main DB plus any `-wal`/`-shm` sidecars are moved to a timestamped pre-restore safety copy.
-- If final activation fails, StormFlix rolls the previous database/sidecars back into place.
-
-Media files and asset folders are not part of this SQLite backup mechanism and are never deleted by restore.
+`system_backups` registers SQLite safety snapshots. Scans/path/category operations create or reuse backups according to their safety policy. Restore is staged to `<database>.restore`, verified with SQLite `quick_check` before activation, preserves a pre-restore copy and rolls back if activation fails. Media/assets are not deleted by DB restore.
 
 ## Large-catalog Web performance / artwork caching
 
-`catalog-performance.js` renders at most 28 cards per rail initially and loads further chunks with `IntersectionObserver`/manual load-more. Card images use lazy loading, async decode and low fetch priority.
-
-Authenticated local `/assets/` responses use private one-day browser caching with stale-while-revalidate. When `AssetPublicBaseURL` is configured, that external URL remains the intended CDN layer and controls its own public cache policy.
+Catalog rails render in bounded chunks with lazy image decode/fetch priority. Authenticated local assets use private browser caching; configured external `AssetPublicBaseURL` remains the CDN layer.
 
 ## Schema history
 
@@ -220,31 +303,41 @@ Authenticated local `/assets/` responses use private one-day browser caching wit
 - Phase 10: `series_metadata_overrides`, category `parent_id`, performance indexes.
 - Phase 11: ordered series-child index and legacy episode-manual cleanup.
 - Phase 12: persistent `scan_jobs` and metadata job type/series/provider fields.
-- **Phase 13:** category smart rules, `media_technical`, `catalog_changes`, `profile_home_menus`, `system_backups` and playback diagnostic columns.
-
-Migrations are forward/startup migrations. Android/Jellyfin compatibility v2 adds no destructive database migration.
+- Phase 13: category smart rules, `media_technical`, `catalog_changes`, `profile_home_menus`, `system_backups` and playback diagnostic columns.
+- Playback Engine v5 introduces **no destructive database migration**; transcode state is process/session scoped.
 
 ## Required validation before merge/release
 
-- JavaScript syntax checks for public Web + Admin, including the deferred Jellyfin Android bridge bundle.
-- `go test ./...`.
-- `go test -race ./internal/playback ./internal/webcompat` when playback/cache concurrency changes.
-- `go build -trimpath ./cmd/stormflix`.
-- Android Gradle debug APK build when Android source/version changes.
-- Exact PR-head CI **and** Android workflow must be green before merge for this release.
-- Post-merge `main` CI **and** Android workflow must also be green before deployment is presented as ready.
+For Playback Engine v5, all of the following are mandatory on the exact PR head:
 
-Compatibility regression coverage includes official-client route registration and the embedded Android WebView credential bridge. Existing automation/playback/scanner regression coverage remains mandatory.
+- JavaScript syntax checks for public Web + Admin, including `player-v5.js`, `admin-transcode.js` and Jellyfin bridge code;
+- `go test ./...`;
+- `go test -race ./internal/playback ./internal/webcompat ./internal/transcode`;
+- `go build -trimpath ./cmd/stormflix`;
+- Android Gradle APK build because Android source/version changed;
+- exact PR-head CI **and** Android workflow green before merge;
+- post-merge `main` CI **and** Android workflow green before deployment is presented as ready.
 
 ## Real-world QA after deployment
 
-Architecture/tests do not replace device/storage validation. Check representative mounted media for Direct Play, remux/audio-compatibility, multi-audio pt-BR selection, 4K/HDR where supported, dynamic-HLS buffer diagnostics, SSD budget/cleanup, smart Dublado/Legendado/4K rails, profile-specific menu ordering, dry-run scan against real mounts and backup/restore from the Admin flow.
+Architecture/tests do not replace real host/device/storage validation. Check:
 
-For this Android/Jellyfin phase additionally test:
-
-- official Jellyfin Android phone: server connect → StormFlix login page → StormFlix Home layout → credentials/native shell setup;
-- official Jellyfin Android TV and Fire TV: login, Home views, item details, resume/latest/next-up, PlaybackInfo, direct stream, audio/subtitle selection and progress;
-- StormFlix Android 0.4.0 phone + Android TV + Fire TV: custom root menus (including Desenhos), child gallery sections, profile menu order/visibility, search/detail/player.
+- compatible H.264/AAC media stays Direct Play with zero HLS/transcode cache;
+- container-only mismatch uses Remux;
+- incompatible selected audio uses AAC while video remains copy;
+- unsupported HEVC/AV1/etc. on a client that advertises transcode produces a `video_transcode` H.264 route;
+- explicit 1080p/720p/480p quality downshift preserves current position and produces the expected output resolution;
+- `Original` preserves compatible Direct Play;
+- 4K→1080p/720p on representative rclone media;
+- HDR source on an SDR-only declared client uses tone mapping and colors remain correct;
+- hardware SDR encode on each actually deployed GPU path (NVENC/QSV/VAAPI) where available;
+- CPU fallback works when hardware candidate is unavailable/fails;
+- sustained transcode speed remains above realtime for the expected concurrent user count;
+- transcode cache never exceeds budget/free-space reserve and disappears promptly after playback closes;
+- Android phone, Android TV and Fire TV quality changes do not reset progress;
+- audio/subtitle selection, previous/next and 10-second autoplay continue working after transcode/quality changes;
+- Admin Playback Engine v5 panel reports encoder, hardware, FPS, speed, cache and errors correctly;
+- official Jellyfin compatibility routes remain unaffected.
 
 ## Documentation rule
 
