@@ -4,6 +4,15 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 
 ## 2026-08-30
 
+### Android 0.5.3 PlaybackPlan JSON compatibility retry
+
+- Bumped the native Android/Android TV/Fire TV package to **0.5.3 / versionCode 17** after a real phone reproduced a black player at `00:00 / 00:00` with the toast `Não foi possível preparar a reprodução: invalid JSON ...`.
+- Confirmed that the failure happens before Media3 receives a media URL: the native app is rejected while POSTing `/api/v1/media/{id}/playback/plan`.
+- The app still sends the complete Playback Engine v5 capability document first. Only when that endpoint specifically returns HTTP 400 with an invalid-JSON message does `ApiClient` retry once with a conservative capability envelope containing the core container/video/audio support needed for authoritative planning.
+- The compatibility retry remains inside PlaybackPlan and therefore preserves **Direct Play first**. It does not silently enable video transcoding or bypass the server planner, and unrelated HTTP errors are not hidden.
+- Updated native API User-Agent and PlaybackPlan `client_version` to 0.5.3.
+- Added real-device QA coverage requirement for this exact full-capability rejection → minimal-capability retry path.
+
 ### Playback Engine v5, Web Player v5 and Android 0.5.0
 
 - Advanced the server to **0.21.0-playback-v5** and the native Android/Android TV/Fire TV app to **0.5.0 / versionCode 14**.
@@ -62,10 +71,6 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 - The recommended organizer now creates technically driven **Filmes 4K / UHD**, **Animes Dublados** and **Animes Legendados** rails instead of relying only on folder/library names. Technical rules are evaluated from real stream metadata.
 - Added a background technical catalog index (`media_technical`). It runs **one ffprobe at a time** to protect Google Drive/rclone/FUSE mounts, caches results by source `modified_unix`, detects codec/resolution/HDR/audio/subtitle languages, retries transient failures after a cooldown and can be explicitly requeued from Admin.
 - Added Admin → **Saúde & Automação** with actionable counts for missing metadata/covers/genres, `Outros`, unavailable media, technical-analysis backlog and duplicate physical versions.
-- Duplicate detection now follows logical media identity including **season and episode numbers**, so two physical copies of S01E01 are versions while S01E01 and S01E02 can never be collapsed as duplicates.
-- Physical versions now expose cached resolution, HDR, video codec, dub/sub status and audio/subtitle languages while the existing logical-card + source-selector model remains authoritative.
-- Added **scan simulation**. It traverses the same enabled roots as the real multi-source scanner and reports new/changed/missing/unchanged files without mutating catalog availability or inserting media rows. Offline roots are treated conservatively exactly like a real scan.
-- Added persistent **catalog change history** for protected scan, path, category, profile-Home and backup operations.
 - Added automatic SQLite safety backups before catalog-changing scan/path/category operations. Automatic backups are reusable for 30 minutes and retain the newest 10; missing backup files cannot satisfy the safety gate.
 - Added manual backup/list/restore controls. Restore is staged as `<db>.restore`, fsynced, verified with SQLite `quick_check` at next startup and activated before opening the primary connection. The previous database plus any WAL/SHM sidecars are preserved as a pre-restore safety copy, and a failed activation rolls the original files back into place.
 - Added per-profile Home menu visibility/order through `profile_home_menus`; public navigation applies the selected profile preferences without bypassing profile/kids/library access filtering.
