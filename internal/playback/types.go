@@ -90,6 +90,7 @@ type Plan struct {
 	Encoder               string   `json:"encoder,omitempty"`
 	HardwareAcceleration  string   `json:"hardware_acceleration,omitempty"`
 	Quality               string   `json:"quality,omitempty"`
+	AvailableQualities    []string `json:"available_qualities,omitempty"`
 	SourceBitrateKbps     int64    `json:"source_bitrate_kbps,omitempty"`
 	AudioCodec            string   `json:"audio_codec,omitempty"`
 	SourceAudioCodec      string   `json:"source_audio_codec,omitempty"`
@@ -103,6 +104,8 @@ type Plan struct {
 	ClientSelectsAudio    bool     `json:"client_selects_audio"`
 	URL                   string   `json:"url,omitempty"`
 	PrepareURL            string   `json:"prepare_url,omitempty"`
+	FallbackURL           string   `json:"fallback_url,omitempty"`
+	FallbackPrepareURL    string   `json:"fallback_prepare_url,omitempty"`
 	ResumePositionSeconds float64  `json:"resume_position_seconds,omitempty"`
 	PlaybackSessionID     string   `json:"playback_session_id,omitempty"`
 }
