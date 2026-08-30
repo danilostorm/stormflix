@@ -95,7 +95,7 @@ Admin → Catálogo defaults to **Obras principais**. Episodic manual matching l
 
 `PreviewMulti` is the dry-run path used by Admin **Simular scan**. It traverses the same enabled roots as `ScanMulti`, reports existing/discovered/new/changed/missing/unchanged and never writes media availability or inserts/deletes catalog rows. Offline roots are handled conservatively.
 
-Protected scan, scan-all, library-path and recommended-category operations require a successful automatic database backup before execution.
+Protected scan, scan-all, library-path and recommended-category operations require a successful automatic database backup before execution. Repeated scan work may reuse a recent snapshot to avoid unnecessary SQLite `VACUUM` pressure, while structural library/source-path changes and recommended Home reorganization always create a fresh exact pre-operation snapshot.
 
 ## Smart Home menus and sections
 
@@ -135,6 +135,8 @@ Admin → **Menus da Home** supports drag/drop ordering and live preview before 
 
 The background indexer runs **one ffprobe at a time** so remote mounts are not hammered. Changed files invalidate their cache. Pending work is automatic; transient probe errors become eligible for retry after 30 minutes. Admin can explicitly requeue all technical analysis.
 
+PlaybackPlan reuses the serialized technical `playback.Source` when its `modified_unix` still matches, avoiding a second ffprobe/rclone read for already indexed media. The technical table remains an optimization only: when a live probe succeeds, a temporary SQLite cache-write failure must not turn that otherwise valid playback into a playback failure.
+
 Physical versions keep independent technical snapshots. Logical catalog cards remain deduplicated while `/media/{id}/versions` exposes source/quality alternatives.
 
 ## Catalog health and duplicate identity
@@ -149,12 +151,14 @@ Duplicate grouping follows logical identity. TMDB-backed episodic keys include m
 
 `system_backups` registers SQLite snapshots stored under the database directory's `backups/` folder.
 
-- Automatic backups are reused for up to 30 minutes and retain the newest 10.
+- Scan safety backups may be reused for up to 30 minutes; structural path/category operations create a fresh snapshot.
+- Automatic retention keeps the newest 10 successfully registered snapshots and does not orphan a file if filesystem deletion fails.
 - A registry row whose file is missing cannot satisfy the safety gate.
 - Manual backup is available from Admin.
-- Restore never overwrites the live DB. Admin stages `<database>.restore` and fsyncs it.
+- Restore never overwrites the live DB. Admin stages `<database>.restore`, fsyncs it, and requires a restart for activation.
 - On next startup, before opening the primary DB, StormFlix runs SQLite `quick_check` on the staged file.
-- The previous main DB plus any `-wal`/`-shm` sidecars are moved to a timestamped pre-restore safety copy.
+- An invalid/corrupt staged restore is renamed to `.restore.invalid-<timestamp>` and the current database continues starting normally instead of entering a restart/502 loop.
+- For a valid restore, the previous main DB plus any `-wal`/`-shm` sidecars are moved to a timestamped pre-restore safety copy.
 - If final activation fails, StormFlix rolls the previous database/sidecars back into place.
 
 Media files and asset folders are not part of this SQLite backup mechanism and are never deleted by restore.
@@ -185,7 +189,7 @@ Migrations are forward/startup migrations. Phase 13 does not move/delete source 
 - Post-merge `main` CI must also be green before deployment is presented as ready.
 - Android workflow is required only when Android source changes.
 
-Automation regression coverage includes smart rule normalization, pt-BR stream classification, episode-safe duplicates, read-only scan preview, adaptive HLS bounds, Phase 13 migration and validated staged restore.
+Automation regression coverage includes smart rule normalization, recommended technical shelves, pt-BR stream classification, episode-safe duplicates, read-only scan preview, profile-specific Home ordering/visibility, adaptive HLS bounds, automatic SQLite backup/reuse, Phase 13 migration, valid staged restore and corrupt-restore quarantine.
 
 ## Real-world QA after deployment
 
