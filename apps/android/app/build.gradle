@@ -1,4 +1,4 @@
-// StormFlix Android 0.5.0 - Playback Engine v5 universal compatibility
+// StormFlix Android 0.5.0 - Playback Engine v5 universal compatibility and quality switching
 plugins {
     id 'com.android.application'
 }
