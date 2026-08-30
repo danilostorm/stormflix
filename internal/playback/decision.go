@@ -30,6 +30,7 @@ func Decide(source Source, request Request) Plan {
 	plan.VideoHeight = video.Height
 	plan.VideoFrameRate = video.FrameRate
 	plan.VideoHDR = strings.ToLower(strings.TrimSpace(video.HDR))
+	plan.AvailableQualities = availableQualities(video.Height)
 
 	audios := streamsOfType(source.Streams, "audio")
 	plan.AudioTrackCount = len(audios)
@@ -264,6 +265,25 @@ func shouldToneMap(sourceHDR, targetCodec string, profile VideoProfile) bool {
 	// prove it supports the source HDR mode, convert HDR to SDR instead of
 	// producing washed-out colors.
 	return normalizeCodec(targetCodec) == "h264" || profile.HDRKnown
+}
+
+func availableQualities(height int) []string {
+	qualities := []string{"auto", "original"}
+	for _, option := range []struct {
+		height int
+		value  string
+	}{
+		{2160, "2160p"},
+		{1440, "1440p"},
+		{1080, "1080p"},
+		{720, "720p"},
+		{480, "480p"},
+	} {
+		if height >= option.height {
+			qualities = append(qualities, option.value)
+		}
+	}
+	return qualities
 }
 
 func normalizeQuality(value string) string {
