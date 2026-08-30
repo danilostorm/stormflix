@@ -166,7 +166,11 @@
 <script src="/source-selector.js" defer></script>
 <script src="/person-ui.js" defer></script>
 <script src="/webcompat.js" defer></script>
-<script src="/playback-core.js" defer></script>
+<!-- Load HLS support while the visitor is still browsing the catalog so Play
+     does not pay a third-party script download penalty. playback-core-v52
+     retains its dynamic loader as a resilience fallback if this is blocked. -->
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.7.1/dist/hls.min.js" defer></script>
+<script src="/playback-core-v52.js" defer></script>
 <script src="/player-v3.js" defer></script>
 <script src="/player-v4.js" defer></script>
 <script src="/player-v5.js" defer></script>

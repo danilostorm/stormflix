@@ -15,6 +15,31 @@ type hlsPrefetchKey struct {
 
 var hlsPrefetchInFlight sync.Map
 
+// PrimeSession starts generating the first bounded HLS batch as soon as the
+// PlaybackPlan is created. The browser can load hls.js and the manifest while
+// FFmpeg is already reading the rclone/Drive source, removing the old cold-start
+// round trip where generation only began after the first init/segment request.
+func (m *HLSManager) PrimeSession(userID, mediaID int64, sessionID string) {
+	session, err := m.getSession(userID, mediaID, sessionID)
+	if err != nil {
+		return
+	}
+	key := hlsPrefetchKey{manager: m, sessionID: sessionID, batch: -2}
+	if _, loaded := hlsPrefetchInFlight.LoadOrStore(key, struct{}{}); loaded {
+		return
+	}
+	go func(expected *hlsSession) {
+		defer hlsPrefetchInFlight.Delete(key)
+		current, err := m.getSession(userID, mediaID, sessionID)
+		if err != nil || current != expected {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		_ = m.ensureBatch(ctx, current, 0, 0)
+	}(session)
+}
+
 // SegmentPathBuffered serves the requested HLS fragment and warms a bounded
 // adaptive amount ahead. The default remains one batch; telemetry may raise it
 // to at most three small batches when the browser buffer or remote read speed
