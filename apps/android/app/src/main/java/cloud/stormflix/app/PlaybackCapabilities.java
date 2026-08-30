@@ -18,7 +18,7 @@ import java.util.Set;
 
 /** Builds the native /api/v1 PlaybackPlan capability request for Media3. */
 public final class PlaybackCapabilities {
-    private static final String VERSION = BuildConfig.VERSION_NAME;
+    private static final String VERSION = "0.4.1";
 
     private static final Map<String,String> VIDEO_MIME_TO_CODEC = new LinkedHashMap<>();
     private static final Map<String,String> AUDIO_MIME_TO_CODEC = new LinkedHashMap<>();

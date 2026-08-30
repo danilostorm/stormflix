@@ -173,9 +173,9 @@ public class PlayerActivity extends Activity {
         Map<String,String> headers = new HashMap<>();
         String cookie = api.store().cookieHeader();
         if (!cookie.isEmpty()) headers.put("Cookie", cookie);
-        headers.put("User-Agent", "StormFlix-Android/" + BuildConfig.VERSION_NAME);
+        headers.put("User-Agent", "StormFlix-Android/0.4.1");
         DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory()
-            .setUserAgent("StormFlix-Android/" + BuildConfig.VERSION_NAME)
+            .setUserAgent("StormFlix-Android/0.4.1")
             .setAllowCrossProtocolRedirects(true)
             .setDefaultRequestProperties(headers);
         DefaultDataSource.Factory data = new DefaultDataSource.Factory(this, http);
