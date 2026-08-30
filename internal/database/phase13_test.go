@@ -1,6 +1,7 @@
 package database
 
 import (
+	"database/sql"
 	"io"
 	"os"
 	"path/filepath"
