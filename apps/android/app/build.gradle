@@ -1,4 +1,4 @@
-// StormFlix Android 0.4.1 - autoplay next episode + instant dynamic-HLS compatibility
+// StormFlix Android 0.5.0 - Playback Engine v5 universal compatibility
 plugins {
     id 'com.android.application'
 }
@@ -11,8 +11,8 @@ android {
         applicationId 'cloud.stormflix.app'
         minSdk 23
         targetSdk 36
-        versionCode 13
-        versionName '0.4.1'
+        versionCode 14
+        versionName '0.5.0'
     }
 
     buildTypes {
