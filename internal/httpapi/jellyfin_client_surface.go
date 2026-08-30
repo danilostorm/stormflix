@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,12 +19,16 @@ func (s *server) jellyfinMobileBridge(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
 	cookie, err := r.Cookie(sessionCookie)
 	if err != nil || strings.TrimSpace(cookie.Value) == "" {
-		writeError(w, http.StatusUnauthorized, errUnauthorized)
+		writeError(w, http.StatusUnauthorized, errors.New("authentication required"))
 		return
+	}
+	serverName := strings.TrimSpace(s.config.ServerName)
+	if serverName == "" {
+		serverName = "StormFlix"
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"server_id":    s.jellyfinServerID(),
-		"server_name":  strings.TrimSpace(s.config.ServerName),
+		"server_name":  serverName,
 		"user_id":      s.jellyfinExternalID(r.Context(), "user", strconv.FormatInt(u.ID, 10)),
 		"access_token": cookie.Value,
 		"base_url":     jellyfinRequestBaseURL(r),
@@ -60,10 +65,10 @@ func (s *server) jellyfinQuickConnectEnabled(w http.ResponseWriter, r *http.Requ
 
 func (s *server) jellyfinPublicConfiguration(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"IsStartupWizardCompleted": true,
-		"UICulture":                "pt-BR",
-		"MetadataCountryCode":      "BR",
-		"PreferredMetadataLanguage": "pt-BR",
+		"IsStartupWizardCompleted":     true,
+		"UICulture":                    "pt-BR",
+		"MetadataCountryCode":          "BR",
+		"PreferredMetadataLanguage":   "pt-BR",
 	})
 }
 
