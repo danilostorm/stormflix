@@ -61,6 +61,7 @@ import java.util.concurrent.atomic.AtomicLong;
 /** Native Media3 player shared by Android phone/tablet, Android TV and Fire TV. */
 public class PlayerActivity extends Activity {
     private static final String TAG = "StormFlixPlayer";
+    private static final String USER_AGENT = "StormFlix-Android/0.5.0";
     private static final long SETTINGS_VISIBLE_MS = 15000L;
     private static final long CONTROLS_VISIBLE_MS = 6000L;
     private static final long SEEK_STEP_MS = 10000L;
@@ -173,9 +174,9 @@ public class PlayerActivity extends Activity {
         Map<String,String> headers = new HashMap<>();
         String cookie = api.store().cookieHeader();
         if (!cookie.isEmpty()) headers.put("Cookie", cookie);
-        headers.put("User-Agent", "StormFlix-Android/0.4.1");
+        headers.put("User-Agent", USER_AGENT);
         DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory()
-            .setUserAgent("StormFlix-Android/0.4.1")
+            .setUserAgent(USER_AGENT)
             .setAllowCrossProtocolRedirects(true)
             .setDefaultRequestProperties(headers);
         DefaultDataSource.Factory data = new DefaultDataSource.Factory(this, http);
@@ -346,7 +347,7 @@ public class PlayerActivity extends Activity {
                 String serverSession = plan.optString("playback_session_id", "").trim();
                 if (!serverSession.isEmpty()) playbackSessionId = serverSession;
                 if (!plan.optBoolean("available", false)) {
-                    String reason = plan.optString("reason", "Este aparelho não suporta esta fonte sem transcodificar vídeo.");
+                    String reason = plan.optString("reason", "Este aparelho não encontrou uma rota de reprodução compatível.");
                     String code = plan.optString("reason_code", "unsupported");
                     main.post(() -> onPlanUnavailable(requestedId, reason, code));
                     return;
@@ -370,10 +371,11 @@ public class PlayerActivity extends Activity {
                     playbackMode = playbackModeLabel(readyPlan.optString("mode", "direct_play"));
                     String sourceURL = readyPrepared == null ? readyPlan.optString("url", "") : readyPrepared.optString("url", readyPlan.optString("url", ""));
                     if (sourceURL.isEmpty()) sourceURL = "/api/v1/media/" + requestedId + "/stream";
-                    fallbackInProgress = forceMP4 || readyPlan.optString("mode", "").contains("compatibility") || "remux".equals(readyPlan.optString("mode", ""));
-                    reportEvent("PLAYBACK_PLAN_SELECTED", "mode=" + readyPlan.optString("mode") + " reason=" + readyPlan.optString("reason_code") + " source=" + requestedId + " audio=" + readyPlan.optInt("audio_stream", -1));
+                    String mode = readyPlan.optString("mode", "");
+                    fallbackInProgress = forceMP4 || mode.contains("compatibility") || "remux".equals(mode) || "video_transcode".equals(mode);
+                    reportEvent("PLAYBACK_PLAN_SELECTED", "mode=" + mode + " reason=" + readyPlan.optString("reason_code") + " source=" + requestedId + " audio=" + readyPlan.optInt("audio_stream", -1) + " quality=" + readyPlan.optString("quality", api.store().playerQuality()));
                     replaceSource(absolutePlanURL(sourceURL), subtitles, autoPlay, restorePosition, sourceEvent);
-                    if (forceMP4) Toast.makeText(this, playbackMode, Toast.LENGTH_SHORT).show();
+                    if (forceMP4 || "video_transcode".equals(mode)) Toast.makeText(this, playbackMode, Toast.LENGTH_SHORT).show();
                 });
             } catch (Exception e) {
                 if (generation != planGeneration.get() || isFinishing()) return;
@@ -422,6 +424,7 @@ public class PlayerActivity extends Activity {
     private String playbackModeLabel(String mode) {
         if ("audio_compatibility".equals(mode)) return "Direct Stream · vídeo original + áudio AAC";
         if ("remux".equals(mode)) return "Remux · sem reencode";
+        if ("video_transcode".equals(mode)) return "Transcode · vídeo compatível em tempo real";
         if ("unsupported".equals(mode)) return "Não suportado";
         return "Direct Play";
     }
@@ -441,9 +444,6 @@ public class PlayerActivity extends Activity {
 
     private void onPlanFailure(long sourceId, Exception error) {
         reportEvent("PLAYBACK_PLAN_FAILED", "source=" + sourceId + " error=" + String.valueOf(error.getMessage()));
-        // The server planner is authoritative for native clients. We do not
-        // bypass it with a silent raw /stream fallback because doing so would
-        // re-introduce duplicated compatibility policy.
         if (!versionFallbackAttempted && sourceId == mediaId) {
             tryCompatibleVersion(null);
             return;
@@ -459,7 +459,7 @@ public class PlayerActivity extends Activity {
         MediaItem.Builder builder=new MediaItem.Builder().setUri(Uri.parse(uri)).setMediaId(String.valueOf(streamMediaId)).setMediaMetadata(metadata);
         if(subtitles!=null&&!subtitles.isEmpty())builder.setSubtitleConfigurations(subtitles);
         player.stop(); player.setMediaItem(builder.build()); player.setPlayWhenReady(false); player.prepare(); if(!restoringPosition)player.setPlayWhenReady(autoPlay);
-        reportEvent(sourceEvent,"uri="+redactUri(uri)+" restore="+restorePosition+" autoplay="+autoPlay+" mode="+playbackMode);
+        reportEvent(sourceEvent,"uri="+redactUri(uri)+" restore="+restorePosition+" autoplay="+autoPlay+" mode="+playbackMode+" quality="+api.store().playerQuality());
     }
 
     private void maybeRestorePendingPosition(){
@@ -536,7 +536,7 @@ public class PlayerActivity extends Activity {
                     if(isFinishing())return;
                     if(chosen==null){tryCompatibilityRecovery(original,null);return;}
                     long id=chosen.optLong("id");String quality=chosen.optString("label","Compatível");
-                    queueProgress("source_change",false);streamMediaId=id;Toast.makeText(this,"Tentando "+quality+" sem transcodificação.",Toast.LENGTH_SHORT).show();
+                    queueProgress("source_change",false);streamMediaId=id;Toast.makeText(this,"Tentando "+quality+".",Toast.LENGTH_SHORT).show();
                     loadSource(id,wasPlaying,restore,"SOURCE_ALTERNATIVE");
                 });
             }catch(Exception e){main.post(()->tryCompatibilityRecovery(original,null));}
@@ -556,20 +556,36 @@ public class PlayerActivity extends Activity {
         if(isFinishing())return;
         String detail=error==null?"":error.getErrorCodeName();
         String reason=currentPlan==null?"":currentPlan.optString("reason","");
-        String msg=reason.isEmpty()?"Este aparelho não conseguiu reproduzir esta cópia sem transcodificar vídeo.":reason;
+        String msg=reason.isEmpty()?"Este aparelho não conseguiu reproduzir esta cópia nem pela rota de compatibilidade.":reason;
         if(!detail.isEmpty())msg+=" Erro: "+detail+".";
         if(audioFailure){muteUnsupportedAudio();playbackMode="Direct Play · vídeo sem áudio";}
         Toast.makeText(this,msg,Toast.LENGTH_LONG).show();
     }
 
     private void showPlayerMenu(){
-        List<String>items=new ArrayList<>();items.add("Áudio");items.add("Legendas");items.add("Tela / Zoom");
+        List<String>items=new ArrayList<>();items.add("Qualidade · "+qualityLabel(api.store().playerQuality()));items.add("Áudio");items.add("Legendas");items.add("Tela / Zoom");
         if(canPictureInPicture())items.add("Picture-in-Picture");
         items.add("Reiniciar do início");items.add("Próximo episódio automático: "+(autoNextEnabled()?"Ligado":"Desligado"));if(previousEpisodeId>0)items.add("Episódio anterior");if(nextEpisodeId>0)items.add("Próximo episódio");items.add("Informações");
         new AlertDialog.Builder(this).setTitle(title==null?"Player StormFlix":title).setItems(items.toArray(new String[0]),(d,which)->{
-            String item=items.get(which);if(item.equals("Áudio"))showAudioMenu();else if(item.equals("Legendas"))showSubtitleMenu();else if(item.equals("Tela / Zoom"))showScreenMenu();else if(item.equals("Picture-in-Picture"))enterPictureInPicture();else if(item.equals("Reiniciar do início")){reportEvent("SEEK_REQUESTED","target=0 restart");player.seekTo(0);}else if(item.startsWith("Próximo episódio automático:"))toggleAutoNext();else if(item.equals("Episódio anterior"))launchEpisode(previousEpisodeId,previousEpisodeTitle);else if(item.equals("Próximo episódio"))launchEpisode(nextEpisodeId,nextEpisodeTitle);else showPlaybackInfo();
+            String item=items.get(which);if(item.startsWith("Qualidade ·"))showQualityMenu();else if(item.equals("Áudio"))showAudioMenu();else if(item.equals("Legendas"))showSubtitleMenu();else if(item.equals("Tela / Zoom"))showScreenMenu();else if(item.equals("Picture-in-Picture"))enterPictureInPicture();else if(item.equals("Reiniciar do início")){reportEvent("SEEK_REQUESTED","target=0 restart");player.seekTo(0);}else if(item.startsWith("Próximo episódio automático:"))toggleAutoNext();else if(item.equals("Episódio anterior"))launchEpisode(previousEpisodeId,previousEpisodeTitle);else if(item.equals("Próximo episódio"))launchEpisode(nextEpisodeId,nextEpisodeTitle);else showPlaybackInfo();
         }).setNegativeButton("Fechar",null).show();
     }
+
+    private void showQualityMenu(){
+        final String[]values={"auto","original","2160p","1440p","1080p","720p","480p"};
+        final String[]labels={"Auto · melhor rota automática","Original · preservar a fonte quando possível","4K · até 2160p","1440p · até 1440p","1080p · até Full HD","720p · até HD","480p · economia de dados"};
+        String current=api.store().playerQuality();int selected=0;for(int i=0;i<values.length;i++)if(values[i].equals(current)){selected=i;break;}
+        new AlertDialog.Builder(this).setTitle("Qualidade de reprodução").setSingleChoiceItems(labels,selected,(dialog,which)->{
+            String next=values[which];String before=api.store().playerQuality();dialog.dismiss();if(next.equals(before))return;
+            long restore=snapshotPositionMs();boolean wasPlaying=player==null||player.getPlayWhenReady();
+            api.store().setPlayerQuality(next);versionFallbackAttempted=false;compatibilityRecoveryAttempted=false;audioRecoveryAttempted=false;audioPreferenceApplied=false;fallbackInProgress=true;
+            queueProgress("quality_change",false);reportEvent("QUALITY_CHANGED","from="+before+" to="+next+" restore="+restore);
+            Toast.makeText(this,"Qualidade: "+qualityLabel(next),Toast.LENGTH_SHORT).show();
+            requestPlannedSource(streamMediaId,wasPlaying,restore,"SOURCE_QUALITY_CHANGE",true,false,null);
+        }).setNegativeButton("Voltar",null).show();
+    }
+
+    private String qualityLabel(String value){String q=value==null?"auto":value.toLowerCase(Locale.ROOT);if("original".equals(q))return"Original";if("2160p".equals(q))return"4K";if("1440p".equals(q))return"1440p";if("1080p".equals(q))return"1080p";if("720p".equals(q))return"720p";if("480p".equals(q))return"480p";return"Auto";}
 
     private void showAudioMenu(){
         Tracks tracks=player.getCurrentTracks();List<String>labels=new ArrayList<>();List<Tracks.Group>groups=new ArrayList<>();List<Integer>indexes=new ArrayList<>();
@@ -587,7 +603,7 @@ public class PlayerActivity extends Activity {
 
     private void showSubtitleMenu(){Tracks tracks=player.getCurrentTracks();List<String>labels=new ArrayList<>();List<Tracks.Group>groups=new ArrayList<>();List<Integer>indexes=new ArrayList<>();labels.add("Desativadas");groups.add(null);indexes.add(-1);labels.add("Automático · preferência "+api.store().preferredSubtitle());groups.add(null);indexes.add(-2);for(Tracks.Group group:tracks.getGroups()){if(group.getType()!=C.TRACK_TYPE_TEXT)continue;for(int i=0;i<group.length;i++){String label=textLabel(group.getTrackFormat(i));if(!group.isTrackSupported(i))label+=" · não suportada";else if(group.isTrackSelected(i))label+=" · atual";labels.add(label);groups.add(group);indexes.add(i);}}new AlertDialog.Builder(this).setTitle("Legendas").setItems(labels.toArray(new String[0]),(d,which)->{if(which==0){player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT,true).build());return;}if(which==1){player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon().clearOverrides().setTrackTypeDisabled(C.TRACK_TYPE_TEXT,false).setPreferredAudioLanguages(languagePriority(api.store().preferredAudio())).setPreferredTextLanguages(languagePriority(api.store().preferredSubtitle())).build());return;}Tracks.Group group=groups.get(which);int index=indexes.get(which);if(group==null||!group.isTrackSupported(index)){Toast.makeText(this,"Legenda não suportada.",Toast.LENGTH_SHORT).show();return;}player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT,false).setOverrideForType(new TrackSelectionOverride(group.getMediaTrackGroup(),index)).build());}).setNegativeButton("Voltar",null).show();}
     private void showScreenMenu(){String[]modes={"Ajustar / sem zoom","16:9 · sem corte","Preencher / Zoom","Esticar para tela"};new AlertDialog.Builder(this).setTitle("Tela").setItems(modes,(d,which)->{if(which==0||which==1)playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);else if(which==2)playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_ZOOM);else playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FILL);Toast.makeText(this,modes[which],Toast.LENGTH_SHORT).show();}).setNegativeButton("Voltar",null).show();}
-    private void showPlaybackInfo(){StringBuilder info=new StringBuilder();info.append("Modo: ").append(playbackMode);info.append("\nPosição: ").append(clock(snapshotPositionMs()/1000));info.append("\nDuração: ").append(clock(safeDurationMs()/1000));info.append("\nSeekable: ").append(player!=null&&player.isCurrentMediaItemSeekable()?"sim":"não");info.append("\nVídeo: ").append(selectedCodec(C.TRACK_TYPE_VIDEO));info.append("\nÁudio: ").append(selectedCodec(C.TRACK_TYPE_AUDIO));info.append("\nPreferência de áudio: ").append(api.store().preferredAudio());info.append("\nPreferência de legenda: ").append(api.store().preferredSubtitle());info.append("\nFonte: ").append(streamMediaId==mediaId?"principal":"alternativa");if(currentPlan!=null){info.append("\nPlano: ").append(currentPlan.optString("mode","—"));info.append("\nMotivo: ").append(currentPlan.optString("reason_code","—"));info.append("\nContainer: ").append(currentPlan.optString("source_container","—"));String hdr=currentPlan.optString("video_hdr","");if(!hdr.isEmpty())info.append("\nHDR: ").append(hdr);int w=currentPlan.optInt("video_width",0),h=currentPlan.optInt("video_height",0);if(w>0&&h>0)info.append("\nFonte de vídeo: ").append(w).append('x').append(h);info.append("\nÁudio planejado: ").append(currentPlan.optInt("audio_stream",-1));}info.append("\nSessão: ").append(playbackSessionId);info.append("\nGeração: ").append(sourceGeneration);new AlertDialog.Builder(this).setTitle("Informações de reprodução").setMessage(info.toString()).setPositiveButton("OK",null).show();}
+    private void showPlaybackInfo(){StringBuilder info=new StringBuilder();info.append("Modo: ").append(playbackMode);info.append("\nQualidade: ").append(qualityLabel(api.store().playerQuality()));info.append("\nPosição: ").append(clock(snapshotPositionMs()/1000));info.append("\nDuração: ").append(clock(safeDurationMs()/1000));info.append("\nSeekable: ").append(player!=null&&player.isCurrentMediaItemSeekable()?"sim":"não");info.append("\nVídeo: ").append(selectedCodec(C.TRACK_TYPE_VIDEO));info.append("\nÁudio: ").append(selectedCodec(C.TRACK_TYPE_AUDIO));info.append("\nPreferência de áudio: ").append(api.store().preferredAudio());info.append("\nPreferência de legenda: ").append(api.store().preferredSubtitle());info.append("\nFonte: ").append(streamMediaId==mediaId?"principal":"alternativa");if(currentPlan!=null){info.append("\nPlano: ").append(currentPlan.optString("mode","—"));info.append("\nMotivo: ").append(currentPlan.optString("reason_code","—"));info.append("\nContainer: ").append(currentPlan.optString("source_container","—"));String hdr=currentPlan.optString("video_hdr","");if(!hdr.isEmpty())info.append("\nHDR origem: ").append(hdr);int w=currentPlan.optInt("video_width",0),h=currentPlan.optInt("video_height",0);if(w>0&&h>0)info.append("\nFonte de vídeo: ").append(w).append('x').append(h);int tw=currentPlan.optInt("target_video_width",0),th=currentPlan.optInt("target_video_height",0);if(tw>0&&th>0)info.append("\nSaída de vídeo: ").append(tw).append('x').append(th);int target=currentPlan.optInt("target_bitrate_kbps",0);if(target>0)info.append("\nBitrate alvo: ").append(target/1000.0).append(" Mb/s");String encoder=currentPlan.optString("encoder","");if(!encoder.isEmpty())info.append("\nEncoder: ").append(encoder);String hardware=currentPlan.optString("hardware_acceleration","");if(!hardware.isEmpty())info.append("\nHardware: ").append(hardware);if(currentPlan.optBoolean("tone_map",false))info.append("\nTone mapping: ativo");info.append("\nÁudio planejado: ").append(currentPlan.optInt("audio_stream",-1));}info.append("\nSessão: ").append(playbackSessionId);info.append("\nGeração: ").append(sourceGeneration);new AlertDialog.Builder(this).setTitle("Informações de reprodução").setMessage(info.toString()).setPositiveButton("OK",null).show();}
 
     private String selectedCodec(int type){if(player==null)return"—";for(Tracks.Group group:player.getCurrentTracks().getGroups()){if(group.getType()!=type)continue;for(int i=0;i<group.length;i++)if(group.isTrackSelected(i))return codecName(group.getTrackFormat(i));}return"—";}
     private String codecName(Format f){String value=f.codecs;if(value==null||value.isEmpty())value=f.sampleMimeType;if(value==null||value.isEmpty())return"—";int slash=value.indexOf('/');if(slash>=0)value=value.substring(slash+1);return value.toUpperCase(Locale.ROOT);}
@@ -596,9 +612,9 @@ public class PlayerActivity extends Activity {
     private void updateKnownPlaybackValues(){snapshotPositionMs();safeDurationMs();}
 
     private void queueProgress(String reason,boolean finishSession){
-        if(player==null||mediaId<=0)return;updateKnownPlaybackValues();final long target=mediaId,position=snapshotPositionMs(),duration=safeDurationMs();final String state=player.isPlaying()?"playing":"paused",mode=playbackMode.toLowerCase(Locale.ROOT),video=selectedCodec(C.TRACK_TYPE_VIDEO),audio=selectedCodec(C.TRACK_TYPE_AUDIO),resolution=player.getVideoSize().width>0?player.getVideoSize().width+"x"+player.getVideoSize().height:"";final int bitrate=selectedBitrateKbps();final long sequence=progressSequence.incrementAndGet(),eventMs=System.currentTimeMillis();final String session=playbackSessionId;
+        if(player==null||mediaId<=0)return;updateKnownPlaybackValues();final long target=mediaId,position=snapshotPositionMs(),duration=safeDurationMs();final String state=player.isPlaying()?"playing":"paused",mode=currentPlan==null?"direct_play":currentPlan.optString("mode","direct_play"),video=selectedCodec(C.TRACK_TYPE_VIDEO),audio=selectedCodec(C.TRACK_TYPE_AUDIO),resolution=player.getVideoSize().width>0?player.getVideoSize().width+"x"+player.getVideoSize().height:"";final int bitrate=selectedBitrateKbps();final long sequence=progressSequence.incrementAndGet(),eventMs=System.currentTimeMillis();final String session=playbackSessionId;
         Log.i(TAG,"PROGRESS_SAVE_REQUEST session="+session+" seq="+sequence+" reason="+reason+" position="+position+" duration="+duration);
-        safeSubmit(progressIo,()->{try{JSONObject body=new JSONObject().put("position_seconds",position/1000.0).put("duration_seconds",duration/1000.0).put("state",state).put("mode",mode).put("video_codec","—".equals(video)?"":video).put("audio_codec","—".equals(audio)?"":audio).put("resolution",resolution).put("bitrate_kbps",bitrate).put("playback_session_id",session).put("progress_sequence",sequence).put("progress_event_ms",eventMs).put("progress_reason",reason);String response=api.post("/media/"+target+"/playback",body);Log.i(TAG,"PROGRESS_SAVE_SUCCESS session="+session+" seq="+sequence+" response="+response.trim());if(finishSession)api.delete("/media/"+target+"/playback");}catch(Exception e){Log.w(TAG,"PROGRESS_SAVE_FAILED session="+session+" seq="+sequence,e);}});
+        safeSubmit(progressIo,()->{try{JSONObject body=new JSONObject().put("position_seconds",position/1000.0).put("duration_seconds",duration/1000.0).put("state",state).put("mode",mode).put("video_codec","—".equals(video)?"":video).put("audio_codec","—".equals(audio)?"":audio).put("resolution",resolution).put("bitrate_kbps",bitrate).put("playback_session_id",session).put("progress_sequence",sequence).put("progress_event_ms",eventMs).put("progress_reason",reason);String response=api.post("/media/"+target+"/playback",body);Log.i(TAG,"PROGRESS_SAVE_SUCCESS session="+session+" seq="+sequence+" response="+response.trim());if(finishSession)api.delete("/media/"+target+"/playback?session="+Uri.encode(session));}catch(Exception e){Log.w(TAG,"PROGRESS_SAVE_FAILED session="+session+" seq="+sequence,e);}});
     }
     private int selectedBitrateKbps(){if(player==null)return 0;for(Tracks.Group group:player.getCurrentTracks().getGroups()){if(group.getType()!=C.TRACK_TYPE_VIDEO)continue;for(int i=0;i<group.length;i++)if(group.isTrackSelected(i)){Format f=group.getTrackFormat(i);int b=f.averageBitrate>0?f.averageBitrate:f.peakBitrate;return b>0?b/1000:0;}}return 0;}
 

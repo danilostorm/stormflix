@@ -14,6 +14,7 @@ import (
 
 	"github.com/danilostorm/stormflix/internal/media"
 	"github.com/danilostorm/stormflix/internal/playback"
+	"github.com/danilostorm/stormflix/internal/transcode"
 	"github.com/danilostorm/stormflix/internal/webcompat"
 )
 
@@ -59,83 +60,149 @@ func (s *server) playbackPlan(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Reuse the Phase 13 technical snapshot when it matches modified_unix. This
-	// keeps PlaybackPlan identical while avoiding another ffprobe/rclone read for
-	// media the background technical indexer has already inspected.
 	source, err := s.probeMediaSource(r.Context(), id, item.Path, item.ModifiedUnix)
 	if err != nil {
-		writeJSON(w, http.StatusOK, playback.Plan{
-			Available:  false,
-			Mode:       playback.ModeUnsupported,
-			ReasonCode: "source_probe_failed",
-			Reason:     err.Error(),
-			MediaID:    id,
-			ClientKind: in.ClientKind,
-		})
+		writeJSON(w, http.StatusOK, playback.Plan{Available: false, Mode: playback.ModeUnsupported, ReasonCode: "source_probe_failed", Reason: err.Error(), MediaID: id, ClientKind: in.ClientKind})
 		return
 	}
 	plan := playback.DecideForClient(source, in)
 	plan.MediaID = id
 	plan.ResumePositionSeconds = resumePosition
-	if plan.Available {
-		plan.PlaybackSessionID = normalizePlaybackSessionID(in.PlaybackSessionID)
-		if plan.PlaybackSessionID == "" {
+	if !plan.Available {
+		writeJSON(w, http.StatusOK, plan)
+		return
+	}
+
+	plan.PlaybackSessionID = normalizePlaybackSessionID(in.PlaybackSessionID)
+	if plan.PlaybackSessionID == "" {
+		plan.PlaybackSessionID = newPlaybackSessionID()
+	}
+
+	transcoder, transcodeErr := transcode.ForDataDir(s.config.DataDir)
+	if transcodeErr != nil && plan.Mode == playback.ModeVideoTranscode {
+		plan.Available = false
+		plan.Mode = playback.ModeUnsupported
+		plan.ReasonCode = "transcode_engine_unavailable"
+		plan.Reason = transcodeErr.Error()
+		writeJSON(w, http.StatusOK, plan)
+		return
+	}
+
+	if plan.Mode == playback.ModeDirectPlay {
+		if transcode.IsSessionID(plan.PlaybackSessionID) && transcoder != nil {
+			transcoder.Close(u.ID, plan.PlaybackSessionID)
 			plan.PlaybackSessionID = newPlaybackSessionID()
 		}
+		s.hlsCache.CloseSession(u.ID, plan.PlaybackSessionID)
+		plan.URL, plan.PrepareURL = playbackExecutionURLs(id, plan)
+		writeJSON(w, http.StatusOK, plan)
+		return
+	}
 
-		if clientUsesDynamicHLS(in.ClientKind) {
-			if plan.Mode == playback.ModeDirectPlay {
-				// A source/version switch can keep the same logical playback session.
-				// If the previous source used HLS, Direct Play must discard those
-				// fragments immediately instead of leaving them for idle cleanup.
-				s.hlsCache.CloseSession(u.ID, plan.PlaybackSessionID)
-				plan.URL, plan.PrepareURL = playbackExecutionURLs(id, plan)
-			} else {
-				// Web, Android, Android TV and Fire TV all support HLS. Compatibility
-				// playback therefore starts from small fMP4 batches instead of waiting
-				// for a complete seekable MP4 to be materialized from a remote rclone
-				// source. Video is always stream-copy; only incompatible audio becomes
-				// AAC, preserving the Direct Play first/no-video-transcode invariant.
-				hlsAudioTranscode := webcompat.NeedsHLSAAC(plan.AudioCodec, plan.AudioTranscode)
-				spec := webcompat.HLSSpec{
-					VideoStream:       plan.VideoStream,
-					AudioStream:       plan.AudioStream,
-					VideoCodec:        plan.VideoCodec,
-					AudioCodec:        plan.AudioCodec,
-					SourceAudioCodec:  plan.SourceAudioCodec,
-					AudioTranscode:    hlsAudioTranscode,
-					DurationSeconds:   source.DurationSeconds,
-					SourceBitrateKbps: plan.SourceBitrateKbps,
-				}
-				if err := s.hlsCache.PrepareSession(plan.PlaybackSessionID, u.ID, id, item.Path, spec); err != nil {
-					plan.Available = false
-					plan.Mode = playback.ModeUnsupported
-					plan.ReasonCode = "hls_session_prepare_failed"
-					plan.Reason = err.Error()
-					plan.URL = ""
-					plan.PrepareURL = ""
-				} else {
-					if hlsAudioTranscode {
-						plan.Mode = playback.ModeAudioCompatibility
-						plan.AudioTranscode = true
-						plan.AudioCodec = "aac"
-					}
-					plan.URL = fmt.Sprintf("/api/v1/media/%d/hls/%s/index.m3u8", id, plan.PlaybackSessionID)
-					plan.PrepareURL = ""
-				}
-			}
+	if !clientUsesDynamicHLS(in.ClientKind) {
+		if plan.Mode == playback.ModeVideoTranscode {
+			plan.Available = false
+			plan.Mode = playback.ModeUnsupported
+			plan.ReasonCode = "client_transcode_transport_unsupported"
+			plan.Reason = "this legacy client does not advertise the StormFlix dynamic HLS transport required for video transcoding"
 		} else {
-			// Keep the legacy complete-MP4 compatibility path for unknown native
-			// clients until they explicitly advertise/identify a supported path.
 			plan.URL, plan.PrepareURL = playbackExecutionURLs(id, plan)
 		}
+		writeJSON(w, http.StatusOK, plan)
+		return
+	}
+
+	if plan.Mode == playback.ModeVideoTranscode {
+		if !transcode.IsSessionID(plan.PlaybackSessionID) {
+			s.hlsCache.CloseSession(u.ID, plan.PlaybackSessionID)
+			plan.PlaybackSessionID = transcode.SessionID(plan.PlaybackSessionID)
+		}
+		engine := transcoder.EngineStatus()
+		plan.Encoder = preferredEncoder(engine, plan.VideoCodec)
+		plan.HardwareAcceleration = encoderHardware(plan.Encoder)
+		spec := transcode.Spec{
+			VideoStream: plan.VideoStream, AudioStream: plan.AudioStream,
+			SourceVideoCodec: plan.SourceVideoCodec, TargetVideoCodec: plan.VideoCodec,
+			SourceAudioCodec: plan.SourceAudioCodec, TargetAudioCodec: plan.AudioCodec, AudioTranscode: plan.AudioTranscode,
+			Width: plan.VideoWidth, Height: plan.VideoHeight, TargetWidth: plan.TargetVideoWidth, TargetHeight: plan.TargetVideoHeight,
+			FrameRate: plan.VideoFrameRate, TargetFrameRate: plan.TargetVideoFrameRate, SourceHDR: plan.VideoHDR, ToneMap: plan.ToneMap,
+			TargetBitrateKbps: plan.TargetBitrateKbps, DurationSeconds: source.DurationSeconds, Reason: plan.ReasonCode, Quality: plan.Quality,
+		}
+		if err := transcoder.Prepare(plan.PlaybackSessionID, u.ID, id, item.Path, spec); err != nil {
+			plan.Available = false
+			plan.Mode = playback.ModeUnsupported
+			plan.ReasonCode = "transcode_session_prepare_failed"
+			plan.Reason = err.Error()
+			plan.URL = ""
+			plan.PrepareURL = ""
+		} else {
+			plan.URL = fmt.Sprintf("/api/v1/media/%d/hls/%s/index.m3u8", id, plan.PlaybackSessionID)
+			plan.PrepareURL = ""
+		}
+		writeJSON(w, http.StatusOK, plan)
+		return
+	}
+
+	if transcode.IsSessionID(plan.PlaybackSessionID) {
+		if transcoder != nil {
+			transcoder.Close(u.ID, plan.PlaybackSessionID)
+		}
+		plan.PlaybackSessionID = newPlaybackSessionID()
+	}
+	hlsAudioTranscode := webcompat.NeedsHLSAAC(plan.AudioCodec, plan.AudioTranscode)
+	spec := webcompat.HLSSpec{
+		VideoStream: plan.VideoStream, AudioStream: plan.AudioStream, VideoCodec: plan.VideoCodec,
+		AudioCodec: plan.AudioCodec, SourceAudioCodec: plan.SourceAudioCodec, AudioTranscode: hlsAudioTranscode,
+		DurationSeconds: source.DurationSeconds, SourceBitrateKbps: plan.SourceBitrateKbps,
+	}
+	if err := s.hlsCache.PrepareSession(plan.PlaybackSessionID, u.ID, id, item.Path, spec); err != nil {
+		plan.Available = false
+		plan.Mode = playback.ModeUnsupported
+		plan.ReasonCode = "hls_session_prepare_failed"
+		plan.Reason = err.Error()
+		plan.URL = ""
+		plan.PrepareURL = ""
+	} else {
+		if hlsAudioTranscode {
+			plan.Mode = playback.ModeAudioCompatibility
+			plan.AudioTranscode = true
+			plan.AudioCodec = "aac"
+		}
+		plan.URL = fmt.Sprintf("/api/v1/media/%d/hls/%s/index.m3u8", id, plan.PlaybackSessionID)
+		plan.PrepareURL = ""
 	}
 	writeJSON(w, http.StatusOK, plan)
 }
 
+func preferredEncoder(status transcode.EngineStatus, codec string) string {
+	switch strings.ToLower(strings.TrimSpace(codec)) {
+	case "hevc", "h265":
+		return status.PreferredHEVC
+	case "av1":
+		return status.PreferredAV1
+	default:
+		return status.PreferredH264
+	}
+}
+
+func encoderHardware(encoder string) string {
+	switch {
+	case strings.Contains(encoder, "nvenc"):
+		return "nvidia"
+	case strings.Contains(encoder, "qsv"):
+		return "qsv"
+	case strings.Contains(encoder, "vaapi"):
+		return "vaapi"
+	case encoder != "":
+		return "cpu"
+	default:
+		return ""
+	}
+}
+
 func clientUsesDynamicHLS(kind string) bool {
 	switch strings.ToLower(strings.TrimSpace(kind)) {
-	case "web", "android", "tv", "android_tv", "firetv", "fire_tv":
+	case "web", "desktop", "android", "tv", "android_tv", "firetv", "fire_tv":
 		return true
 	default:
 		return false
@@ -162,7 +229,7 @@ func playbackExecutionURLs(id int64, plan playback.Plan) (string, string) {
 
 func normalizePlaybackSessionID(value string) string {
 	value = strings.TrimSpace(value)
-	if value == "" || len(value) > 128 {
+	if value == "" || len(value) > 132 {
 		return ""
 	}
 	for _, r := range value {

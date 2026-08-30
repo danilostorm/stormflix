@@ -22,7 +22,7 @@ import (
 )
 
 const sessionCookie = "stormflix_session"
-const version = "0.20.0-platform-automation"
+const version = "0.21.0-playback-v5"
 
 type contextKey string
 

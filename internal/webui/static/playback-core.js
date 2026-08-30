@@ -1,4 +1,4 @@
-/* StormFlix unified web playback client. */
+/* StormFlix unified web playback client — PlaybackPlan v5. */
 (function(){
   let planGeneration=0;
   let activePlan=null;
@@ -7,9 +7,23 @@
   let hlsLibraryPromise=null;
   let mediaSessionBound=false;
   let playerErrorBound=false;
+  let preferredQuality=normalizeQuality(localStorage.getItem('stormflix.player.quality')||'auto');
 
   function canPlay(mediaType){
     try{return Boolean(player.canPlayType(mediaType))}catch{return false}
+  }
+
+  function normalizeQuality(value){
+    value=String(value||'').trim().toLowerCase();
+    if(['auto','original','2160p','1440p','1080p','720p','480p'].includes(value))return value;
+    if(value==='4k'||value==='uhd')return'2160p';
+    return'auto';
+  }
+
+  function estimatedTranscodeBitrate(){
+    const downlink=Number(navigator.connection?.downlink||0);
+    if(!Number.isFinite(downlink)||downlink<=0)return 20000;
+    return Math.max(2500,Math.min(30000,Math.round(downlink*1000*0.8)));
   }
 
   function browserCapabilities(){
@@ -22,6 +36,10 @@
     if(canPlay('video/mp4; codecs="hvc1.1.6.L93.B0"')||canPlay('video/mp4; codecs="hev1.1.6.L93.B0"'))videoCodecs.push('hevc');
     if(canPlay('video/mp4; codecs="av01.0.05M.08"')||canPlay('video/webm; codecs="av01.0.05M.08"'))videoCodecs.push('av1');
     if(canPlay('video/webm; codecs="vp09.00.10.08"'))videoCodecs.push('vp9');
+    // PlaybackPlan v5 always needs at least one universal target. Browsers with
+    // MSE/MP4 support can decode baseline AVC even when canPlayType is overly
+    // conservative (common in embedded Chromium builds).
+    if(containers.includes('mp4')&&!videoCodecs.includes('h264'))videoCodecs.push('h264');
 
     const audioCodecs=[];
     if(canPlay('audio/mp4; codecs="mp4a.40.2"')||canPlay('audio/aac'))audioCodecs.push('aac');
@@ -31,6 +49,7 @@
     if(canPlay('audio/mp4; codecs="ec-3"'))audioCodecs.push('eac3');
     if(canPlay('audio/mp4; codecs="dts-"')||canPlay('audio/mp4; codecs="dts+"'))audioCodecs.push('dts');
     if(canPlay('audio/flac')||canPlay('audio/mp4; codecs="fLaC"'))audioCodecs.push('flac');
+    if(containers.includes('mp4')&&!audioCodecs.includes('aac'))audioCodecs.push('aac');
 
     return {
       containers:[...new Set(containers)],
@@ -39,26 +58,28 @@
       subtitle_formats:['vtt'],
       allow_remux:containers.includes('mp4'),
       allow_audio_compatibility:containers.includes('mp4')&&audioCodecs.includes('aac'),
+      allow_video_transcode:containers.includes('mp4')&&videoCodecs.includes('h264'),
+      max_transcode_bitrate_kbps:estimatedTranscodeBitrate(),
       native_audio_track_selection:false,
-      // HTMLMediaElement multi-audio selection is not consistently exposed
-      // across browsers. Ask the server to pin a non-default preferred track.
       server_selects_audio:true,
       picture_in_picture:Boolean(document.pictureInPictureEnabled&&player.requestPictureInPicture),
       media_session:'mediaSession' in navigator
     };
   }
 
-  function clientRequest(sessionID){
+  function clientRequest(sessionID,quality){
     return {
       client_kind:'web',
       client_name:'StormFlix Web',
-      client_version:'0.19',
+      client_version:'0.5',
       playback_session_id:String(sessionID||''),
+      quality:normalizeQuality(quality||preferredQuality),
       capabilities:browserCapabilities()
     };
   }
 
   function compatibilityMode(mode){
+    if(mode==='video_transcode')return'video_transcode';
     if(mode==='audio_compatibility')return'direct_stream_audio_aac';
     if(mode==='remux')return'web_remux';
     if(mode==='unsupported')return'unsupported';
@@ -71,6 +92,7 @@
     window.sfLastCompatibilityPlan=plan||null;
     window.sfPlaybackSessionID=plan?.playback_session_id||'';
     window.sfPlaybackMode=compatibilityMode(plan?.mode);
+    window.dispatchEvent(new CustomEvent('stormflix:playback-plan',{detail:plan||null}));
   }
 
   function setHelp(message,visible){
@@ -150,7 +172,7 @@
     if(playerErrorBound)return;playerErrorBound=true;
     player.addEventListener('error',()=>{
       if(!activeItem)return;
-      const detail=player.error?.message||activePlan?.reason||'O navegador não conseguiu decodificar a fonte planejada.';
+      const detail=player.error?.message||activePlan?.reason||'O dispositivo não conseguiu decodificar a fonte planejada.';
       setHelp(detail,true);
       if(typeof sfToast==='function')sfToast('Falha ao reproduzir esta fonte');
     });
@@ -217,25 +239,12 @@
     if(generation!==planGeneration)return;
 
     if(HlsCtor&&typeof HlsCtor.isSupported==='function'&&HlsCtor.isSupported()){
-      const hls=new HlsCtor({
-        enableWorker:true,
-        maxBufferLength:24,
-        maxMaxBufferLength:36,
-        backBufferLength:8,
-        maxBufferHole:0.5,
-        lowLatencyMode:false
-      });
+      const hls=new HlsCtor({enableWorker:true,maxBufferLength:28,maxMaxBufferLength:44,backBufferLength:10,maxBufferHole:0.5,lowLatencyMode:false});
       activeHls=hls;
       hls.on(HlsCtor.Events.ERROR,(_event,data)=>{
         if(!data?.fatal||activeHls!==hls)return;
-        if(data.type===HlsCtor.ErrorTypes.NETWORK_ERROR){
-          try{hls.startLoad()}catch{}
-          return;
-        }
-        if(data.type===HlsCtor.ErrorTypes.MEDIA_ERROR){
-          try{hls.recoverMediaError()}catch{}
-          return;
-        }
+        if(data.type===HlsCtor.ErrorTypes.NETWORK_ERROR){try{hls.startLoad()}catch{};return}
+        if(data.type===HlsCtor.ErrorTypes.MEDIA_ERROR){try{hls.recoverMediaError()}catch{};return}
         setHelp(data.details||'Falha fatal no streaming HLS.',true);
         if(typeof sfToast==='function')sfToast('Falha no streaming HLS');
         try{hls.destroy()}catch{}
@@ -243,26 +252,16 @@
       });
       await new Promise((resolve,reject)=>{
         let settled=false;
-        const fail=(_event,data)=>{
-          if(settled||!data?.fatal)return;
-          settled=true;reject(new Error(data.details||'Falha ao abrir o HLS.'));
-        };
+        const fail=(_event,data)=>{if(settled||!data?.fatal)return;settled=true;reject(new Error(data.details||'Falha ao abrir o HLS.'))};
         hls.on(HlsCtor.Events.ERROR,fail);
-        hls.on(HlsCtor.Events.MEDIA_ATTACHED,()=>{
-          if(generation!==planGeneration){if(!settled){settled=true;resolve()}return}
-          hls.loadSource(url);
-        });
+        hls.on(HlsCtor.Events.MEDIA_ATTACHED,()=>{if(generation!==planGeneration){if(!settled){settled=true;resolve()}return}hls.loadSource(url)});
         hls.on(HlsCtor.Events.MANIFEST_PARSED,()=>{if(!settled){settled=true;resolve()}});
         hls.attachMedia(player);
       });
       return;
     }
 
-    if(nativeHls){
-      player.src=url;
-      player.load();
-      return;
-    }
+    if(nativeHls){player.src=url;player.load();return}
     throw new Error('Este navegador não possui suporte MSE/HLS para o modo de compatibilidade.');
   }
 
@@ -270,10 +269,7 @@
     if(generation!==planGeneration)return;
     const source=absoluteSourceURL(url);
     if(!source)throw new Error('O plano de reprodução não retornou uma fonte.');
-    if(isHLSSource(source)){
-      await loadHlsSource(source,resume,autoplay,generation);
-      return;
-    }
+    if(isHLSSource(source)){await loadHlsSource(source,resume,autoplay,generation);return}
     destroyHls();
     restoreOnMetadata(resume,autoplay,generation);
     player.src=source;
@@ -286,18 +282,14 @@
     const previousSession=options.sessionID||activePlan?.playback_session_id||window.sfPlaybackSessionID||'';
     activeItem=item;
     applyPlanState(null);
-    setHelp('Analisando a melhor forma de reproduzir neste navegador…',true);
+    setHelp('Analisando Direct Play, remux e compatibilidade do dispositivo…',true);
 
     let plan;
     try{
-      plan=await request(`/media/${Number(item.id)}/playback/plan`,{
-        method:'POST',
-        body:JSON.stringify(clientRequest(previousSession))
-      });
+      plan=await request(`/media/${Number(item.id)}/playback/plan`,{method:'POST',body:JSON.stringify(clientRequest(previousSession,options.quality||preferredQuality))});
     }catch(err){
       if(generation!==planGeneration)return null;
-      destroyHls();
-      player.pause();player.removeAttribute('src');player.load();
+      destroyHls();player.pause();player.removeAttribute('src');player.load();
       setHelp(`Não foi possível obter o plano de reprodução: ${err.message||err}`,true);
       if(typeof sfToast==='function')sfToast('Não foi possível planejar a reprodução');
       return null;
@@ -306,19 +298,16 @@
     applyPlanState(plan);
 
     if(!plan?.available){
-      destroyHls();
-      player.pause();
-      player.removeAttribute('src');
-      player.load();
-      setHelp(plan?.reason||'Este formato não é suportado pelo navegador sem transcodificar vídeo.',true);
-      if(typeof sfToast==='function')sfToast('Formato não suportado neste navegador');
+      destroyHls();player.pause();player.removeAttribute('src');player.load();
+      setHelp(plan?.reason||'O StormFlix não encontrou uma rota compatível para este arquivo.',true);
+      if(typeof sfToast==='function')sfToast('Não foi possível reproduzir este formato');
       return plan;
     }
 
     let prepared=null;
     try{
       if(plan.prepare_url){
-        setHelp(plan.mode==='audio_compatibility'?'Preparando áudio AAC sem recodificar o vídeo…':'Preparando remux sem recodificar o vídeo…',true);
+        setHelp(plan.mode==='audio_compatibility'?'Preparando áudio compatível sem recodificar o vídeo…':'Preparando remux sem recodificar o vídeo…',true);
         prepared=await preparePlan(plan);
         if(generation!==planGeneration)return plan;
       }
@@ -330,7 +319,9 @@
     }
     const resume=Number.isFinite(options.resumePosition)?options.resumePosition:Number(plan.resume_position_seconds||item.position_seconds||0);
     const sourceURL=prepared?.url||plan.url;
-    setHelp(isHLSSource(sourceURL)?'Iniciando streaming sob demanda…':'',isHLSSource(sourceURL));
+    const hls=isHLSSource(sourceURL);
+    if(plan.mode==='video_transcode')setHelp(`Otimizando vídeo para ${plan.target_video_height?plan.target_video_height+'p':'este dispositivo'}${plan.encoder?' · '+plan.encoder:''}…`,true);
+    else setHelp(hls?'Iniciando streaming sob demanda…':'',hls);
     try{
       await loadSource(sourceURL,resume,options.autoplay!==false,generation);
     }catch(err){
@@ -341,10 +332,19 @@
     }
     if(generation!==planGeneration)return plan;
     setHelp('',false);
-    mediaSession(item);
-    ensurePiPControl();
-    bindPlayerErrors();
+    mediaSession(item);ensurePiPControl();bindPlayerErrors();
     return plan;
+  }
+
+  async function setQuality(value){
+    const quality=normalizeQuality(value);
+    preferredQuality=quality;
+    localStorage.setItem('stormflix.player.quality',quality);
+    if(!activeItem)return null;
+    const position=Number.isFinite(player.currentTime)?player.currentTime:0;
+    const autoplay=!player.paused;
+    const session=activePlan?.playback_session_id||window.sfPlaybackSessionID||'';
+    return start({...activeItem},{resumePosition:position,autoplay,sessionID:session,quality});
   }
 
   async function playPlanned(item){
@@ -355,7 +355,7 @@
     const modal=document.querySelector('#player-modal');if(modal){modal.classList.remove('hidden');modal.classList.remove('sf-controls-hidden')}
     if(typeof sfLoadPlayerOptions==='function')await sfLoadPlayerOptions(item.id);
     if(typeof sfShowControls==='function')sfShowControls();
-    return start(item,{autoplay:true});
+    return start(item,{autoplay:true,quality:preferredQuality});
   }
 
   playMedia=playPlanned;
@@ -369,9 +369,9 @@
       const wasPlaying=!player.paused;
       const session=activePlan?.playback_session_id||window.sfPlaybackSessionID||'';
       const next={...sfCurrentMedia,...version,id:Number(id)};
-      sfCurrentMedia=next;
+      sfCurrentMedia=next;activeItem=next;
       if(typeof sfLoadPlayerOptions==='function')await sfLoadPlayerOptions(id);
-      await start(next,{resumePosition:oldTime,autoplay:wasPlaying,sessionID:session});
+      await start(next,{resumePosition:oldTime,autoplay:wasPlaying,sessionID:session,quality:preferredQuality});
       if(typeof sfToast==='function')sfToast(`${version.label||'Versão'} · ${compatibilityMode(activePlan?.mode).replaceAll('_',' ')}`);
       if(typeof sfRenderSettings==='function')sfRenderSettings();
     };
@@ -379,17 +379,12 @@
 
   const previousClosePlayer=closePlayer;
   closePlayer=function(){
-    planGeneration++;
-    activeItem=null;
-    destroyHls();
-    applyPlanState(null);
+    planGeneration++;activeItem=null;destroyHls();applyPlanState(null);
     if(document.pictureInPictureElement)document.exitPictureInPicture().catch(()=>{});
     return previousClosePlayer();
   };
   const closeButton=document.querySelector('#player-close');if(closeButton)closeButton.onclick=closePlayer;
 
-  // The legacy automatic web-only planner is retired. Manual compatibility UI
-  // remains a user action, but automatic source policy belongs to Playback Core.
   window.sfEnsureWebAudioCompatibility=function(){return Promise.resolve(activePlan)};
   window.sfTogglePictureInPicture=togglePictureInPicture;
 
@@ -398,6 +393,8 @@
     capabilities:browserCapabilities,
     currentPlan:()=>activePlan,
     sessionID:()=>String(activePlan?.playback_session_id||''),
+    currentQuality:()=>preferredQuality,
+    setQuality,
     togglePictureInPicture
   };
 })();

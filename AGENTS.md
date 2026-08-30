@@ -6,7 +6,7 @@ Before modifying this repository, **read `PROJECT_STATE.md` first**. It is the a
 
 1. Read `PROJECT_STATE.md` before changing code.
 2. Preserve the native StormFlix API under `/api/v1`; Jellyfin compatibility stays isolated in its compatibility facade.
-3. Preserve **Direct Play first**. Never introduce video transcoding as a silent fallback. Audio-only AAC compatibility is allowed where explicitly designed.
+3. Preserve **Direct Play first**. Never introduce video transcoding as a silent bypass. Audio-only AAC compatibility is allowed where explicitly designed. Video transcoding is allowed only through the authoritative PlaybackPlan when the client explicitly advertises support or the user explicitly requests a lower quality; the plan must expose the reason and target.
 4. Scanner-owned series identity (library root → show → season → episode) is authoritative. Metadata providers enrich that identity; they must not redefine folder structure blindly.
 5. A manual match on an episodic title should be stored at **series level** whenever possible, not repeated per episode.
 6. Do not weaken profile/library access controls when adding caches or compatibility aliases.

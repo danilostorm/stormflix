@@ -4,6 +4,7 @@ const (
 	ModeDirectPlay         = "direct_play"
 	ModeRemux              = "remux"
 	ModeAudioCompatibility = "audio_compatibility"
+	ModeVideoTranscode     = "video_transcode"
 	ModeUnsupported        = "unsupported"
 )
 
@@ -25,9 +26,11 @@ type Capabilities struct {
 	AudioPassthrough          []string       `json:"audio_passthrough,omitempty"`
 	AllowRemux                bool           `json:"allow_remux"`
 	AllowAudioCompatibility   bool           `json:"allow_audio_compatibility"`
+	AllowVideoTranscode       bool           `json:"allow_video_transcode"`
 	NativeAudioTrackSelection bool           `json:"native_audio_track_selection"`
 	ServerSelectsAudio        bool           `json:"server_selects_audio,omitempty"`
 	DirectPlayMaxBitrateKbps  int64          `json:"direct_play_max_bitrate_kbps,omitempty"`
+	MaxTranscodeBitrateKbps   int64          `json:"max_transcode_bitrate_kbps,omitempty"`
 	PictureInPicture          bool           `json:"picture_in_picture,omitempty"`
 	MediaSession              bool           `json:"media_session,omitempty"`
 }
@@ -39,6 +42,7 @@ type Request struct {
 	PlaybackSessionID      string       `json:"playback_session_id,omitempty"`
 	Capabilities           Capabilities `json:"capabilities"`
 	PreferredAudioLanguage string       `json:"preferred_audio_language"`
+	Quality                string       `json:"quality,omitempty"`
 }
 
 type Stream struct {
@@ -63,32 +67,42 @@ type Source struct {
 }
 
 type Plan struct {
-	Available             bool    `json:"available"`
-	Mode                  string  `json:"mode"`
-	ReasonCode            string  `json:"reason_code"`
-	Reason                string  `json:"reason"`
-	MediaID               int64   `json:"media_id,omitempty"`
-	ClientKind            string  `json:"client_kind,omitempty"`
-	SourceContainer       string  `json:"source_container"`
-	Container             string  `json:"container"`
-	VideoCodec            string  `json:"video_codec"`
-	VideoWidth            int     `json:"video_width,omitempty"`
-	VideoHeight           int     `json:"video_height,omitempty"`
-	VideoFrameRate        float64 `json:"video_frame_rate,omitempty"`
-	VideoHDR              string  `json:"video_hdr,omitempty"`
-	SourceBitrateKbps     int64   `json:"source_bitrate_kbps,omitempty"`
-	AudioCodec            string  `json:"audio_codec,omitempty"`
-	SourceAudioCodec      string  `json:"source_audio_codec,omitempty"`
-	AudioLanguage         string  `json:"audio_language,omitempty"`
-	AudioTitle            string  `json:"audio_title,omitempty"`
-	AudioTrackCount       int     `json:"audio_track_count"`
-	VideoStream           int     `json:"video_stream"`
-	AudioStream           int     `json:"audio_stream"`
-	AudioTranscode        bool    `json:"audio_transcode"`
-	VideoTranscode        bool    `json:"video_transcode"`
-	ClientSelectsAudio    bool    `json:"client_selects_audio"`
-	URL                   string  `json:"url,omitempty"`
-	PrepareURL            string  `json:"prepare_url,omitempty"`
-	ResumePositionSeconds float64 `json:"resume_position_seconds,omitempty"`
-	PlaybackSessionID     string  `json:"playback_session_id,omitempty"`
+	Available             bool     `json:"available"`
+	Mode                  string   `json:"mode"`
+	ReasonCode            string   `json:"reason_code"`
+	Reason                string   `json:"reason"`
+	TranscodeReasons      []string `json:"transcode_reasons,omitempty"`
+	MediaID               int64    `json:"media_id,omitempty"`
+	ClientKind            string   `json:"client_kind,omitempty"`
+	SourceContainer       string   `json:"source_container"`
+	Container             string   `json:"container"`
+	SourceVideoCodec      string   `json:"source_video_codec,omitempty"`
+	VideoCodec            string   `json:"video_codec"`
+	VideoWidth            int      `json:"video_width,omitempty"`
+	VideoHeight           int      `json:"video_height,omitempty"`
+	VideoFrameRate        float64  `json:"video_frame_rate,omitempty"`
+	VideoHDR              string   `json:"video_hdr,omitempty"`
+	TargetVideoWidth      int      `json:"target_video_width,omitempty"`
+	TargetVideoHeight     int      `json:"target_video_height,omitempty"`
+	TargetVideoFrameRate  float64  `json:"target_video_frame_rate,omitempty"`
+	TargetBitrateKbps     int64    `json:"target_bitrate_kbps,omitempty"`
+	ToneMap               bool     `json:"tone_map,omitempty"`
+	Encoder               string   `json:"encoder,omitempty"`
+	HardwareAcceleration  string   `json:"hardware_acceleration,omitempty"`
+	Quality               string   `json:"quality,omitempty"`
+	SourceBitrateKbps     int64    `json:"source_bitrate_kbps,omitempty"`
+	AudioCodec            string   `json:"audio_codec,omitempty"`
+	SourceAudioCodec      string   `json:"source_audio_codec,omitempty"`
+	AudioLanguage         string   `json:"audio_language,omitempty"`
+	AudioTitle            string   `json:"audio_title,omitempty"`
+	AudioTrackCount       int      `json:"audio_track_count"`
+	VideoStream           int      `json:"video_stream"`
+	AudioStream           int      `json:"audio_stream"`
+	AudioTranscode        bool     `json:"audio_transcode"`
+	VideoTranscode        bool     `json:"video_transcode"`
+	ClientSelectsAudio    bool     `json:"client_selects_audio"`
+	URL                   string   `json:"url,omitempty"`
+	PrepareURL            string   `json:"prepare_url,omitempty"`
+	ResumePositionSeconds float64  `json:"resume_position_seconds,omitempty"`
+	PlaybackSessionID     string   `json:"playback_session_id,omitempty"`
 }

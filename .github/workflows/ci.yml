@@ -42,6 +42,7 @@ jobs:
           node --check internal/webui/static/admin/admin-catalog.js
           node --check internal/webui/static/admin/admin-categories.js
           node --check internal/webui/static/admin/admin-automation.js
+          node --check internal/webui/static/admin/admin-transcode.js
           node --check internal/webui/static/admin/admin-music.js
           node --check internal/webui/static/admin/admin-library-metadata.js
           node --check internal/webui/static/admin/admin-jobs.js
@@ -66,6 +67,7 @@ jobs:
           node --check internal/webui/static/playback-core.js
           node --check internal/webui/static/player-v3.js
           node --check internal/webui/static/player-v4.js
+          node --check internal/webui/static/player-v5.js
           node --check internal/webui/static/player-monitor.js
           node --check internal/webui/static/autoplay-next.js
           node --check internal/webui/static/continue-watching.js
@@ -74,8 +76,8 @@ jobs:
       - name: Test
         run: go test ./...
 
-      - name: Race playback and compatibility cache
-        run: go test -race ./internal/playback ./internal/webcompat
+      - name: Race playback and streaming engines
+        run: go test -race ./internal/playback ./internal/webcompat ./internal/transcode
 
       - name: Build
         run: go build -trimpath ./cmd/stormflix

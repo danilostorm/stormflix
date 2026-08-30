@@ -23,13 +23,14 @@
   <link rel="stylesheet" href="/rail-nav-v2.css">
   <link rel="stylesheet" href="/player-v3.css">
   <link rel="stylesheet" href="/player-v4.css">
+  <link rel="stylesheet" href="/player-v5.css">
 </head>
 <body>
 <div id="login" class="login-overlay hidden">
   <div class="login-backdrop"></div>
   <form id="login-form" class="login-card">
     <div class="brand brand-large">STORM<span>FLIX</span></div>
-    <p class="login-kicker">Direct Play Only</p>
+    <p class="login-kicker">Direct Play First · Playback Engine v5</p>
     <h1>Entrar</h1>
     <input id="login-user" placeholder="Usuário" autocomplete="username" required>
     <input id="login-pass" type="password" placeholder="Senha" required autocomplete="current-password">
@@ -122,7 +123,7 @@
               <div><span>Direção</span><b id="detail-directors">—</b></div>
               <div><span>Gêneros</span><b id="detail-genres">—</b></div>
               <div><span>Biblioteca</span><b id="detail-library">—</b></div>
-              <div><span>Formato</span><b id="detail-format">Direct Play</b></div>
+              <div><span>Formato</span><b id="detail-format">Playback Engine v5</b></div>
               <div id="theme-info-wrap" class="hidden"><span>Abertura</span><b id="theme-info"></b></div>
             </aside>
           </div>
@@ -130,25 +131,19 @@
       </article>
     </section>
 
-    <section id="catalog-view" class="catalog-view">
-      <div id="rows" class="rows"></div>
-    </section>
+    <section id="catalog-view" class="catalog-view"><div id="rows" class="rows"></div></section>
   </main>
 </div>
 
 <div id="player-modal" class="player-modal hidden" role="dialog" aria-label="Player StormFlix">
   <div class="player-bar"><strong id="player-title"></strong><div class="player-top-actions"><button id="player-settings-top" class="player-top-settings" type="button" aria-label="Configurações do player">⚙</button><button id="player-close" aria-label="Fechar player">✕</button></div></div>
   <video id="player" controls playsinline preload="metadata"></video>
-  <div id="player-help" class="player-help hidden">Este navegador não reproduziu o formato diretamente. O StormFlix tentará o modo compatibilidade automaticamente.</div>
+  <div id="player-help" class="player-help hidden">O StormFlix vai escolher Direct Play, remux ou transcodificação automaticamente.</div>
 </div>
 
 <audio id="theme-audio" preload="none"></audio>
 <script>
 (() => {
-  // The official Jellyfin Android app is a WebView wrapper. It considers a
-  // server connected only after seeing a request matching main.*.bundle.js.
-  // NativeInterface is injected by that app before loading the server URL, so
-  // this handshake stays invisible to ordinary browsers and StormFlix apps.
   if (window.NativeInterface || window.NativePlayer || window.ExternalPlayer) {
     const bridge = document.createElement('script');
     bridge.src = '/main.stormflix.bundle.js';
@@ -174,6 +169,7 @@
 <script src="/playback-core.js" defer></script>
 <script src="/player-v3.js" defer></script>
 <script src="/player-v4.js" defer></script>
+<script src="/player-v5.js" defer></script>
 <script src="/player-monitor.js" defer></script>
 <script src="/autoplay-next.js" defer></script>
 <script src="/continue-watching.js" defer></script>

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+
+	"github.com/danilostorm/stormflix/internal/transcode"
 )
 
 type playbackTelemetryInput struct {
@@ -54,11 +56,7 @@ func (s *server) playbackTelemetry(w http.ResponseWriter, r *http.Request) {
 
 	u := currentUser(r)
 	item, err := s.media.GetStreamItem(r.Context(), mediaID)
-	if err != nil {
-		writeError(w, http.StatusNotFound, errors.New("media not found"))
-		return
-	}
-	if !item.Available {
+	if err != nil || !item.Available {
 		writeError(w, http.StatusNotFound, errors.New("media not found"))
 		return
 	}
@@ -70,7 +68,17 @@ func (s *server) playbackTelemetry(w http.ResponseWriter, r *http.Request) {
 	cacheBytes := int64(0)
 	ahead := 0
 	if in.PlaybackSessionID != "" && in.Mode != "direct_play" {
-		if diagnostics, tuneErr := s.hlsCache.TuneSession(u.ID, in.PlaybackSessionID, in.BufferSeconds, in.ReadMbps); tuneErr == nil {
+		if transcode.IsSessionID(in.PlaybackSessionID) {
+			if manager, managerErr := transcode.ForDataDir(s.config.DataDir); managerErr == nil {
+				manager.Touch(u.ID, in.PlaybackSessionID)
+				for _, info := range manager.Sessions() {
+					if info.ID == in.PlaybackSessionID && info.UserID == u.ID {
+						cacheBytes = info.CacheBytes
+						break
+					}
+				}
+			}
+		} else if diagnostics, tuneErr := s.hlsCache.TuneSession(u.ID, in.PlaybackSessionID, in.BufferSeconds, in.ReadMbps); tuneErr == nil {
 			cacheBytes = diagnostics.CacheBytes
 			ahead = diagnostics.AheadBatches
 		}
@@ -87,6 +95,12 @@ ON CONFLICT(user_id,media_id,device) DO UPDATE SET
 }
 
 func (s *server) playbackDiagnostics(w http.ResponseWriter, r *http.Request) {
+	transcodeBySession := map[string]transcode.SessionInfo{}
+	if manager, managerErr := transcode.ForDataDir(s.config.DataDir); managerErr == nil {
+		for _, info := range manager.Sessions() {
+			transcodeBySession[info.ID] = info
+		}
+	}
 	rows, err := s.db.QueryContext(r.Context(), `SELECT p.id,p.user_id,u.username,u.display_name,p.media_id,m.title,p.device,p.ip,p.started_at,p.last_seen_at,
 COALESCE(p.playback_session_id,''),COALESCE(p.mode,'direct_play'),COALESCE(p.client_kind,''),COALESCE(p.bitrate_kbps,0),COALESCE(p.buffer_seconds,0),COALESCE(p.read_mbps,0),COALESCE(p.cache_bytes,0),COALESCE(p.video_codec,''),COALESCE(p.audio_codec,''),COALESCE(p.last_error,'')
 FROM playback_sessions p JOIN users u ON u.id=p.user_id JOIN media m ON m.id=p.media_id
@@ -105,12 +119,25 @@ WHERE p.last_seen_at>=datetime('now','-2 minutes') ORDER BY p.last_seen_at DESC`
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
-		out = append(out, map[string]any{
+		item := map[string]any{
 			"id": id, "user_id": userID, "username": username, "display_name": displayName, "media_id": mediaID, "title": title,
 			"device": device, "ip": ip, "started_at": startedAt, "last_seen_at": lastSeenAt, "playback_session_id": sessionID,
 			"mode": mode, "client_kind": clientKind, "bitrate_kbps": bitrate, "buffer_seconds": bufferSeconds, "read_mbps": readMbps,
 			"cache_bytes": cacheBytes, "video_codec": videoCodec, "audio_codec": audioCodec, "last_error": lastError,
-		})
+		}
+		if trans, ok := transcodeBySession[sessionID]; ok {
+			item["transcode"] = trans
+			item["cache_bytes"] = trans.CacheBytes
+			item["encoder"] = trans.Encoder
+			item["hardware"] = trans.Hardware
+			item["transcode_fps"] = trans.FPS
+			item["transcode_speed"] = trans.Speed
+			item["tone_map"] = trans.ToneMap
+			item["target_width"] = trans.TargetWidth
+			item["target_height"] = trans.TargetHeight
+			item["target_bitrate_kbps"] = trans.TargetBitrateKbps
+		}
+		out = append(out, item)
 	}
 	writeJSON(w, http.StatusOK, out)
 }

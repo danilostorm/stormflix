@@ -54,6 +54,15 @@ public final class SessionStore {
             .apply();
     }
 
+    public String playerQuality() {
+        String value = prefs.getString("player_quality", "auto");
+        return normalizeQuality(value);
+    }
+
+    public void setPlayerQuality(String value) {
+        prefs.edit().putString("player_quality", normalizeQuality(value)).apply();
+    }
+
     public String cookieHeader() {
         String session = sessionCookie();
         String profile = profileCookie();
@@ -76,6 +85,7 @@ public final class SessionStore {
             .remove("profile")
             .remove("preferred_audio")
             .remove("preferred_subtitle")
+            .remove("player_quality")
             .apply();
     }
 
@@ -91,5 +101,14 @@ public final class SessionStore {
     private static String normalizeLanguage(String value) {
         String v = value == null ? "" : value.trim();
         return v.isEmpty() ? "pt-BR" : v;
+    }
+
+    private static String normalizeQuality(String value) {
+        String v = value == null ? "" : value.trim().toLowerCase();
+        switch (v) {
+            case "original": case "2160p": case "1440p": case "1080p": case "720p": case "480p": return v;
+            case "4k": case "uhd": return "2160p";
+            default: return "auto";
+        }
     }
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/danilostorm/stormflix/internal/admin"
 	"github.com/danilostorm/stormflix/internal/auth"
+	"github.com/danilostorm/stormflix/internal/transcode"
 )
 
 func (s *server) adminDashboard(w http.ResponseWriter, r *http.Request) {
@@ -174,13 +175,22 @@ func (s *server) storage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, v)
 }
 func (s *server) playbacks(w http.ResponseWriter, r *http.Request) {
-	// Keep the historical endpoint stable while returning the enriched superset
-	// used by the new diagnostics workspace. Existing Admin clients only read
-	// the original fields and therefore remain compatible.
 	s.playbackDiagnostics(w, r)
 }
 func (s *server) serverInfo(w http.ResponseWriter, r *http.Request) {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
-	writeJSON(w, 200, map[string]any{"name": "StormFlix", "version": version, "go": runtime.Version(), "os": runtime.GOOS, "arch": runtime.GOARCH, "cpus": runtime.NumCPU(), "memory_alloc_bytes": m.Alloc, "memory_sys_bytes": m.Sys, "uptime_seconds": int64(time.Since(s.startedAt).Seconds()), "database": s.config.DatabasePath(), "direct_play_only": true, "transcoding_enabled": false})
+	engine := transcode.Detect()
+	transcodeCache := map[string]any{}
+	transcodeSessions := []transcode.SessionInfo{}
+	if manager, err := transcode.ForDataDir(s.config.DataDir); err == nil {
+		transcodeCache = manager.CacheStatus()
+		transcodeSessions = manager.Sessions()
+	}
+	writeJSON(w, 200, map[string]any{
+		"name": "StormFlix", "version": version, "go": runtime.Version(), "os": runtime.GOOS, "arch": runtime.GOARCH, "cpus": runtime.NumCPU(),
+		"memory_alloc_bytes": m.Alloc, "memory_sys_bytes": m.Sys, "uptime_seconds": int64(time.Since(s.startedAt).Seconds()), "database": s.config.DatabasePath(),
+		"direct_play_first": true, "direct_play_only": false, "transcoding_enabled": engine.FFmpegPath != "", "transcode_engine": engine,
+		"transcode_cache": transcodeCache, "transcode_sessions": len(transcodeSessions), "transcode_session_details": transcodeSessions,
+	})
 }
