@@ -21,6 +21,8 @@ type catalogHealthItem struct {
 	TMDBID         int64    `json:"tmdb_id"`
 	Year           int      `json:"year"`
 	MediaType      string   `json:"media_type"`
+	SeasonNumber   int      `json:"season_number,omitempty"`
+	EpisodeNumber  int      `json:"episode_number,omitempty"`
 }
 
 type duplicateGroup struct {
@@ -35,7 +37,7 @@ type duplicateGroup struct {
 func (s *server) allCatalogHealthItems(ctx context.Context) ([]catalogHealthItem, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT m.id,m.title,l.name,m.available,COALESCE(mm.status,'pending'),COALESCE(mm.genres_json,'[]'),
 COALESCE((SELECT a.public_url FROM media_artwork a WHERE a.media_id=m.id AND a.kind='poster' AND a.selected=1 ORDER BY a.score DESC LIMIT 1),''),
-COALESCE(mm.tmdb_id,0),COALESCE(mm.year,0),COALESCE(mm.media_type,'')
+COALESCE(mm.tmdb_id,0),COALESCE(mm.year,0),COALESCE(mm.media_type,''),COALESCE(mm.season_number,0),COALESCE(mm.episode_number,0)
 FROM media m JOIN libraries l ON l.id=m.library_id LEFT JOIN media_metadata mm ON mm.media_id=m.id WHERE l.kind<>'music' ORDER BY m.id`)
 	if err != nil {
 		return nil, err
@@ -45,7 +47,7 @@ FROM media m JOIN libraries l ON l.id=m.library_id LEFT JOIN media_metadata mm O
 	for rows.Next() {
 		var item catalogHealthItem
 		var genres string
-		if err := rows.Scan(&item.ID, &item.Title, &item.Library, &item.Available, &item.MetadataStatus, &genres, &item.PosterURL, &item.TMDBID, &item.Year, &item.MediaType); err != nil {
+		if err := rows.Scan(&item.ID, &item.Title, &item.Library, &item.Available, &item.MetadataStatus, &genres, &item.PosterURL, &item.TMDBID, &item.Year, &item.MediaType, &item.SeasonNumber, &item.EpisodeNumber); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(genres), &item.Genres)
@@ -164,9 +166,9 @@ func duplicateCatalogGroups(items []catalogHealthItem) []duplicateGroup {
 		}
 		key := ""
 		if item.TMDBID > 0 {
-			key = fmt.Sprintf("tmdb:%d:%s", item.TMDBID, strings.ToLower(item.MediaType))
+			key = fmt.Sprintf("tmdb:%d:%s:s%d:e%d", item.TMDBID, strings.ToLower(item.MediaType), item.SeasonNumber, item.EpisodeNumber)
 		} else {
-			key = fmt.Sprintf("title:%s:%d:%s", categoryRuleKey(item.Title), item.Year, strings.ToLower(item.MediaType))
+			key = fmt.Sprintf("title:%s:%d:%s:s%d:e%d", categoryRuleKey(item.Title), item.Year, strings.ToLower(item.MediaType), item.SeasonNumber, item.EpisodeNumber)
 		}
 		groups[key] = append(groups[key], item)
 	}
