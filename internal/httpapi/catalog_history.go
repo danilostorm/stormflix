@@ -50,8 +50,14 @@ func (s *server) previewLibraryScan(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, preview)
 }
 
-func (s *server) requireAutomaticBackup(w http.ResponseWriter, r *http.Request, note string) bool {
-	if _, err := s.ensureAutomaticBackup(r.Context(), note); err != nil {
+func (s *server) requireAutomaticBackup(w http.ResponseWriter, r *http.Request, note string, fresh bool) bool {
+	var err error
+	if fresh {
+		_, err = s.createBackup(r.Context(), "auto", note)
+	} else {
+		_, err = s.ensureAutomaticBackup(r.Context(), note)
+	}
+	if err != nil {
 		uid := currentUser(r).ID
 		s.admin.Log(r.Context(), "error", "backup", "Safety backup failed; protected operation aborted", &uid, err.Error())
 		writeError(w, http.StatusInternalServerError, err)
@@ -61,7 +67,9 @@ func (s *server) requireAutomaticBackup(w http.ResponseWriter, r *http.Request, 
 }
 
 func (s *server) scanLibraryWithBackup(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAutomaticBackup(w, r, "antes do scan da biblioteca") {
+	// Repeated scan jobs in one batch may reuse a recent safety snapshot to
+	// avoid needlessly VACUUMing a large database for every library.
+	if !s.requireAutomaticBackup(w, r, "antes do scan da biblioteca", false) {
 		return
 	}
 	uid := currentUser(r).ID
@@ -70,7 +78,7 @@ func (s *server) scanLibraryWithBackup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) scanAllLibrariesWithBackup(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAutomaticBackup(w, r, "antes do scan de todas as bibliotecas") {
+	if !s.requireAutomaticBackup(w, r, "antes do scan de todas as bibliotecas", false) {
 		return
 	}
 	uid := currentUser(r).ID
@@ -79,7 +87,9 @@ func (s *server) scanAllLibrariesWithBackup(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *server) updateLibraryWithBackup(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAutomaticBackup(w, r, "antes de alterar biblioteca/caminho") {
+	// Path/source topology changes get an exact pre-operation snapshot; never
+	// reuse an older scan backup for this structural change.
+	if !s.requireAutomaticBackup(w, r, "antes de alterar biblioteca/caminho", true) {
 		return
 	}
 	uid := currentUser(r).ID
@@ -88,7 +98,7 @@ func (s *server) updateLibraryWithBackup(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *server) organizeRecommendedCategoriesWithBackup(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAutomaticBackup(w, r, "antes de reorganizar os menus da Home") {
+	if !s.requireAutomaticBackup(w, r, "antes de reorganizar os menus da Home", true) {
 		return
 	}
 	uid := currentUser(r).ID
