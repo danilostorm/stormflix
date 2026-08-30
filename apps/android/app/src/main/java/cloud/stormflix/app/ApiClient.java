@@ -75,11 +75,9 @@ public final class ApiClient {
     private HttpURLConnection open(String url) throws IOException {
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         c.setConnectTimeout(15000);
-        // AAC fallback preparation can materialize a large seekable MP4 once.
-        // Keep connect failures fast, but do not abort a healthy long response.
         c.setReadTimeout(1200000);
         c.setInstanceFollowRedirects(true);
-        c.setRequestProperty("User-Agent", "StormFlix-Android/0.4.0");
+        c.setRequestProperty("User-Agent", "StormFlix-Android/0.5.2");
         String cookies = store.cookieHeader();
         if (!cookies.isEmpty()) c.setRequestProperty("Cookie", cookies);
         return c;

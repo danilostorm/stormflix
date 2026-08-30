@@ -17,7 +17,7 @@ import java.util.Set;
 
 /** Builds the native /api/v1 PlaybackPlan v5 capability request for Media3. */
 public final class PlaybackCapabilities {
-    private static final String VERSION = "0.5.0";
+    private static final String VERSION = "0.5.2";
 
     private static final Map<String,String> VIDEO_MIME_TO_CODEC = new LinkedHashMap<>();
     private static final Map<String,String> AUDIO_MIME_TO_CODEC = new LinkedHashMap<>();
@@ -65,9 +65,6 @@ public final class PlaybackCapabilities {
                 .put("max_width", limits.width)
                 .put("max_height", limits.height)
                 .put("max_frame_rate", limits.frameRate)
-                // HDR capability reporting is incomplete on many Android vendor
-                // builds. Keep this unknown unless we can prove support rather
-                // than forcing unnecessary tone mapping.
                 .put("hdr_known", false)
                 .put("hdr_types", limits.hdrTypes);
             videoProfiles.put(profile);
@@ -77,9 +74,6 @@ public final class PlaybackCapabilities {
             if (hasDecoder(codecs, entry.getKey())) audioCodecs.add(entry.getValue());
         }
 
-        // Android guarantees AVC/AAC on the API levels StormFlix supports.
-        // They are also the universal server-transcode target when a vendor
-        // under-reports its codec list.
         videoCodecs.add("h264");
         audioCodecs.add("aac");
 
