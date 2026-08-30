@@ -3,6 +3,7 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"os"
 	"time"
 )
@@ -19,17 +20,28 @@ func applyPendingRestore(path string) error {
 	}
 
 	check, err := sql.Open("sqlite", restorePath)
-	if err != nil {
-		return fmt.Errorf("open staged restore: %w", err)
-	}
 	var result string
-	checkErr := check.QueryRow(`PRAGMA quick_check`).Scan(&result)
-	_ = check.Close()
+	var checkErr error
+	if err == nil {
+		checkErr = check.QueryRow(`PRAGMA quick_check`).Scan(&result)
+		_ = check.Close()
+	} else {
+		checkErr = err
+	}
 	if checkErr != nil || result != "ok" {
-		if checkErr != nil {
-			return fmt.Errorf("validate staged restore: %w", checkErr)
+		// A corrupt/incomplete staged restore must never turn the next restart
+		// into a permanent 502 loop. Quarantine it and continue with the current
+		// database untouched; the operator can inspect/remove the invalid file.
+		invalidPath := fmt.Sprintf("%s.invalid-%s", restorePath, time.Now().UTC().Format("20060102-150405.000000000"))
+		if renameErr := os.Rename(restorePath, invalidPath); renameErr != nil {
+			return fmt.Errorf("quarantine invalid staged restore: %w", renameErr)
 		}
-		return fmt.Errorf("validate staged restore: %s", result)
+		if checkErr != nil {
+			log.Printf("stormflix database restore rejected and quarantined: %v", checkErr)
+		} else {
+			log.Printf("stormflix database restore rejected and quarantined: quick_check=%s", result)
+		}
+		return nil
 	}
 
 	safety := ""
