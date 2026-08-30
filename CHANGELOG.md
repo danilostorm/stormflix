@@ -2,6 +2,20 @@
 
 This file records user-visible and architectural changes. `PROJECT_STATE.md` is the authoritative current-state handoff.
 
+## 2026-08-30
+
+### Android 0.4.1 autoplay, instant compatibility streaming and Releases
+
+- Added streaming-style **next episode autoplay** to Web, Android, Android TV and Fire TV. Episodic playback uses the existing `/media/{id}/neighbors` identity and presents a 10-second “A seguir” countdown before starting the next episode.
+- Autoplay is enabled by default but remains user-controllable. Web stores the preference locally and exposes it in Player v4 settings; Android/TV/Fire stores the setting in app preferences and exposes it in the native player menu.
+- Bumped native Android to **0.4.1 / versionCode 13** and added the Media3 HLS module.
+- Removed the long Android/TV compatibility startup caused by complete seekable-MP4 materialization. StormFlix Android, Android TV and Fire TV now use the same **dynamic fMP4 HLS** compatibility engine as Web: small on-demand batches, bounded prefetch, video stream-copy and AAC conversion only for an incompatible selected audio track.
+- Direct Play remains first and unchanged: compatible mounted/rclone media still streams directly with HTTP Range and creates no HLS compatibility cache.
+- Unknown/legacy native clients retain the old seekable-MP4 compatibility fallback until they explicitly use a supported streaming path.
+- Android builds now publish versioned APK + SHA-256 files to **GitHub Releases** after a successful push/build on `main`; Actions artifacts remain available for CI diagnostics.
+- Added server regression coverage for Web/Android/TV/Fire dynamic-HLS selection and CI syntax coverage for the Web autoplay controller.
+- PostgreSQL migration was deliberately **not mixed into this playback release**. SQLite remains the production database for 0.4.1; a database migration requires a separate dual-backend/migrator phase because current migrations and queries contain SQLite-specific PRAGMAs, `INSERT OR IGNORE`, `datetime(...)`, `COLLATE NOCASE` and backup/restore semantics.
+
 ## 2026-08-29
 
 ### Android 0.4.0 and official Jellyfin client compatibility v2
