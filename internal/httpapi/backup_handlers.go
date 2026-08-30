@@ -97,7 +97,11 @@ func (s *server) pruneAutomaticBackups(ctx context.Context, keep int) {
 	}
 	_ = rows.Close()
 	for i := keep; i < len(items); i++ {
-		_ = os.Remove(items[i].path)
+		if err := os.Remove(items[i].path); err != nil && !os.IsNotExist(err) {
+			// Keep the row when the filesystem refuses deletion so Admin still
+			// exposes the retained snapshot instead of orphaning an unknown file.
+			continue
+		}
 		_, _ = s.db.ExecContext(ctx, `DELETE FROM system_backups WHERE id=?`, items[i].id)
 	}
 }
