@@ -24,6 +24,7 @@
   <link rel="stylesheet" href="/player-v4.css">
   <link rel="stylesheet" href="/player-v5.css">
   <link rel="stylesheet" href="/player-audio-v53.css">
+  <link rel="stylesheet" href="/player-screen-v54.css">
 </head>
 <body>
 <div id="login" class="login-overlay hidden">
@@ -123,7 +124,7 @@
               <div><span>Direção</span><b id="detail-directors">—</b></div>
               <div><span>Gêneros</span><b id="detail-genres">—</b></div>
               <div><span>Biblioteca</span><b id="detail-library">—</b></div>
-              <div><span>Formato</span><b id="detail-format">Playback Engine v5.3</b></div>
+              <div><span>Formato</span><b id="detail-format">Playback Engine v5.4</b></div>
               <div id="theme-info-wrap" class="hidden"><span>Abertura</span><b id="theme-info"></b></div>
             </aside>
           </div>
@@ -165,13 +166,13 @@
 <script src="/ux-v3.js" defer></script>
 <script src="/source-selector.js" defer></script>
 <script src="/person-ui.js" defer></script>
-<!-- Web v5.3 owns compatibility and track selection through one playback session.
-     The legacy webcompat/player-v3 monkey patches are intentionally not loaded. -->
+<!-- Web v5.4 keeps v5.3 continuous sessions and adds presentation-only screen modes. -->
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.7.1/dist/hls.min.js" defer></script>
 <script src="/playback-core-v53.js" defer></script>
 <script src="/player-v4.js" defer></script>
 <script src="/player-v5.js" defer></script>
 <script src="/player-audio-v53.js" defer></script>
+<script src="/player-screen-v54.js" defer></script>
 <script src="/player-monitor.js" defer></script>
 <script src="/autoplay-next.js" defer></script>
 <script src="/continue-watching.js" defer></script>
