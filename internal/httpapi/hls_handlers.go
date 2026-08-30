@@ -10,6 +10,7 @@ import (
 
 	"github.com/danilostorm/stormflix/internal/config"
 	"github.com/danilostorm/stormflix/internal/media"
+	"github.com/danilostorm/stormflix/internal/transcode"
 	"github.com/danilostorm/stormflix/internal/webcompat"
 )
 
@@ -59,14 +60,26 @@ func (s *server) hlsPlaylist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u := currentUser(r)
-	playlist, err := s.hlsCache.Playlist(u.ID, id, r.PathValue("session"))
+	session := r.PathValue("session")
+	var playlist string
+	if transcode.IsSessionID(session) {
+		manager, managerErr := transcode.ForDataDir(s.config.DataDir)
+		if managerErr != nil {
+			writeError(w, http.StatusInternalServerError, managerErr)
+			return
+		}
+		playlist, err = manager.Playlist(u.ID, id, session)
+		w.Header().Set("X-StormFlix-Playback", "video-transcode-hls")
+	} else {
+		playlist, err = s.hlsCache.Playlist(u.ID, id, session)
+		w.Header().Set("X-StormFlix-Playback", "dynamic-hls")
+	}
 	if err != nil {
 		writeError(w, http.StatusNotFound, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	w.Header().Set("Cache-Control", "private, no-store")
-	w.Header().Set("X-StormFlix-Playback", "dynamic-hls")
 	_, _ = w.Write([]byte(playlist))
 }
 
@@ -85,7 +98,18 @@ func (s *server) hlsInitSegment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u := currentUser(r)
-	path, err := s.hlsCache.InitPath(r.Context(), u.ID, id, r.PathValue("session"), batch)
+	session := r.PathValue("session")
+	var path string
+	if transcode.IsSessionID(session) {
+		manager, managerErr := transcode.ForDataDir(s.config.DataDir)
+		if managerErr != nil {
+			writeError(w, http.StatusInternalServerError, managerErr)
+			return
+		}
+		path, err = manager.InitPath(r.Context(), u.ID, id, session, batch)
+	} else {
+		path, err = s.hlsCache.InitPath(r.Context(), u.ID, id, session, batch)
+	}
 	if err != nil {
 		writeError(w, http.StatusUnprocessableEntity, err)
 		return
@@ -108,7 +132,18 @@ func (s *server) hlsMediaSegment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u := currentUser(r)
-	path, err := s.hlsCache.SegmentPathBuffered(r.Context(), u.ID, id, r.PathValue("session"), segment)
+	session := r.PathValue("session")
+	var path string
+	if transcode.IsSessionID(session) {
+		manager, managerErr := transcode.ForDataDir(s.config.DataDir)
+		if managerErr != nil {
+			writeError(w, http.StatusInternalServerError, managerErr)
+			return
+		}
+		path, err = manager.SegmentPath(r.Context(), u.ID, id, session, segment)
+	} else {
+		path, err = s.hlsCache.SegmentPathBuffered(r.Context(), u.ID, id, session, segment)
+	}
 	if err != nil {
 		writeError(w, http.StatusUnprocessableEntity, err)
 		return
@@ -130,6 +165,5 @@ func serveHLSFile(w http.ResponseWriter, r *http.Request, path, contentType stri
 	}
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Cache-Control", "private, no-store")
-	w.Header().Set("X-StormFlix-Playback", "dynamic-hls")
 	http.ServeContent(w, r, stat.Name(), stat.ModTime(), file)
 }
