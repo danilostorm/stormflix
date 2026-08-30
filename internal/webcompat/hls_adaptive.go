@@ -4,9 +4,15 @@ import (
 	"errors"
 	"os"
 	"sync"
+	"time"
 )
 
-var hlsAdaptiveAhead sync.Map // session id -> int (1..3 batches)
+type adaptiveHLSState struct {
+	Ahead   int
+	Touched time.Time
+}
+
+var hlsAdaptiveAhead sync.Map // session id -> adaptiveHLSState
 
 type HLSSessionDiagnostics struct {
 	SessionID         string  `json:"session_id"`
@@ -22,18 +28,14 @@ type HLSSessionDiagnostics struct {
 // free-disk reserve remain hard limits enforced by ensureCapacity, so hundreds
 // of users can never make this adaptive policy grow the SSD without bound.
 func (m *HLSManager) TuneSession(userID int64, sessionID string, bufferSeconds, readMbps float64) (HLSSessionDiagnostics, error) {
-	session, err := m.getSession(userID, 0, sessionID)
-	if err != nil {
-		// getSession normally validates media too; telemetry intentionally accepts
-		// any media owned by the authenticated user for this session.
-		m.mu.Lock()
-		session = m.sessions[sessionID]
-		if session == nil || session.UserID != userID || session.Closed {
-			m.mu.Unlock()
-			return HLSSessionDiagnostics{}, errors.New("HLS session not found")
-		}
+	m.mu.Lock()
+	session := m.sessions[sessionID]
+	if session == nil || session.UserID != userID || session.Closed {
 		m.mu.Unlock()
+		return HLSSessionDiagnostics{}, errors.New("HLS session not found")
 	}
+	session.LastTouch = time.Now()
+	m.mu.Unlock()
 
 	ahead := 1
 	sourceMbps := float64(session.Spec.SourceBitrateKbps) / 1000.0
@@ -49,24 +51,49 @@ func (m *HLSManager) TuneSession(userID int64, sessionID string, bufferSeconds, 
 	if bufferSeconds > 40 {
 		ahead = 1
 	}
-	hlsAdaptiveAhead.Store(sessionID, ahead)
+	storeAdaptiveAhead(sessionID, ahead)
 	return HLSSessionDiagnostics{
 		SessionID: sessionID, MediaID: session.MediaID, CacheBytes: hlsSessionDirSize(session.Dir),
 		BufferSeconds: bufferSeconds, ReadMbps: readMbps, SourceBitrateKbps: session.Spec.SourceBitrateKbps, AheadBatches: ahead,
 	}, nil
 }
 
+func storeAdaptiveAhead(sessionID string, ahead int) {
+	now := time.Now()
+	if ahead < 1 {
+		ahead = 1
+	}
+	if ahead > 3 {
+		ahead = 3
+	}
+	hlsAdaptiveAhead.Store(sessionID, adaptiveHLSState{Ahead: ahead, Touched: now})
+	// Normal HLS directories are removed immediately/TTL by HLSManager. The
+	// telemetry hint map is process memory, so prune abandoned session keys
+	// opportunistically as well and keep long-running servers bounded.
+	cutoff := now.Add(-2 * time.Hour)
+	hlsAdaptiveAhead.Range(func(key, value any) bool {
+		state, ok := value.(adaptiveHLSState)
+		if !ok || state.Touched.Before(cutoff) {
+			hlsAdaptiveAhead.Delete(key)
+		}
+		return true
+	})
+}
+
 func adaptiveAheadBatches(sessionID string) int {
 	if value, ok := hlsAdaptiveAhead.Load(sessionID); ok {
-		if n, ok := value.(int); ok {
-			if n < 1 {
-				return 1
-			}
-			if n > 3 {
-				return 3
-			}
-			return n
+		state, ok := value.(adaptiveHLSState)
+		if !ok || state.Touched.Before(time.Now().Add(-2*time.Hour)) {
+			hlsAdaptiveAhead.Delete(sessionID)
+			return 1
 		}
+		if state.Ahead < 1 {
+			return 1
+		}
+		if state.Ahead > 3 {
+			return 3
+		}
+		return state.Ahead
 	}
 	return 1
 }
