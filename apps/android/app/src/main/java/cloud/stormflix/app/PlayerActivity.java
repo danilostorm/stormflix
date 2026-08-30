@@ -1,9 +1,10 @@
 package cloud.stormflix.app;
 
 import android.app.Activity;
-import android.content.pm.ActivityInfo;
+import android.app.ActivityInfo;
 import android.graphics.Color;
 import android.os.Bundle;
+import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
@@ -26,12 +27,16 @@ import java.util.Locale;
  *
  * The native StormFlix catalog remains the shell on phone, tablet, Android TV
  * and Fire TV, but playback itself is delegated to the same Web Playback Engine
- * used by stormflix.cloud. This removes the second Media3/PlaybackPlan stack and
- * keeps Direct Play, Direct Stream, audio selection, quality, subtitles, zoom,
- * resume and HLS recovery identical to the validated Web experience.
+ * used by stormflix.cloud.
+ *
+ * TV remote input is deliberately intercepted before Android System WebView can
+ * deliver D-pad keys to the HTML <video>. Browsers commonly interpret Up/Down
+ * on a focused media element as volume changes. We instead translate physical
+ * keys to semantic StormFlix TV commands, mirroring the architecture used by
+ * mature TV clients such as Jellyfin.
  */
 public final class PlayerActivity extends Activity {
-    private static final String APP_UA = "StormFlixAndroidPlayer/0.6.1";
+    private static final String APP_UA = "StormFlixAndroidPlayer/0.6.2";
 
     private SessionStore store;
     private FrameLayout root;
@@ -39,6 +44,7 @@ public final class PlayerActivity extends Activity {
     private View customView;
     private WebChromeClient.CustomViewCallback customViewCallback;
     private boolean playerInjected;
+    private boolean tvDevice;
     private long mediaId;
 
     @Override
@@ -50,11 +56,13 @@ public final class PlayerActivity extends Activity {
             return;
         }
 
+        tvDevice = RemoteUi.isTelevision(this);
         store = new SessionStore(this);
         configureWindow();
         buildWebView();
         seedNativeSessionCookies();
-        webView.loadUrl(store.baseUrl() + "/?stormflix_native_player=1&media_id=" + mediaId);
+        String tv = tvDevice ? "&stormflix_tv=1" : "";
+        webView.loadUrl(store.baseUrl() + "/?stormflix_native_player=1&media_id=" + mediaId + tv);
     }
 
     private void configureWindow() {
@@ -264,6 +272,111 @@ public final class PlayerActivity extends Activity {
         }
     }
 
+    /**
+     * Translate Android/Fire TV key codes to the same semantic command names
+     * consumed by tv-remote.js. Volume keys are intentionally NOT mapped so the
+     * operating system keeps ownership of hardware volume.
+     */
+    private String remoteCommandForKey(int keyCode) {
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_UP:
+                return "up";
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+                return "down";
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+                return "left";
+            case KeyEvent.KEYCODE_DPAD_RIGHT:
+                return "right";
+            case KeyEvent.KEYCODE_DPAD_CENTER:
+            case KeyEvent.KEYCODE_ENTER:
+            case KeyEvent.KEYCODE_NUMPAD_ENTER:
+            case KeyEvent.KEYCODE_BUTTON_A:
+            case KeyEvent.KEYCODE_BUTTON_SELECT:
+                return "select";
+            case KeyEvent.KEYCODE_BACK:
+            case KeyEvent.KEYCODE_ESCAPE:
+            case KeyEvent.KEYCODE_BUTTON_B:
+                return "back";
+            case KeyEvent.KEYCODE_MENU:
+            case KeyEvent.KEYCODE_SETTINGS:
+            case KeyEvent.KEYCODE_INFO:
+                return "menu";
+            case KeyEvent.KEYCODE_MEDIA_PLAY:
+                return "play";
+            case KeyEvent.KEYCODE_MEDIA_PAUSE:
+                return "pause";
+            case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
+            case KeyEvent.KEYCODE_HEADSETHOOK:
+                return "playpause";
+            case KeyEvent.KEYCODE_MEDIA_REWIND:
+                return "rewind";
+            case KeyEvent.KEYCODE_MEDIA_FAST_FORWARD:
+                return "fastforward";
+            case KeyEvent.KEYCODE_MEDIA_STOP:
+                return "stop";
+            case KeyEvent.KEYCODE_MEDIA_PREVIOUS:
+            case KeyEvent.KEYCODE_CHANNEL_DOWN:
+                return "previoustrack";
+            case KeyEvent.KEYCODE_MEDIA_NEXT:
+            case KeyEvent.KEYCODE_CHANNEL_UP:
+                return "nexttrack";
+            case KeyEvent.KEYCODE_CAPTIONS:
+                return "subtitles";
+            case KeyEvent.KEYCODE_MEDIA_AUDIO_TRACK:
+                return "audio";
+            default:
+                return null;
+        }
+    }
+
+    private boolean repeatableRemoteCommand(String command) {
+        return "left".equals(command)
+            || "right".equals(command)
+            || "up".equals(command)
+            || "down".equals(command)
+            || "rewind".equals(command)
+            || "fastforward".equals(command);
+    }
+
+    private void sendRemoteCommand(String command, boolean repeated) {
+        if (webView == null || command == null) return;
+        String script = "try{if(window.sfTvRemote){window.sfTvRemote.handleNativeKey('"
+            + command + "'," + (repeated ? "true" : "false") + ");}}catch(e){}";
+        webView.evaluateJavascript(script, null);
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (tvDevice && event != null) {
+            int keyCode = event.getKeyCode();
+
+            // HTML fullscreen custom views hide the WebView. Back must first
+            // leave that custom view before normal player navigation resumes.
+            if (customView != null && (keyCode == KeyEvent.KEYCODE_BACK
+                || keyCode == KeyEvent.KEYCODE_ESCAPE
+                || keyCode == KeyEvent.KEYCODE_BUTTON_B)) {
+                if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+                    hideCustomView();
+                }
+                return true;
+            }
+
+            String command = remoteCommandForKey(keyCode);
+            if (command != null) {
+                if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                    boolean repeated = event.getRepeatCount() > 0;
+                    if (!repeated || repeatableRemoteCommand(command)) {
+                        sendRemoteCommand(command, repeated);
+                    }
+                }
+                // Consume BOTH down and up. Letting ACTION_UP fall through can
+                // still trigger WebView/HTMLMediaElement default key behavior.
+                return true;
+            }
+        }
+        return super.dispatchKeyEvent(event);
+    }
+
     private void enterImmersiveMode() {
         getWindow().getDecorView().setSystemUiVisibility(
             View.SYSTEM_UI_FLAG_FULLSCREEN
@@ -327,7 +440,11 @@ public final class PlayerActivity extends Activity {
             return;
         }
         if (webView != null) {
-            webView.evaluateJavascript("try{if(typeof closePlayer==='function'){closePlayer();}else{StormFlixShell.close();}}catch(e){StormFlixShell.close();}", null);
+            if (tvDevice) {
+                sendRemoteCommand("back", false);
+            } else {
+                webView.evaluateJavascript("try{if(typeof closePlayer==='function'){closePlayer();}else{StormFlixShell.close();}}catch(e){StormFlixShell.close();}", null);
+            }
             return;
         }
         super.onBackPressed();
