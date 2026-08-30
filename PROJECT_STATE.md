@@ -2,7 +2,7 @@
 
 > **Authoritative continuation note.** Any coding agent/session continuing StormFlix must read this file and `AGENTS.md` before changing code. Update this document after meaningful changes.
 
-Last architecture update: **2026-08-29**.
+Last architecture update: **2026-08-30**.
 
 ## Deployment
 
@@ -22,9 +22,10 @@ Server HTTP port: **8090**, normally behind HTTPS reverse proxy.
 ## Current versions
 
 - Server: `0.20.0-platform-automation`.
-- Android package: `cloud.stormflix.app`, version **0.4.0**, versionCode 12, minSdk 23, targetSdk 36, Java 17, Media3 1.11.0.
+- Android package: `cloud.stormflix.app`, version **0.4.1**, versionCode 13, minSdk 23, targetSdk 36, Java 17, Media3 1.11.0.
 - Jellyfin compatibility facade advertises numeric compatibility version `10.11.6` to satisfy current official-client version parsing; this does **not** turn StormFlix into Jellyfin or change the native server version.
 - SQLite remains the native catalog database with WAL, `synchronous=NORMAL`, busy timeout, bounded connection pool and targeted indexes.
+- PostgreSQL is the planned scale-out database direction, but **0.4.1 does not switch databases**. The migration must ship separately with a dual-backend compatibility layer, PostgreSQL migrations, SQLite→PostgreSQL data migrator, validation and rollback because existing code contains SQLite-specific SQL and backup semantics.
 
 ## Non-negotiable invariants
 
@@ -48,8 +49,8 @@ StormFlix TV/Fire ───┘        │
                               ├── Profiles / progress
                               ├── Library access
                               ├── Metadata / subtitles
-                              ├── Dynamic HLS session cache (Web)
-                              └── Seekable compatibility MP4 cache (native/manual fallback)
+                              ├── Dynamic HLS session cache (Web/Android/TV/Fire)
+                              └── Seekable compatibility MP4 cache (legacy/manual fallback)
 
 Official Jellyfin clients ──> isolated compatibility facade ──> StormFlix core
 ```
@@ -68,19 +69,29 @@ HLS fragments live under `<DataDir>/hls-cache/<playback-session>/` with a 5 GiB 
 
 Web telemetry reports playback mode, source bitrate, buffer seconds, estimated read Mbps, codecs, cache bytes and errors. Adaptive prefetch changes only speculative headroom: normally one batch, at most three small batches during low-buffer/slow-read conditions. Global SSD budget/free-space reserve always wins. Video is never transcoded by this mechanism.
 
+Since Android 0.4.1, StormFlix Web, Android, Android TV and Fire TV all use this dynamic HLS engine for non-Direct-Play compatibility. This removes the previous Android/TV wait for a complete seekable compatibility MP4 on rclone/Drive sources. Direct Play still bypasses HLS entirely. Unknown legacy clients can still use the complete-MP4 compatibility fallback.
+
 Admin “Reproduzindo agora” returns the enriched playback superset while preserving the original endpoint shape for older Admin consumers.
 
 ### Managed legacy compatibility MP4 cache
 
-`internal/webcompat/materialize.go` + `CacheManager` remain for Android/TV/manual compatibility paths. Defaults: 20 GiB max, 48h TTL, 15m cleanup, LRU target 85%, free-space reserve, active-file protection and short-lived oversize artifacts.
+`internal/webcompat/materialize.go` + `CacheManager` remain for legacy/unknown native and manual compatibility paths. Defaults: 20 GiB max, 48h TTL, 15m cleanup, LRU target 85%, free-space reserve, active-file protection and short-lived oversize artifacts.
 
 ## StormFlix Android / Android TV / Fire TV
 
 The native app is one package with touch + remote/Leanback behavior. Media3 consumes the same PlaybackPlan contract, publishes MediaCodec capabilities, preserves native multi-audio Direct Play where possible, supports source/version selection and ordered progress, and does not silently bypass the planner.
 
-Version **0.4.0** changes Home navigation from hard-coded `Filmes / Séries / Animes` to server-driven root categories from `/api/v1/categories` plus the selected profile's `/api/v1/profiles/home-menus` visibility/order. Custom roots such as **Desenhos** therefore appear automatically on phone, Android TV and Fire TV.
+Version **0.4.1** includes the 0.4.0 server-driven Home navigation and changes from hard-coded `Filmes / Séries / Animes` to server-driven root categories from `/api/v1/categories` plus the selected profile's `/api/v1/profiles/home-menus` visibility/order. Custom roots such as **Desenhos** therefore appear automatically on phone, Android TV and Fire TV.
 
 `CategoryBrowseActivity` is the generic two-level native catalog browser. It loads the root aggregate and resolves each direct child through `/categories/{slug}/smart`, so gallery sections such as **Animes Dublados**, **Animes Legendados**, **Filmes Animes** or custom sections use the same server rules as Web instead of duplicating classification logic in Android.
+
+### Episodic autoplay
+
+Web and native Android/TV/Fire use `/api/v1/media/{id}/neighbors` for previous/next identity. At natural episode completion, a 10-second **A seguir** countdown can start the next episode automatically. The preference is enabled by default and may be disabled independently in the Web Player v4 or the native player menu. Manual previous/next controls remain available.
+
+### Android release channel
+
+`.github/workflows/android.yml` builds the installable APK, publishes the APK plus SHA-256 as an Actions artifact for every validated build and, on successful `main` pushes that change Android, creates a versioned GitHub Release `android-v<version>`. The current automated APK is suitable for direct testing/installation; production store distribution still requires a dedicated persistent release signing key.
 
 ## Official Jellyfin Android / Android TV / Fire TV compatibility
 

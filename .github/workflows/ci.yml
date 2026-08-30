@@ -67,6 +67,7 @@ jobs:
           node --check internal/webui/static/player-v3.js
           node --check internal/webui/static/player-v4.js
           node --check internal/webui/static/player-monitor.js
+          node --check internal/webui/static/autoplay-next.js
           node --check internal/webui/static/continue-watching.js
           node --check internal/webui/static/rail-nav-v2.js
 

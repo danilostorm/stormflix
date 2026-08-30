@@ -1,4 +1,4 @@
-// StormFlix Android 0.4.0 - dynamic Home menus + unified PlaybackPlan / Media3 core
+// StormFlix Android 0.4.1 - autoplay next episode + instant dynamic-HLS compatibility
 plugins {
     id 'com.android.application'
 }
@@ -11,8 +11,8 @@ android {
         applicationId 'cloud.stormflix.app'
         minSdk 23
         targetSdk 36
-        versionCode 12
-        versionName '0.4.0'
+        versionCode 13
+        versionName '0.4.1'
     }
 
     buildTypes {
@@ -30,6 +30,7 @@ android {
 
 dependencies {
     implementation 'androidx.media3:media3-exoplayer:1.11.0'
+    implementation 'androidx.media3:media3-exoplayer-hls:1.11.0'
     implementation 'androidx.media3:media3-ui:1.11.0'
     implementation 'androidx.media3:media3-session:1.11.0'
 }

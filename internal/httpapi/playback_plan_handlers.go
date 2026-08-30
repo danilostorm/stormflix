@@ -83,7 +83,7 @@ func (s *server) playbackPlan(w http.ResponseWriter, r *http.Request) {
 			plan.PlaybackSessionID = newPlaybackSessionID()
 		}
 
-		if strings.EqualFold(strings.TrimSpace(in.ClientKind), "web") {
+		if clientUsesDynamicHLS(in.ClientKind) {
 			if plan.Mode == playback.ModeDirectPlay {
 				// A source/version switch can keep the same logical playback session.
 				// If the previous source used HLS, Direct Play must discard those
@@ -91,6 +91,11 @@ func (s *server) playbackPlan(w http.ResponseWriter, r *http.Request) {
 				s.hlsCache.CloseSession(u.ID, plan.PlaybackSessionID)
 				plan.URL, plan.PrepareURL = playbackExecutionURLs(id, plan)
 			} else {
+				// Web, Android, Android TV and Fire TV all support HLS. Compatibility
+				// playback therefore starts from small fMP4 batches instead of waiting
+				// for a complete seekable MP4 to be materialized from a remote rclone
+				// source. Video is always stream-copy; only incompatible audio becomes
+				// AAC, preserving the Direct Play first/no-video-transcode invariant.
 				hlsAudioTranscode := webcompat.NeedsHLSAAC(plan.AudioCodec, plan.AudioTranscode)
 				spec := webcompat.HLSSpec{
 					VideoStream:       plan.VideoStream,
@@ -120,10 +125,21 @@ func (s *server) playbackPlan(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		} else {
+			// Keep the legacy complete-MP4 compatibility path for unknown native
+			// clients until they explicitly advertise/identify a supported path.
 			plan.URL, plan.PrepareURL = playbackExecutionURLs(id, plan)
 		}
 	}
 	writeJSON(w, http.StatusOK, plan)
+}
+
+func clientUsesDynamicHLS(kind string) bool {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "web", "android", "tv", "android_tv", "firetv", "fire_tv":
+		return true
+	default:
+		return false
+	}
 }
 
 func playbackExecutionURLs(id int64, plan playback.Plan) (string, string) {
