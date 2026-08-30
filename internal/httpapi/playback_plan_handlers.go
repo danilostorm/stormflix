@@ -170,10 +170,16 @@ func (s *server) playbackPlan(w http.ResponseWriter, r *http.Request) {
 		}
 		plan.URL = fmt.Sprintf("/api/v1/media/%d/hls/%s/index.m3u8", id, plan.PlaybackSessionID)
 		plan.PrepareURL = ""
-		// Dynamic HLS remains the preferred Direct Stream transport because it
-		// can begin from rclone/Drive without materializing the whole movie.
-		// The seekable MP4 route is exposed only as a fallback for browsers that
-		// cannot start the fMP4 HLS stream reliably. Both routes keep video copy.
+		// Web v5.2 begins warming the first tiny HLS batch before the JSON plan
+		// reaches the browser. This overlaps remote I/O with client setup and is
+		// intentionally limited to Web while the browser experience is polished.
+		clientKind := strings.ToLower(strings.TrimSpace(in.ClientKind))
+		if clientKind == "web" || clientKind == "desktop" {
+			s.hlsCache.PrimeSession(u.ID, id, plan.PlaybackSessionID)
+		}
+		// Keep the seekable MP4 route available for diagnostics/legacy recovery,
+		// but the Web player no longer waits for whole-file materialization during
+		// normal startup.
 		plan.FallbackURL, plan.FallbackPrepareURL = playbackExecutionURLs(id, plan)
 	}
 	writeJSON(w, http.StatusOK, plan)
