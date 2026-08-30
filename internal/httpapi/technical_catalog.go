@@ -15,21 +15,21 @@ import (
 )
 
 type technicalSnapshot struct {
-	MediaID           int64           `json:"media_id"`
-	VideoCodec        string          `json:"video_codec"`
-	Width             int             `json:"width"`
-	Height            int             `json:"height"`
-	HDR               string          `json:"hdr"`
-	BitrateKbps       int64           `json:"bitrate_kbps"`
-	DurationSeconds   float64         `json:"duration_seconds"`
-	AudioLanguages    []string        `json:"audio_languages"`
-	SubtitleLanguages []string        `json:"subtitle_languages"`
-	AudioPTBR         bool            `json:"audio_pt_br"`
-	SubtitlePTBR      bool            `json:"subtitle_pt_br"`
-	DubStatus         string          `json:"dub_status"`
-	Status            string          `json:"status"`
-	LastError         string          `json:"last_error,omitempty"`
-	Source            playback.Source `json:"source"`
+	MediaID           int64            `json:"media_id"`
+	VideoCodec        string           `json:"video_codec"`
+	Width             int              `json:"width"`
+	Height            int              `json:"height"`
+	HDR               string           `json:"hdr"`
+	BitrateKbps       int64            `json:"bitrate_kbps"`
+	DurationSeconds   float64          `json:"duration_seconds"`
+	AudioLanguages    []string         `json:"audio_languages"`
+	SubtitleLanguages []string         `json:"subtitle_languages"`
+	AudioPTBR         bool             `json:"audio_pt_br"`
+	SubtitlePTBR      bool             `json:"subtitle_pt_br"`
+	DubStatus         string           `json:"dub_status"`
+	Status            string           `json:"status"`
+	LastError         string           `json:"last_error,omitempty"`
+	Source            playback.Source  `json:"source"`
 }
 
 var technicalIndexerKick = make(chan struct{}, 1)
@@ -104,10 +104,13 @@ func (s *server) probeMediaSource(ctx context.Context, mediaID int64, path strin
 			return source, nil
 		}
 	}
-	return s.probeAndStoreTechnical(ctx, mediaID, path, modifiedUnix, false)
+	// The technical cache is an optimization, not a playback prerequisite. A
+	// successful probe must remain usable even if its auxiliary cache write is
+	// temporarily blocked by SQLite contention; the indexer can persist it later.
+	return s.probeAndStoreTechnical(ctx, mediaID, path, modifiedUnix, true)
 }
 
-func (s *server) probeAndStoreTechnical(ctx context.Context, mediaID int64, path string, modifiedUnix int64, background bool) (playback.Source, error) {
+func (s *server) probeAndStoreTechnical(ctx context.Context, mediaID int64, path string, modifiedUnix int64, bestEffortStore bool) (playback.Source, error) {
 	source, err := playback.Probe(ctx, path)
 	if err != nil {
 		_, _ = s.db.ExecContext(context.Background(), `
@@ -129,7 +132,7 @@ ON CONFLICT(media_id) DO UPDATE SET
  audio_pt_br=excluded.audio_pt_br,subtitle_pt_br=excluded.subtitle_pt_br,dub_status=excluded.dub_status,status='ok',last_error='',probed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP`,
 		mediaID, modifiedUnix, string(raw), snapshot.VideoCodec, snapshot.Width, snapshot.Height, snapshot.HDR, snapshot.BitrateKbps, snapshot.DurationSeconds,
 		string(audioJSON), string(subtitleJSON), snapshot.AudioPTBR, snapshot.SubtitlePTBR, snapshot.DubStatus)
-	if saveErr != nil && !background {
+	if saveErr != nil && !bestEffortStore {
 		return playback.Source{}, saveErr
 	}
 	return source, nil
