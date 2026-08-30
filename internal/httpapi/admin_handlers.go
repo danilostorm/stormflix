@@ -174,15 +174,10 @@ func (s *server) storage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, v)
 }
 func (s *server) playbacks(w http.ResponseWriter, r *http.Request) {
-	v, err := s.admin.Playbacks(r.Context())
-	if err != nil {
-		writeError(w, 500, err)
-		return
-	}
-	if v == nil {
-		v = []admin.Playback{}
-	}
-	writeJSON(w, 200, v)
+	// Keep the historical endpoint stable while returning the enriched superset
+	// used by the new diagnostics workspace. Existing Admin clients only read
+	// the original fields and therefore remain compatible.
+	s.playbackDiagnostics(w, r)
 }
 func (s *server) serverInfo(w http.ResponseWriter, r *http.Request) {
 	var m runtime.MemStats

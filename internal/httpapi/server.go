@@ -22,7 +22,7 @@ import (
 )
 
 const sessionCookie = "stormflix_session"
-const version = "0.19.0-dynamic-hls"
+const version = "0.20.0-platform-automation"
 
 type contextKey string
 
@@ -79,6 +79,7 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	s.auth.Cleanup(context.Background())
 	s.compatCache.Start(context.Background())
 	s.hlsCache.Start(context.Background())
+	s.startTechnicalIndexer(context.Background())
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
@@ -90,6 +91,7 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("GET /api/v1/auth/me", s.requireAuth(s.me))
 
 	mux.HandleFunc("GET /api/v1/profiles", s.requireAuth(s.listProfiles))
+	mux.HandleFunc("GET /api/v1/profiles/home-menus", s.requireAuth(s.selectedProfileHomeMenus))
 	mux.HandleFunc("GET /api/v1/profiles/continue", s.requireAuth(s.continueWatching))
 	mux.HandleFunc("GET /api/v1/profiles/history", s.requireAuth(s.profileHistory))
 	mux.HandleFunc("GET /api/v1/profiles/stats", s.requireAuth(s.profileStats))
@@ -102,13 +104,14 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 
 	mux.HandleFunc("GET /api/v1/libraries", s.requireAuth(s.listLibraries))
 	mux.HandleFunc("POST /api/v1/libraries", s.requireRole("manager", s.createLibrary))
-	mux.HandleFunc("PUT /api/v1/libraries/{id}", s.requireRole("manager", s.updateLibrary))
+	mux.HandleFunc("PUT /api/v1/libraries/{id}", s.requireRole("manager", s.updateLibraryWithBackup))
 	mux.HandleFunc("DELETE /api/v1/libraries/{id}", s.requireRole("manager", s.deleteLibrary))
-	mux.HandleFunc("POST /api/v1/libraries/{id}/scan", s.requireRole("operator", s.scanLibrary))
+	mux.HandleFunc("POST /api/v1/libraries/{id}/scan", s.requireRole("operator", s.scanLibraryWithBackup))
 	mux.HandleFunc("POST /api/v1/libraries/{id}/scan/cancel", s.requireRole("operator", s.cancelLibraryScan))
 
 	mux.HandleFunc("GET /api/v1/categories", s.requireAuth(s.listCategories))
 	mux.HandleFunc("GET /api/v1/categories/{slug}", s.requireAuth(s.browseCategory))
+	mux.HandleFunc("GET /api/v1/categories/{slug}/smart", s.requireAuth(s.browseSmartCategory))
 	mux.HandleFunc("GET /api/v1/home", s.requireAuth(s.homeFeed))
 	mux.HandleFunc("GET /api/v1/people", s.requireAuth(s.personTitles))
 	mux.HandleFunc("GET /api/v1/series", s.requireAuth(s.listSeries))
@@ -127,6 +130,7 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("POST /api/v1/media/{id}/playback/plan", s.requireAuth(s.playbackPlan))
 	mux.HandleFunc("POST /api/v1/media/{id}/playback", s.requireAuth(s.playbackHeartbeat))
 	mux.HandleFunc("POST /api/v1/media/{id}/playback/event", s.requireAuth(s.playbackEvent))
+	mux.HandleFunc("POST /api/v1/media/{id}/playback/telemetry", s.requireAuth(s.playbackTelemetry))
 	mux.HandleFunc("DELETE /api/v1/media/{id}/playback", s.requireAuth(s.playbackStop))
 
 	mux.HandleFunc("GET /api/v1/music/home", s.requireAuth(s.musicHome))
@@ -151,18 +155,31 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("POST /api/v1/admin/users/{id}/profiles", s.requireRole("admin", s.adminCreateProfile))
 	mux.HandleFunc("PUT /api/v1/admin/profiles/{id}", s.requireRole("admin", s.adminUpdateProfile))
 	mux.HandleFunc("DELETE /api/v1/admin/profiles/{id}", s.requireRole("admin", s.adminDeleteProfile))
+	mux.HandleFunc("GET /api/v1/admin/profile-home", s.requireRole("admin", s.adminProfileHomeOverview))
+	mux.HandleFunc("PUT /api/v1/admin/profiles/{id}/home-menus", s.requireRole("admin", s.updateProfileHomeMenus))
 	mux.HandleFunc("GET /api/v1/admin/catalog", s.requireRole("operator", s.adminCatalog))
 	mux.HandleFunc("GET /api/v1/admin/catalog/works", s.requireRole("operator", s.adminCatalogWorks))
+	mux.HandleFunc("GET /api/v1/admin/catalog/health", s.requireRole("operator", s.catalogHealth))
+	mux.HandleFunc("GET /api/v1/admin/catalog/health/items", s.requireRole("operator", s.catalogHealthItems))
+	mux.HandleFunc("GET /api/v1/admin/catalog/duplicates", s.requireRole("operator", s.catalogDuplicates))
+	mux.HandleFunc("GET /api/v1/admin/catalog/technical/status", s.requireRole("operator", s.technicalCatalogStatus))
+	mux.HandleFunc("POST /api/v1/admin/catalog/technical/scan", s.requireRole("operator", s.restartTechnicalCatalog))
+	mux.HandleFunc("GET /api/v1/admin/catalog/history", s.requireRole("operator", s.catalogHistory))
 	mux.HandleFunc("GET /api/v1/admin/catalog/{id}/matches", s.requireRole("manager", s.adminCatalogMatches))
 	mux.HandleFunc("POST /api/v1/admin/catalog/{id}/match", s.requireRole("manager", s.adminCatalogMatch))
 	mux.HandleFunc("POST /api/v1/admin/catalog/{id}/auto", s.requireRole("manager", s.adminCatalogAuto))
 	mux.HandleFunc("GET /api/v1/admin/categories", s.requireRole("manager", s.adminCategories))
+	mux.HandleFunc("GET /api/v1/admin/category-rules", s.requireRole("manager", s.adminCategoryRules))
 	mux.HandleFunc("POST /api/v1/admin/categories", s.requireRole("manager", s.createCategory))
-	mux.HandleFunc("POST /api/v1/admin/categories/organize", s.requireRole("manager", s.organizeRecommendedCategories))
+	mux.HandleFunc("POST /api/v1/admin/categories/organize", s.requireRole("manager", s.organizeRecommendedCategoriesWithBackup))
+	mux.HandleFunc("POST /api/v1/admin/categories/preview", s.requireRole("manager", s.previewSmartCategory))
+	mux.HandleFunc("PUT /api/v1/admin/categories/order", s.requireRole("manager", s.reorderCategories))
 	mux.HandleFunc("PUT /api/v1/admin/categories/{id}", s.requireRole("manager", s.updateCategory))
+	mux.HandleFunc("PUT /api/v1/admin/categories/{id}/rules", s.requireRole("manager", s.updateCategoryRules))
 	mux.HandleFunc("DELETE /api/v1/admin/categories/{id}", s.requireRole("manager", s.deleteCategory))
 	mux.HandleFunc("GET /api/v1/admin/jobs", s.requireRole("operator", s.adminJobs))
-	mux.HandleFunc("POST /api/v1/admin/libraries/scan-all", s.requireRole("operator", s.scanAllLibraries))
+	mux.HandleFunc("POST /api/v1/admin/libraries/scan-all", s.requireRole("operator", s.scanAllLibrariesWithBackup))
+	mux.HandleFunc("POST /api/v1/admin/libraries/{id}/scan-preview", s.requireRole("operator", s.previewLibraryScan))
 	mux.HandleFunc("POST /api/v1/admin/libraries/{id}/consolidate", s.requireRole("manager", s.consolidateLibraryCopies))
 	mux.HandleFunc("POST /api/v1/admin/music/index", s.requireRole("operator", s.adminMusicIndex))
 	mux.HandleFunc("GET /api/v1/admin/cleanup", s.requireRole("admin", s.cleanupStatus))
@@ -172,6 +189,7 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("GET /api/v1/admin/logs", s.requireRole("operator", s.logs))
 	mux.HandleFunc("GET /api/v1/admin/storage", s.requireRole("operator", s.storage))
 	mux.HandleFunc("GET /api/v1/admin/playbacks", s.requireRole("operator", s.playbacks))
+	mux.HandleFunc("GET /api/v1/admin/playbacks/diagnostics", s.requireRole("operator", s.playbackDiagnostics))
 	mux.HandleFunc("GET /api/v1/admin/playback/cache", s.requireRole("admin", s.compatCacheStatus))
 	mux.HandleFunc("POST /api/v1/admin/playback/cache/cleanup", s.requireRole("admin", s.cleanupCompatCache))
 	mux.HandleFunc("GET /api/v1/admin/monitoring", s.requireRole("operator", s.monitoringOverview))
@@ -191,6 +209,9 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("POST /api/v1/admin/media/{id}/artwork/{artwork_id}/select", s.requireRole("manager", s.selectMediaArtwork))
 	mux.HandleFunc("GET /api/v1/admin/subtitles/jobs", s.requireRole("operator", s.subtitleJobs))
 	mux.HandleFunc("POST /api/v1/admin/libraries/{id}/subtitles", s.requireRole("operator", s.startSubtitleJob))
+	mux.HandleFunc("GET /api/v1/admin/backups", s.requireRole("admin", s.listBackups))
+	mux.HandleFunc("POST /api/v1/admin/backups", s.requireRole("admin", s.manualBackup))
+	mux.HandleFunc("POST /api/v1/admin/backups/{id}/restore", s.requireRole("admin", s.scheduleBackupRestore))
 
 	mux.HandleFunc("GET /assets/", s.requireAuth(s.serveAsset))
 	staticFS, err := fs.Sub(webui.Static, "static")

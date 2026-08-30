@@ -94,10 +94,11 @@ func (s *server) organizeRecommendedCategories(w http.ResponseWriter, r *http.Re
 	}
 
 	type spec struct {
-		parent           int64
-		name, slug, kind string
-		sort             int
-		match            func(categoryLibraryCandidate) bool
+		parent              int64
+		name, slug, kind    string
+		sort                int
+		ruleMode, rulesJSON string
+		match               func(categoryLibraryCandidate) bool
 	}
 	lowerName := func(v categoryLibraryCandidate) string { return strings.ToLower(strings.TrimSpace(v.Name)) }
 	containsAny := func(value string, terms ...string) bool {
@@ -113,18 +114,24 @@ func (s *server) organizeRecommendedCategories(w http.ResponseWriter, r *http.Re
 	is4K := func(l categoryLibraryCandidate) bool { return containsAny(lowerName(l), "4k", "uhd", "2160") }
 	isAnimationMovie := func(l categoryLibraryCandidate) bool { return containsAny(lowerName(l), "anima", "desenho", "cartoon") }
 	isDubbedAnime := func(l categoryLibraryCandidate) bool { return containsAny(lowerName(l), "dubl") }
+	libMode, emptyRules := "libraries", "{}"
 
+	// Smart recommended shelves deliberately inherit the parent Home scope.
+	// The parent already defines whether content belongs to Filmes/Animes, so a
+	// technical rule must not accidentally hide valid mixed-library works just
+	// because an external provider labeled the representative item differently.
 	specs := []spec{
-		{movieRoot, "4K / UHD", "filmes-4k", "movie", 10, func(l categoryLibraryCandidate) bool { return isMovieLib(l) && is4K(l) }},
-		{movieRoot, "Animação", "filmes-animacao", "movie", 20, func(l categoryLibraryCandidate) bool { return isMovieLib(l) && !is4K(l) && isAnimationMovie(l) }},
-		{movieRoot, "Outros filmes", "filmes-outros", "movie", 90, func(l categoryLibraryCandidate) bool { return isMovieLib(l) && !is4K(l) && !isAnimationMovie(l) && !strings.Contains(lowerName(l), "anime") }},
-		{seriesRoot, "Séries de TV", "series-tv", "series", 10, func(l categoryLibraryCandidate) bool { return l.Kind == "series" }},
-		{animeRoot, "Dublados", "animes-dublados", "anime", 10, func(l categoryLibraryCandidate) bool { return isAnimeLib(l) && isDubbedAnime(l) }},
-		{animeRoot, "Séries", "animes-series", "anime", 20, func(l categoryLibraryCandidate) bool { return l.Kind == "anime_series" && !isDubbedAnime(l) }},
-		{animeRoot, "Filmes", "animes-filmes", "anime", 30, func(l categoryLibraryCandidate) bool { return (l.Kind == "anime" || l.Kind == "mixed") && !isDubbedAnime(l) }},
+		{movieRoot, "4K / UHD", "filmes-4k", "movie", 10, "rules", `{"min_height":2000}`, func(l categoryLibraryCandidate) bool { return isMovieLib(l) && is4K(l) }},
+		{movieRoot, "Animação", "filmes-animacao", "movie", 20, libMode, emptyRules, func(l categoryLibraryCandidate) bool { return isMovieLib(l) && !is4K(l) && isAnimationMovie(l) }},
+		{movieRoot, "Outros filmes", "filmes-outros", "movie", 90, libMode, emptyRules, func(l categoryLibraryCandidate) bool { return isMovieLib(l) && !is4K(l) && !isAnimationMovie(l) && !strings.Contains(lowerName(l), "anime") }},
+		{seriesRoot, "Séries de TV", "series-tv", "series", 10, libMode, emptyRules, func(l categoryLibraryCandidate) bool { return l.Kind == "series" }},
+		{animeRoot, "Dublados", "animes-dublados", "anime", 10, "rules", `{"dub_status":"dublado","audio_pt_br":true}`, func(l categoryLibraryCandidate) bool { return isAnimeLib(l) && isDubbedAnime(l) }},
+		{animeRoot, "Legendados", "animes-legendados", "anime", 20, "rules", `{"dub_status":"legendado","subtitle_pt_br":true}`, func(l categoryLibraryCandidate) bool { return false }},
+		{animeRoot, "Séries", "animes-series", "anime", 30, libMode, emptyRules, func(l categoryLibraryCandidate) bool { return l.Kind == "anime_series" && !isDubbedAnime(l) }},
+		{animeRoot, "Filmes", "animes-filmes", "anime", 40, libMode, emptyRules, func(l categoryLibraryCandidate) bool { return (l.Kind == "anime" || l.Kind == "mixed") && !isDubbedAnime(l) }},
 	}
 	if drawingsRoot > 0 {
-		specs = append(specs, spec{drawingsRoot, "Todos os desenhos", "series-desenhos", "series", 10, func(l categoryLibraryCandidate) bool { return l.Kind == "animation_series" }})
+		specs = append(specs, spec{drawingsRoot, "Todos os desenhos", "series-desenhos", "series", 10, libMode, emptyRules, func(l categoryLibraryCandidate) bool { return l.Kind == "animation_series" }})
 	}
 
 	// This was an older recommended section under Séries. Anime-season content
@@ -136,7 +143,7 @@ func (s *server) organizeRecommendedCategories(w http.ResponseWriter, r *http.Re
 		var categoryID int64
 		err := tx.QueryRowContext(r.Context(), `SELECT id FROM library_categories WHERE slug=?`, sp.slug).Scan(&categoryID)
 		if errors.Is(err, sql.ErrNoRows) {
-			res, insertErr := tx.ExecContext(r.Context(), `INSERT INTO library_categories(name,slug,kind,parent_id,sort_order,active,system) VALUES(?,?,?,?,?,1,0)`, sp.name, sp.slug, sp.kind, sp.parent, sp.sort)
+			res, insertErr := tx.ExecContext(r.Context(), `INSERT INTO library_categories(name,slug,kind,parent_id,sort_order,active,system,rule_mode,rules_json) VALUES(?,?,?,?,?,1,0,?,?)`, sp.name, sp.slug, sp.kind, sp.parent, sp.sort, sp.ruleMode, sp.rulesJSON)
 			if insertErr != nil {
 				writeError(w, http.StatusBadRequest, insertErr)
 				return
@@ -147,7 +154,7 @@ func (s *server) organizeRecommendedCategories(w http.ResponseWriter, r *http.Re
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		} else {
-			_, _ = tx.ExecContext(r.Context(), `UPDATE library_categories SET name=?,kind=?,parent_id=?,sort_order=?,active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?`, sp.name, sp.kind, sp.parent, sp.sort, categoryID)
+			_, _ = tx.ExecContext(r.Context(), `UPDATE library_categories SET name=?,kind=?,parent_id=?,sort_order=?,active=1,rule_mode=?,rules_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, sp.name, sp.kind, sp.parent, sp.sort, sp.ruleMode, sp.rulesJSON, categoryID)
 		}
 		if _, err := tx.ExecContext(r.Context(), `DELETE FROM library_category_libraries WHERE category_id=?`, categoryID); err != nil {
 			writeError(w, http.StatusInternalServerError, err)

@@ -13,6 +13,9 @@ func Open(path string) (*sql.DB, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("create data directory: %w", err)
 	}
+	if err := applyPendingRestore(path); err != nil {
+		return nil, fmt.Errorf("apply staged database restore: %w", err)
+	}
 
 	db, err := sql.Open("sqlite", path)
 	if err != nil {

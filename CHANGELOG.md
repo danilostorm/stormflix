@@ -4,6 +4,28 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 
 ## 2026-08-29
 
+### Platform automation and catalog intelligence
+
+- Added **smart Home sections** that can select titles by library scope and/or persistent rules: genre, media type, year range, minimum rating, recent additions, minimum/maximum resolution, HDR/SDR, Brazilian-Portuguese audio, Brazilian-Portuguese subtitles, dub/sub status and metadata readiness.
+- Admin → **Menus da Home** now supports drag-and-drop ordering for root menus and child rails, live rule previews before saving and clear smart-section summaries.
+- The recommended organizer now creates technically driven **Filmes 4K / UHD**, **Animes Dublados** and **Animes Legendados** rails instead of relying only on folder/library names. Technical rules are evaluated from real stream metadata.
+- Added a background technical catalog index (`media_technical`). It runs **one ffprobe at a time** to protect Google Drive/rclone/FUSE mounts, caches results by source `modified_unix`, detects codec/resolution/HDR/audio/subtitle languages, retries transient failures after a cooldown and can be explicitly requeued from Admin.
+- Added Admin → **Saúde & Automação** with actionable counts for missing metadata/covers/genres, `Outros`, unavailable media, technical-analysis backlog and duplicate physical versions.
+- Duplicate detection now follows logical media identity including **season and episode numbers**, so two physical copies of S01E01 are versions while S01E01 and S01E02 can never be collapsed as duplicates.
+- Physical versions now expose cached resolution, HDR, video codec, dub/sub status and audio/subtitle languages while the existing logical-card + source-selector model remains authoritative.
+- Added **scan simulation**. It traverses the same enabled roots as the real multi-source scanner and reports new/changed/missing/unchanged files without mutating catalog availability or inserting media rows. Offline roots are treated conservatively exactly like a real scan.
+- Added persistent **catalog change history** for protected scan, path, category, profile-Home and backup operations.
+- Added automatic SQLite safety backups before catalog-changing scan/path/category operations. Automatic backups are reusable for 30 minutes and retain the newest 10; missing backup files cannot satisfy the safety gate.
+- Added manual backup/list/restore controls. Restore is staged as `<db>.restore`, fsynced, verified with SQLite `quick_check` at next startup and activated before opening the primary connection. The previous database plus any WAL/SHM sidecars are preserved as a pre-restore safety copy, and a failed activation rolls the original files back into place.
+- Added per-profile Home menu visibility/order through `profile_home_menus`; public navigation applies the selected profile preferences without bypassing profile/kids/library access filtering.
+- Added large-catalog Web rendering in bounded chunks (28 cards per rail), IntersectionObserver loading, lazy image decode/fetch priority and one-day private browser caching for authenticated local artwork. External `AssetPublicBaseURL` remains the CDN path.
+- Added Web playback telemetry for current buffer depth, estimated read throughput, source bitrate, codec, playback mode and HLS cache usage. Admin “Reproduzindo agora” receives the enriched superset without breaking older consumers.
+- Dynamic HLS prefetch is now adaptive: normal operation stays one batch ahead and low buffer/slow reads may raise speculative headroom to at most three small batches. The existing **single global HLS SSD budget and free-space reserve remain hard limits**, and video remains stream-copy only.
+- Added schema **Phase 13** for smart rules, technical media cache, catalog audit history, profile Home preferences, backup registry and playback diagnostics.
+- Added regression tests for smart rule normalization, pt-BR dub/sub classification, episode-safe duplicate detection, read-only scan preview, adaptive HLS bounds, Phase 13 migration and validated staged database restore.
+- CI now syntax-checks the automation/large-catalog scripts in addition to existing Web/Admin scripts, runs the full Go suite, playback/webcompat race tests and the server build.
+- Server version advanced to **0.20.0-platform-automation**.
+
 ### Home menus and gallery sections
 
 - Reformulated the old category-tree presentation into a clearer two-level Home model: **root categories are Home menu buttons** and their direct children are **gallery sections**.

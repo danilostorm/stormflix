@@ -53,5 +53,5 @@ CREATE INDEX IF NOT EXISTS idx_scan_jobs_library_status ON scan_jobs(library_id,
 	if _, err := db.Exec(`UPDATE metadata_jobs SET status='queued',started_at=NULL,finished_at=NULL,message=CASE WHEN job_type='series_refresh' THEN 'retomando atualização da obra principal após reinício' ELSE 'retomando job após reinício' END,updated_at=CURRENT_TIMESTAMP WHERE status='running'`); err != nil {
 		return fmt.Errorf("recover metadata queue: %w", err)
 	}
-	return nil
+	return migratePhase13(db)
 }

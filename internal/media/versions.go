@@ -3,6 +3,7 @@ package media
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -10,17 +11,24 @@ import (
 )
 
 type Version struct {
-	ID          int64  `json:"id"`
-	Label       string `json:"label"`
-	Extension   string `json:"extension"`
-	SizeBytes   int64  `json:"size_bytes"`
-	LibraryID   int64  `json:"library_id"`
-	LibraryName string `json:"library_name"`
-	SourceID    int64  `json:"source_id,omitempty"`
-	SourceIndex int    `json:"source_index,omitempty"`
-	SourceLabel string `json:"source_label,omitempty"`
-	SourceName  string `json:"source_name,omitempty"`
-	ServerLabel string `json:"server_label,omitempty"`
+	ID                int64    `json:"id"`
+	Label             string   `json:"label"`
+	Extension         string   `json:"extension"`
+	SizeBytes         int64    `json:"size_bytes"`
+	LibraryID         int64    `json:"library_id"`
+	LibraryName       string   `json:"library_name"`
+	SourceID          int64    `json:"source_id,omitempty"`
+	SourceIndex       int      `json:"source_index,omitempty"`
+	SourceLabel       string   `json:"source_label,omitempty"`
+	SourceName        string   `json:"source_name,omitempty"`
+	ServerLabel       string   `json:"server_label,omitempty"`
+	Width             int      `json:"width,omitempty"`
+	Height            int      `json:"height,omitempty"`
+	HDR               string   `json:"hdr,omitempty"`
+	VideoCodec        string   `json:"video_codec,omitempty"`
+	DubStatus         string   `json:"dub_status,omitempty"`
+	AudioLanguages    []string `json:"audio_languages,omitempty"`
+	SubtitleLanguages []string `json:"subtitle_languages,omitempty"`
 }
 
 func (s *Service) Versions(ctx context.Context, mediaID int64, allowedLibraryIDs []int64) ([]Version, error) {
@@ -40,8 +48,9 @@ FROM media m LEFT JOIN media_metadata mm ON mm.media_id=m.id WHERE m.id=? AND m.
 		return nil, sql.ErrNoRows
 	}
 
-	rows, err := s.db.QueryContext(ctx, `SELECT m.id,m.library_id,l.name,m.path,m.extension,m.size_bytes
-FROM media m JOIN libraries l ON l.id=m.library_id LEFT JOIN media_metadata mm ON mm.media_id=m.id
+	rows, err := s.db.QueryContext(ctx, `SELECT m.id,m.library_id,l.name,m.path,m.extension,m.size_bytes,
+COALESCE(mt.width,0),COALESCE(mt.height,0),COALESCE(mt.hdr,''),COALESCE(mt.video_codec,''),COALESCE(mt.dub_status,''),COALESCE(mt.audio_json,'[]'),COALESCE(mt.subtitle_json,'[]')
+FROM media m JOIN libraries l ON l.id=m.library_id LEFT JOIN media_metadata mm ON mm.media_id=m.id LEFT JOIN media_technical mt ON mt.media_id=m.id
 WHERE m.available=1 AND (
   (? > 0 AND COALESCE(mm.tmdb_id,0)=? AND COALESCE(mm.media_type,'')=? AND COALESCE(mm.season_number,0)=? AND COALESCE(mm.episode_number,0)=?)
   OR
@@ -55,14 +64,16 @@ ORDER BY m.id`, tmdbID, tmdbID, mediaType, seasonNumber, episodeNumber, tmdbID, 
 	out := []Version{}
 	for rows.Next() {
 		var v Version
-		var path string
-		if err := rows.Scan(&v.ID, &v.LibraryID, &v.LibraryName, &path, &v.Extension, &v.SizeBytes); err != nil {
+		var path, audioJSON, subtitleJSON string
+		if err := rows.Scan(&v.ID, &v.LibraryID, &v.LibraryName, &path, &v.Extension, &v.SizeBytes, &v.Width, &v.Height, &v.HDR, &v.VideoCodec, &v.DubStatus, &audioJSON, &subtitleJSON); err != nil {
 			return nil, err
 		}
 		if allowedLibraryIDs != nil && !ContainsLibrary(allowedLibraryIDs, v.LibraryID) {
 			continue
 		}
-		v.Label = qualityFromPath(path)
+		_ = json.Unmarshal([]byte(audioJSON), &v.AudioLanguages)
+		_ = json.Unmarshal([]byte(subtitleJSON), &v.SubtitleLanguages)
+		v.Label = qualityFromTechnical(v.Height, path)
 		v.SourceID, v.SourceIndex, v.SourceLabel, v.SourceName = s.sourceForPath(ctx, v.LibraryID, path)
 		if v.SourceIndex <= 0 {
 			v.SourceIndex = 1
@@ -139,6 +150,25 @@ func pathInside(path, root string) bool {
 		return false
 	}
 	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
+func qualityFromTechnical(height int, path string) string {
+	switch {
+	case height >= 4000:
+		return "8K"
+	case height >= 2000:
+		return "4K"
+	case height >= 1300:
+		return "1440p"
+	case height >= 900:
+		return "1080p"
+	case height >= 650:
+		return "720p"
+	case height > 0:
+		return "480p"
+	default:
+		return qualityFromPath(path)
+	}
 }
 
 func qualityFromPath(path string) string {
