@@ -118,6 +118,9 @@ func videoCompatibilityIssue(source Source, video Stream, request Request) (stri
 			return "video_hdr_unsupported", "the source HDR format is not supported by this client's advertised decode profile"
 		}
 	}
+	if qh := qualityHeight(request.Quality); qh > 0 && video.Height > qh {
+		return "quality_limit", "the selected playback quality is lower than the source resolution"
+	}
 	if request.Capabilities.DirectPlayMaxBitrateKbps > 0 && source.BitrateKbps > request.Capabilities.DirectPlayMaxBitrateKbps {
 		return "direct_play_bitrate_limit", "source bitrate exceeds the client's explicit Direct Play limit"
 	}
