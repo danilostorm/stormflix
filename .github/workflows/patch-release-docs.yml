@@ -1,0 +1,63 @@
+name: Patch release documentation
+
+on:
+  push:
+    branches: [android-0.4.1-autoplay-streaming]
+
+permissions:
+  contents: write
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: android-0.4.1-autoplay-streaming
+      - name: Update authoritative docs
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          changelog=Path('CHANGELOG.md')
+          text=changelog.read_text()
+          marker='### Android 0.4.1 autoplay, instant compatibility streaming and Releases'
+          if marker not in text:
+              intro='# StormFlix Changelog\n\nThis file records user-visible and architectural changes. `PROJECT_STATE.md` is the authoritative current-state handoff.\n\n'
+              section='''## 2026-08-30\n\n### Android 0.4.1 autoplay, instant compatibility streaming and Releases\n\n- Added streaming-style **next episode autoplay** to Web, Android, Android TV and Fire TV. Episodic playback uses the existing `/media/{id}/neighbors` identity and presents a 10-second “A seguir” countdown before starting the next episode.\n- Autoplay is enabled by default but remains user-controllable. Web stores the preference locally and exposes it in Player v4 settings; Android/TV/Fire stores the setting in app preferences and exposes it in the native player menu.\n- Bumped native Android to **0.4.1 / versionCode 13** and added the Media3 HLS module.\n- Removed the long Android/TV compatibility startup caused by complete seekable-MP4 materialization. StormFlix Android, Android TV and Fire TV now use the same **dynamic fMP4 HLS** compatibility engine as Web: small on-demand batches, bounded prefetch, video stream-copy and AAC conversion only for an incompatible selected audio track.\n- Direct Play remains first and unchanged: compatible mounted/rclone media still streams directly with HTTP Range and creates no HLS compatibility cache.\n- Unknown/legacy native clients retain the old seekable-MP4 compatibility fallback until they explicitly use a supported streaming path.\n- Android builds now publish versioned APK + SHA-256 files to **GitHub Releases** after a successful push/build on `main`; Actions artifacts remain available for CI diagnostics.\n- Added server regression coverage for Web/Android/TV/Fire dynamic-HLS selection and CI syntax coverage for the Web autoplay controller.\n- PostgreSQL migration was deliberately **not mixed into this playback release**. SQLite remains the production database for 0.4.1; a database migration requires a separate dual-backend/migrator phase because current migrations and queries contain SQLite-specific PRAGMAs, `INSERT OR IGNORE`, `datetime(...)`, `COLLATE NOCASE` and backup/restore semantics.\n\n'''
+              if text.startswith(intro):
+                  text=intro+section+text[len(intro):]
+              else:
+                  text=section+text
+              changelog.write_text(text)
+
+          state=Path('PROJECT_STATE.md')
+          s=state.read_text()
+          s=s.replace('Last architecture update: **2026-08-29**.', 'Last architecture update: **2026-08-30**.')
+          s=s.replace('Android package: `cloud.stormflix.app`, version **0.4.0**, versionCode 12', 'Android package: `cloud.stormflix.app`, version **0.4.1**, versionCode 13')
+          s=s.replace('Version **0.4.0** changes Home navigation', 'Version **0.4.1** includes the 0.4.0 server-driven Home navigation and changes')
+          old='''Web telemetry reports playback mode, source bitrate, buffer seconds, estimated read Mbps, codecs, cache bytes and errors. Adaptive prefetch changes only speculative headroom: normally one batch, at most three small batches during low-buffer/slow-read conditions. Global SSD budget/free-space reserve always wins. Video is never transcoded by this mechanism.\n'''
+          new='''Web telemetry reports playback mode, source bitrate, buffer seconds, estimated read Mbps, codecs, cache bytes and errors. Adaptive prefetch changes only speculative headroom: normally one batch, at most three small batches during low-buffer/slow-read conditions. Global SSD budget/free-space reserve always wins. Video is never transcoded by this mechanism.\n\nSince Android 0.4.1, StormFlix Web, Android, Android TV and Fire TV all use this dynamic HLS engine for non-Direct-Play compatibility. This removes the previous Android/TV wait for a complete seekable compatibility MP4 on rclone/Drive sources. Direct Play still bypasses HLS entirely. Unknown legacy clients can still use the complete-MP4 compatibility fallback.\n'''
+          if old in s and 'Since Android 0.4.1' not in s:
+              s=s.replace(old,new)
+          anchor='''`CategoryBrowseActivity` is the generic two-level native catalog browser. It loads the root aggregate and resolves each direct child through `/categories/{slug}/smart`, so gallery sections such as **Animes Dublados**, **Animes Legendados**, **Filmes Animes** or custom sections use the same server rules as Web instead of duplicating classification logic in Android.\n'''
+          addition='''\n### Episodic autoplay\n\nWeb and native Android/TV/Fire use `/api/v1/media/{id}/neighbors` for previous/next identity. At natural episode completion, a 10-second **A seguir** countdown can start the next episode automatically. The preference is enabled by default and may be disabled independently in the Web Player v4 or the native player menu. Manual previous/next controls remain available.\n\n### Android release channel\n\n`.github/workflows/android.yml` builds the installable APK, publishes the APK plus SHA-256 as an Actions artifact for every validated build and, on successful `main` pushes that change Android, creates a versioned GitHub Release `android-v<version>`. The current automated APK is suitable for direct testing/installation; production store distribution still requires a dedicated persistent release signing key.\n'''
+          if anchor in s and '### Episodic autoplay' not in s:
+              s=s.replace(anchor,anchor+addition)
+          db_anchor='''- SQLite remains the native catalog database with WAL, `synchronous=NORMAL`, busy timeout, bounded connection pool and targeted indexes.\n'''
+          db_new='''- SQLite remains the native catalog database with WAL, `synchronous=NORMAL`, busy timeout, bounded connection pool and targeted indexes.\n- PostgreSQL is the planned scale-out database direction, but **0.4.1 does not switch databases**. The migration must ship separately with a dual-backend compatibility layer, PostgreSQL migrations, SQLite→PostgreSQL data migrator, validation and rollback because existing code contains SQLite-specific SQL and backup semantics.\n'''
+          if db_anchor in s and 'PostgreSQL is the planned scale-out' not in s:
+              s=s.replace(db_anchor,db_new)
+          state.write_text(s)
+          PY
+
+          if git diff --quiet; then
+            echo 'Documentation already current.'
+            exit 0
+          fi
+          git config user.name 'stormflix-ci'
+          git config user.email 'actions@users.noreply.github.com'
+          git add CHANGELOG.md PROJECT_STATE.md
+          git commit -m 'docs: record Android 0.4.1 streaming and release architecture'
+          git push origin HEAD:android-0.4.1-autoplay-streaming
