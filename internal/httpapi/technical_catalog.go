@@ -15,21 +15,21 @@ import (
 )
 
 type technicalSnapshot struct {
-	MediaID          int64             `json:"media_id"`
-	VideoCodec       string            `json:"video_codec"`
-	Width            int               `json:"width"`
-	Height           int               `json:"height"`
-	HDR              string            `json:"hdr"`
-	BitrateKbps      int64             `json:"bitrate_kbps"`
-	DurationSeconds  float64           `json:"duration_seconds"`
-	AudioLanguages   []string          `json:"audio_languages"`
-	SubtitleLanguages []string         `json:"subtitle_languages"`
-	AudioPTBR        bool              `json:"audio_pt_br"`
-	SubtitlePTBR     bool              `json:"subtitle_pt_br"`
-	DubStatus        string            `json:"dub_status"`
-	Status           string            `json:"status"`
-	LastError        string            `json:"last_error,omitempty"`
-	Source           playback.Source   `json:"source"`
+	MediaID           int64           `json:"media_id"`
+	VideoCodec        string          `json:"video_codec"`
+	Width             int             `json:"width"`
+	Height            int             `json:"height"`
+	HDR               string          `json:"hdr"`
+	BitrateKbps       int64           `json:"bitrate_kbps"`
+	DurationSeconds   float64         `json:"duration_seconds"`
+	AudioLanguages    []string        `json:"audio_languages"`
+	SubtitleLanguages []string        `json:"subtitle_languages"`
+	AudioPTBR         bool            `json:"audio_pt_br"`
+	SubtitlePTBR      bool            `json:"subtitle_pt_br"`
+	DubStatus         string          `json:"dub_status"`
+	Status            string          `json:"status"`
+	LastError         string          `json:"last_error,omitempty"`
+	Source            playback.Source `json:"source"`
 }
 
 var technicalIndexerKick = make(chan struct{}, 1)
@@ -77,8 +77,13 @@ SELECT m.id,m.path,m.modified_unix
 FROM media m JOIN libraries l ON l.id=m.library_id
 LEFT JOIN media_technical mt ON mt.media_id=m.id
 WHERE m.available=1 AND l.kind<>'music'
-  AND (mt.media_id IS NULL OR mt.source_modified_unix<>m.modified_unix OR mt.status='pending')
-ORDER BY CASE WHEN mt.media_id IS NULL THEN 0 ELSE 1 END,m.id
+  AND (
+    mt.media_id IS NULL
+    OR mt.source_modified_unix<>m.modified_unix
+    OR mt.status='pending'
+    OR (mt.status='error' AND (mt.probed_at IS NULL OR mt.probed_at<=datetime('now','-30 minutes')))
+  )
+ORDER BY CASE WHEN mt.media_id IS NULL THEN 0 WHEN mt.status='pending' THEN 1 ELSE 2 END,m.id
 LIMIT 1`).Scan(&id, &path, &modified)
 	if errors.Is(err, sql.ErrNoRows) || err != nil {
 		return false
