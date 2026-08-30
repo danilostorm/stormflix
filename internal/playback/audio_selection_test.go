@@ -8,13 +8,17 @@ func TestApplyAudioStreamForcesServerSelectionForNonDefaultTrack(t *testing.T) {
 		{Index: 1, Type: "audio", Codec: "aac", Language: "eng", Default: true},
 		{Index: 2, Type: "audio", Codec: "aac", Language: "por"},
 	}}
-	req := Request{ClientKind: "web", Capabilities: Capabilities{
+	// Be explicit here: the normal planner intentionally prefers Portuguese
+	// tracks when no profile language is supplied, even when they are not the
+	// container default. This test needs an initial Direct Play route so it can
+	// verify the transition caused specifically by choosing stream 2.
+	req := Request{ClientKind: "web", PreferredAudioLanguage: "eng", Capabilities: Capabilities{
 		Containers: []string{"mp4"}, VideoCodecs: []string{"h264"}, AudioCodecs: []string{"aac"},
 		AllowRemux: true, AllowAudioCompatibility: true, AllowVideoTranscode: true, ServerSelectsAudio: true,
 	}}
 	base := Decide(source, req)
 	if base.Mode != ModeDirectPlay {
-		t.Fatalf("default source should direct play, got %s", base.Mode)
+		t.Fatalf("explicit preferred default source should direct play, got %s", base.Mode)
 	}
 	plan := ApplyAudioStream(source, req, base, 2)
 	if !plan.Available || plan.Mode != ModeRemux {
