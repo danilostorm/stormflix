@@ -66,6 +66,9 @@ public class PlayerActivity extends Activity {
     private static final long SEEK_STEP_MS = 10000L;
     private static final long SEEK_FEEDBACK_MS = 850L;
     private static final long SEEK_REPEAT_MIN_MS = 110L;
+    private static final int AUTO_NEXT_SECONDS = 10;
+    private static final String PLAYER_PREFS = "stormflix_player";
+    private static final String PREF_AUTO_NEXT = "auto_next_episode";
 
     private final ExecutorService io = Executors.newFixedThreadPool(3);
     private final ExecutorService progressIo = Executors.newSingleThreadExecutor();
@@ -108,6 +111,24 @@ public class PlayerActivity extends Activity {
     private long nextEpisodeId;
     private String previousEpisodeTitle = "Episódio anterior";
     private String nextEpisodeTitle = "Próximo episódio";
+    private AlertDialog autoNextDialog;
+    private int autoNextRemaining;
+
+    private final Runnable autoNextTick = new Runnable() {
+        @Override public void run() {
+            if (autoNextDialog == null || !autoNextDialog.isShowing() || nextEpisodeId <= 0) return;
+            autoNextRemaining--;
+            if (autoNextRemaining <= 0) {
+                long id = nextEpisodeId;
+                String episodeTitle = nextEpisodeTitle;
+                cancelAutoNextCountdown();
+                launchEpisode(id, episodeTitle);
+                return;
+            }
+            updateAutoNextMessage();
+            main.postDelayed(this, 1000);
+        }
+    };
 
     private long seekFeedbackAccumulatedMs;
     private long lastSeekFeedbackAt;
@@ -152,9 +173,9 @@ public class PlayerActivity extends Activity {
         Map<String,String> headers = new HashMap<>();
         String cookie = api.store().cookieHeader();
         if (!cookie.isEmpty()) headers.put("Cookie", cookie);
-        headers.put("User-Agent", "StormFlix-Android/0.3.0");
+        headers.put("User-Agent", "StormFlix-Android/" + BuildConfig.VERSION_NAME);
         DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory()
-            .setUserAgent("StormFlix-Android/0.3.0")
+            .setUserAgent("StormFlix-Android/" + BuildConfig.VERSION_NAME)
             .setAllowCrossProtocolRedirects(true)
             .setDefaultRequestProperties(headers);
         DefaultDataSource.Factory data = new DefaultDataSource.Factory(this, http);
@@ -220,7 +241,7 @@ public class PlayerActivity extends Activity {
                     queueProgress("ready", false);
                 } else if (state == Player.STATE_ENDED) {
                     queueProgress("ended", false);
-                    if (nextEpisodeId > 0) main.postDelayed(PlayerActivity.this::offerNextEpisode, 350);
+                    if (nextEpisodeId > 0) main.postDelayed(PlayerActivity.this::handleEpisodeEnded, 350);
                 }
             }
 
@@ -544,9 +565,9 @@ public class PlayerActivity extends Activity {
     private void showPlayerMenu(){
         List<String>items=new ArrayList<>();items.add("Áudio");items.add("Legendas");items.add("Tela / Zoom");
         if(canPictureInPicture())items.add("Picture-in-Picture");
-        items.add("Reiniciar do início");if(previousEpisodeId>0)items.add("Episódio anterior");if(nextEpisodeId>0)items.add("Próximo episódio");items.add("Informações");
+        items.add("Reiniciar do início");items.add("Próximo episódio automático: "+(autoNextEnabled()?"Ligado":"Desligado"));if(previousEpisodeId>0)items.add("Episódio anterior");if(nextEpisodeId>0)items.add("Próximo episódio");items.add("Informações");
         new AlertDialog.Builder(this).setTitle(title==null?"Player StormFlix":title).setItems(items.toArray(new String[0]),(d,which)->{
-            String item=items.get(which);if(item.equals("Áudio"))showAudioMenu();else if(item.equals("Legendas"))showSubtitleMenu();else if(item.equals("Tela / Zoom"))showScreenMenu();else if(item.equals("Picture-in-Picture"))enterPictureInPicture();else if(item.equals("Reiniciar do início")){reportEvent("SEEK_REQUESTED","target=0 restart");player.seekTo(0);}else if(item.equals("Episódio anterior"))launchEpisode(previousEpisodeId,previousEpisodeTitle);else if(item.equals("Próximo episódio"))launchEpisode(nextEpisodeId,nextEpisodeTitle);else showPlaybackInfo();
+            String item=items.get(which);if(item.equals("Áudio"))showAudioMenu();else if(item.equals("Legendas"))showSubtitleMenu();else if(item.equals("Tela / Zoom"))showScreenMenu();else if(item.equals("Picture-in-Picture"))enterPictureInPicture();else if(item.equals("Reiniciar do início")){reportEvent("SEEK_REQUESTED","target=0 restart");player.seekTo(0);}else if(item.startsWith("Próximo episódio automático:"))toggleAutoNext();else if(item.equals("Episódio anterior"))launchEpisode(previousEpisodeId,previousEpisodeTitle);else if(item.equals("Próximo episódio"))launchEpisode(nextEpisodeId,nextEpisodeTitle);else showPlaybackInfo();
         }).setNegativeButton("Fechar",null).show();
     }
 
@@ -605,8 +626,29 @@ public class PlayerActivity extends Activity {
     }
 
     private boolean isPlayerControlFocused(){View focused=getCurrentFocus();if(focused==null||focused==playerView||focused==settingsButton)return false;View current=focused;while(current!=null){if(current==playerView)return true;if(!(current.getParent() instanceof View))break;current=(View)current.getParent();}return false;}
-    private void offerNextEpisode(){if(nextEpisodeId<=0||isFinishing())return;new AlertDialog.Builder(this).setTitle("Próximo episódio").setMessage(nextEpisodeTitle).setPositiveButton("Reproduzir",(d,w)->launchEpisode(nextEpisodeId,nextEpisodeTitle)).setNegativeButton("Fechar",null).show();}
-    private void launchEpisode(long id,String episodeTitle){if(id<=0)return;clearSeekFeedback();if(!finishingSent){finishingSent=true;queueProgress("episode_change",true);}Intent intent=new Intent(this,PlayerActivity.class);intent.putExtra("media_id",id);intent.putExtra("title",episodeTitle);startActivity(intent);finish();}
+    private boolean autoNextEnabled(){return getSharedPreferences(PLAYER_PREFS,MODE_PRIVATE).getBoolean(PREF_AUTO_NEXT,true);}
+    private void setAutoNextEnabled(boolean enabled){getSharedPreferences(PLAYER_PREFS,MODE_PRIVATE).edit().putBoolean(PREF_AUTO_NEXT,enabled).apply();}
+    private void toggleAutoNext(){boolean enabled=!autoNextEnabled();setAutoNextEnabled(enabled);Toast.makeText(this,"Próximo episódio automático "+(enabled?"ligado":"desligado"),Toast.LENGTH_SHORT).show();}
+    private void handleEpisodeEnded(){if(nextEpisodeId<=0||isFinishing())return;if(autoNextEnabled())startAutoNextCountdown();else offerNextEpisode();}
+    private void startAutoNextCountdown(){
+        if(nextEpisodeId<=0||isFinishing())return;
+        cancelAutoNextCountdown();
+        autoNextRemaining=AUTO_NEXT_SECONDS;
+        autoNextDialog=new AlertDialog.Builder(this)
+            .setTitle("A seguir")
+            .setMessage(nextEpisodeTitle+"\nReprodução automática em "+autoNextRemaining+"s.")
+            .setPositiveButton("Reproduzir agora",(d,w)->launchEpisode(nextEpisodeId,nextEpisodeTitle))
+            .setNegativeButton("Cancelar",(d,w)->cancelAutoNextCountdown())
+            .setNeutralButton("Desativar automático",(d,w)->{setAutoNextEnabled(false);cancelAutoNextCountdown();})
+            .create();
+        autoNextDialog.setOnDismissListener(d->main.removeCallbacks(autoNextTick));
+        autoNextDialog.show();
+        main.postDelayed(autoNextTick,1000);
+    }
+    private void updateAutoNextMessage(){if(autoNextDialog!=null&&autoNextDialog.isShowing())autoNextDialog.setMessage(nextEpisodeTitle+"\nReprodução automática em "+autoNextRemaining+"s.");}
+    private void cancelAutoNextCountdown(){main.removeCallbacks(autoNextTick);AlertDialog dialog=autoNextDialog;autoNextDialog=null;if(dialog!=null&&dialog.isShowing())dialog.dismiss();}
+    private void offerNextEpisode(){if(nextEpisodeId<=0||isFinishing())return;cancelAutoNextCountdown();new AlertDialog.Builder(this).setTitle("Próximo episódio").setMessage(nextEpisodeTitle).setPositiveButton("Reproduzir",(d,w)->launchEpisode(nextEpisodeId,nextEpisodeTitle)).setNegativeButton("Fechar",null).show();}
+    private void launchEpisode(long id,String episodeTitle){if(id<=0)return;cancelAutoNextCountdown();clearSeekFeedback();if(!finishingSent){finishingSent=true;queueProgress("episode_change",true);}Intent intent=new Intent(this,PlayerActivity.class);intent.putExtra("media_id",id);intent.putExtra("title",episodeTitle);startActivity(intent);finish();}
 
     private boolean canPictureInPicture(){return Build.VERSION.SDK_INT>=26&&!RemoteUi.isTelevision(this);}
     private void enterPictureInPicture(){
@@ -638,5 +680,5 @@ public class PlayerActivity extends Activity {
     @Override public void onUserLeaveHint(){clearSeekFeedback();if(canPictureInPicture()&&player!=null&&player.isPlaying())enterPictureInPicture();if(!finishingSent)queueProgress("background",false);super.onUserLeaveHint();}
     @Override public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode, Configuration newConfig){super.onPictureInPictureModeChanged(isInPictureInPictureMode,newConfig);if(isInPictureInPictureMode)hidePlayerControls();else immersive();}
     @Override public void onWindowFocusChanged(boolean hasFocus){super.onWindowFocusChanged(hasFocus);if(!hasFocus){clearSeekFeedback();if(!finishingSent)queueProgress("focus_lost",false);}else immersive();}
-    @Override protected void onDestroy(){planGeneration.incrementAndGet();audioCheckGeneration++;main.removeCallbacks(heartbeat);main.removeCallbacks(hideSettings);main.removeCallbacks(hideControls);clearSeekFeedback();if(!finishingSent&&player!=null){finishingSent=true;queueProgress("destroy",true);}if(mediaSession!=null){mediaSession.release();mediaSession=null;}if(player!=null){player.release();player=null;}io.shutdown();progressIo.shutdown();super.onDestroy();}
+    @Override protected void onDestroy(){planGeneration.incrementAndGet();audioCheckGeneration++;main.removeCallbacks(heartbeat);main.removeCallbacks(hideSettings);main.removeCallbacks(hideControls);cancelAutoNextCountdown();clearSeekFeedback();if(!finishingSent&&player!=null){finishingSent=true;queueProgress("destroy",true);}if(mediaSession!=null){mediaSession.release();mediaSession=null;}if(player!=null){player.release();player=null;}io.shutdown();progressIo.shutdown();super.onDestroy();}
 }
