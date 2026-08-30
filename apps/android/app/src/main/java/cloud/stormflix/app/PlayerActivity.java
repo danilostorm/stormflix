@@ -1,7 +1,6 @@
 package cloud.stormflix.app;
 
 import android.app.Activity;
-import android.app.ActivityInfo;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.view.KeyEvent;
