@@ -9,6 +9,7 @@ import (
 
 	"github.com/danilostorm/stormflix/internal/admin"
 	"github.com/danilostorm/stormflix/internal/media"
+	"github.com/danilostorm/stormflix/internal/transcode"
 )
 
 type playbackHeartbeatInput struct {
@@ -54,7 +55,13 @@ func (s *server) playbackHeartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if session := normalizePlaybackSessionID(in.PlaybackSession); session != "" {
-		s.hlsCache.TouchSession(u.ID, session)
+		if transcode.IsSessionID(session) {
+			if manager, managerErr := transcode.ForDataDir(s.config.DataDir); managerErr == nil {
+				manager.Touch(u.ID, session)
+			}
+		} else {
+			s.hlsCache.TouchSession(u.ID, session)
+		}
 	}
 	hb := admin.PlaybackHeartbeat{
 		PositionSeconds:  in.PositionSeconds,
@@ -155,7 +162,13 @@ func (s *server) playbackStop(w http.ResponseWriter, r *http.Request) {
 	session := normalizePlaybackSessionID(r.URL.Query().Get("session"))
 	cacheCleared := false
 	if session != "" {
-		cacheCleared = s.hlsCache.CloseSession(u.ID, session)
+		if transcode.IsSessionID(session) {
+			if manager, managerErr := transcode.ForDataDir(s.config.DataDir); managerErr == nil {
+				cacheCleared = manager.Close(u.ID, session)
+			}
+		} else {
+			cacheCleared = s.hlsCache.CloseSession(u.ID, session)
+		}
 	}
 	device := shortDevice(r.UserAgent())
 	if err := s.admin.FinishPlayback(r.Context(), u.ID, id, device); err != nil {
