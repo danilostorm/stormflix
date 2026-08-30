@@ -24,6 +24,19 @@ func TestPlaybackExecutionDirectPlayHasNoCompatibilityQuery(t *testing.T) {
 	}
 }
 
+func TestNativeStormFlixClientsUseDynamicHLSCompatibility(t *testing.T) {
+	for _, kind := range []string{"web", "android", "tv", "android_tv", "firetv", "fire_tv", " Android "} {
+		if !clientUsesDynamicHLS(kind) {
+			t.Fatalf("expected %q to use dynamic HLS compatibility", kind)
+		}
+	}
+	for _, kind := range []string{"", "unknown", "legacy", "jellyfin"} {
+		if clientUsesDynamicHLS(kind) {
+			t.Fatalf("did not expect %q to use native StormFlix dynamic HLS path", kind)
+		}
+	}
+}
+
 func TestNormalizePlaybackSessionID(t *testing.T) {
 	if got := normalizePlaybackSessionID(" session-1:abc "); got != "session-1:abc" {
 		t.Fatalf("unexpected normalized session: %q", got)
