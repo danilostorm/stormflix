@@ -318,6 +318,8 @@ For Playback Engine v5, all of the following are mandatory on the exact PR head:
 - exact PR-head CI **and** Android workflow green before merge;
 - post-merge `main` CI **and** Android workflow green before deployment is presented as ready.
 
+A green CI proves the deterministic planner, concurrency/cache safety and builds. It does **not** prove the deployed host has a working GPU device mapping or sufficient realtime transcode performance; those remain real-host QA items below.
+
 ## Real-world QA after deployment
 
 Architecture/tests do not replace real host/device/storage validation. Check:
