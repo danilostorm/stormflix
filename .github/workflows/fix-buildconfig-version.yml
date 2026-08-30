@@ -1,0 +1,40 @@
+name: Fix Android version strings
+
+on:
+  push:
+    branches: [android-0.4.1-autoplay-streaming]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: android-0.4.1-autoplay-streaming
+      - name: Replace unavailable BuildConfig references
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          player=Path('apps/android/app/src/main/java/cloud/stormflix/app/PlayerActivity.java')
+          p=player.read_text()
+          p=p.replace('"StormFlix-Android/" + BuildConfig.VERSION_NAME', '"StormFlix-Android/0.4.1"')
+          player.write_text(p)
+
+          caps=Path('apps/android/app/src/main/java/cloud/stormflix/app/PlaybackCapabilities.java')
+          c=caps.read_text().replace('private static final String VERSION = BuildConfig.VERSION_NAME;', 'private static final String VERSION = "0.4.1";')
+          caps.write_text(c)
+          PY
+          if git diff --quiet; then
+            echo 'Version strings already compatible.'
+            exit 0
+          fi
+          git config user.name stormflix-ci
+          git config user.email actions@users.noreply.github.com
+          git add -f apps/android/app/src/main/java/cloud/stormflix/app/PlayerActivity.java apps/android/app/src/main/java/cloud/stormflix/app/PlaybackCapabilities.java
+          git commit -m 'fix: keep Android 0.4.1 version strings build-compatible'
+          git push origin HEAD:android-0.4.1-autoplay-streaming
