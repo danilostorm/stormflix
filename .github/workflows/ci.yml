@@ -65,9 +65,12 @@ jobs:
           node --check internal/webui/static/person-ui.js
           node --check internal/webui/static/webcompat.js
           node --check internal/webui/static/playback-core.js
+          node --check internal/webui/static/playback-core-v53.js
           node --check internal/webui/static/player-v3.js
           node --check internal/webui/static/player-v4.js
           node --check internal/webui/static/player-v5.js
+          node --check internal/webui/static/player-audio-v53.js
+          node --check internal/webui/static/player-screen-v54.js
           node --check internal/webui/static/player-monitor.js
           node --check internal/webui/static/autoplay-next.js
           node --check internal/webui/static/continue-watching.js
@@ -77,7 +80,7 @@ jobs:
         run: go test ./...
 
       - name: Race playback and streaming engines
-        run: go test -race ./internal/playback ./internal/webcompat ./internal/transcode
+        run: go test -race ./internal/playback ./internal/webcompat ./internal/transcode ./internal/streaming
 
       - name: Build
         run: go build -trimpath ./cmd/stormflix
