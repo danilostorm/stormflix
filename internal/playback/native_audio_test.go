@@ -36,7 +36,7 @@ func TestNativeClientUsesAACCompatibilityWhenNoAudioTrackIsSupported(t *testing.
 	}
 }
 
-func TestNativeAudioSelectionCannotBypassResolutionLimit(t *testing.T) {
+func TestNativeAudioSelectionCannotBypassVideoTranscodePolicy(t *testing.T) {
 	req := baseRequest()
 	req.ClientKind = "tv"
 	req.Capabilities.Containers = append(req.Capabilities.Containers, "mkv")
@@ -48,7 +48,10 @@ func TestNativeAudioSelectionCannotBypassResolutionLimit(t *testing.T) {
 		{Index: 2, Type: "audio", Codec: "aac", Language: "eng"},
 	}}
 	plan := DecideForClient(source, req)
-	if plan.Available || plan.ReasonCode != "video_resolution_unsupported" || plan.VideoTranscode {
-		t.Fatalf("native audio override bypassed video policy: %+v", plan)
+	if !plan.Available || plan.Mode != ModeVideoTranscode || !plan.VideoTranscode || plan.ClientSelectsAudio || plan.ReasonCode != "video_resolution_unsupported" {
+		t.Fatalf("native audio override bypassed video transcode policy: %+v", plan)
+	}
+	if plan.TargetVideoWidth != 1920 || plan.TargetVideoHeight != 1080 {
+		t.Fatalf("expected native client to keep the 1080p transcode cap, got %+v", plan)
 	}
 }
