@@ -21,25 +21,24 @@ Server HTTP port: **8090**, normally behind HTTPS reverse proxy.
 
 ## Current versions
 
-- Server: `0.19.0-dynamic-hls`.
+- Server: `0.20.0-platform-automation`.
 - Android package: `cloud.stormflix.app`, version **0.3.0**, versionCode 11, minSdk 23, targetSdk 36, Java 17, Media3 1.11.0.
-- SQLite with WAL, synchronous=NORMAL, busy timeout, bounded pool and targeted indexes remains supported.
+- SQLite remains the native catalog database with WAL, `synchronous=NORMAL`, busy timeout, bounded connection pool and targeted indexes.
 
-## Non-negotiable playback rules
+## Non-negotiable invariants
 
-1. **Direct Play first. Never silently transcode video.**
-2. Web, Android and TV/Fire use the native `/api/v1/media/{id}/playback/plan` policy.
-3. Jellyfin compatibility stays isolated from native `/api/v1`.
-4. Storage provider does not determine playback mode. Local, rclone/FUSE, Google Drive mount and NFS are evaluated by actual streams/capabilities.
-5. Browser multi-audio may be pinned server-side when HTML audio-track APIs are unreliable.
-6. Preferred audio understands `pt-BR → pt → por`, including Português/Dublado/Brasil labels.
-7. If video is supported and only selected audio is incompatible, keep **video stream-copy** and convert only audio to AAC-LC.
-8. Exact selected `audio_stream` remains authoritative through execution.
-9. Unsupported video codec/resolution/frame-rate/HDR/explicit bitrate limits return unsupported; no silent video transcode/tone-map fallback.
-10. Ordered progress uses playback session plus sequence/event ordering.
-11. Web HLS cache is disposable session data and normal close/end must delete it immediately.
+1. Native `/api/v1` is the StormFlix source of truth.
+2. **Direct Play first. Never silently transcode video.**
+3. Web, Android and TV/Fire use `/api/v1/media/{id}/playback/plan`.
+4. Jellyfin compatibility is an isolated facade and must not redefine native catalog/playback state.
+5. Scanner-owned episodic identity is authoritative before metadata providers.
+6. Episodic manual matching is principal-series level only.
+7. Profile/kids/library access controls must survive every browse, smart-section and playback path.
+8. Exact selected audio stream remains authoritative. If only audio is incompatible, video stays stream-copy and only audio may be converted to AAC-LC.
+9. Unsupported video capability returns unsupported; no hidden transcode/tone-map fallback.
+10. Ordered progress remains session/sequence aware.
 
-## Unified native playback
+## Native playback architecture
 
 ```text
 StormFlix Web ───────┐
@@ -51,138 +50,146 @@ StormFlix TV/Fire ───┘        │
                               ├── Dynamic HLS session cache (Web)
                               └── Seekable compatibility MP4 cache (native/manual fallback)
 
-Jellyfin clients ──> Jellyfin compatibility facade ──> StormFlix core
+Jellyfin clients ──> compatibility facade ──> StormFlix core
 ```
 
-Native modes remain `direct_play`, `remux`, `audio_compatibility` and `unsupported`. Video is never silently transcoded.
+Native modes remain `direct_play`, `remux`, `audio_compatibility` and `unsupported`.
 
-## StormFlix Web Player v4 + dynamic HLS
+### Web Player v4
 
-`playback-core.js` owns playback policy/execution. `player-v4.js`/`player-v4.css` own presentation. Player v4 includes custom played/buffered timeline, seek preview, mode/resolution indicators, play/pause, ±10s, volume/mute, audio/subtitle/settings access, previous/next episode, fullscreen, native PiP, Media Session and responsive controls.
+`playback-core.js` owns planning/execution. `player-v4.js`/`player-v4.css` own presentation: custom played/buffered timeline, seek preview, mode/resolution indicators, ±10s, audio/subtitles/settings, previous/next episode, fullscreen, native PiP, Media Session and responsive controls.
 
-Compatible media uses `/api/v1/media/{id}/stream` with HTTP Range. Direct Play creates zero StormFlix HLS/compatibility cache. Web remux/audio compatibility uses session-scoped dynamic fMP4 HLS, exact selected streams and mandatory video stream-copy; only incompatible audio may be converted to AAC-LC.
+Compatible media uses HTTP Range Direct Play and creates zero compatibility cache. Web remux/audio compatibility uses session-scoped fMP4 HLS with exact selected streams and mandatory video stream-copy.
 
-## Web HLS cache / SSD safety
+### Dynamic HLS and diagnostics
 
-HLS fragments live under `<DataDir>/hls-cache/<playback-session>/` with a 5 GiB global budget, 30-minute idle/crash fallback TTL and a 10 GiB or 5% minimum free-disk reserve. Old fragments are removed continuously; active FFmpeg workers are protected. Normal close/end cancels the worker and deletes the session directory immediately.
+HLS fragments live under `<DataDir>/hls-cache/<playback-session>/` with a 5 GiB global budget, 30-minute crash/idle fallback TTL and 10 GiB or 5% minimum free-disk reserve. Normal close/end cancels the FFmpeg worker and removes the session directory immediately.
+
+Web telemetry reports playback mode, source bitrate, buffer seconds, estimated read Mbps, codecs, cache bytes and errors. Adaptive prefetch changes only speculative headroom: normally one batch, at most three small batches during low-buffer/slow-read conditions. Global SSD budget/free-space reserve always wins. Video is never transcoded by this mechanism.
+
+Admin “Reproduzindo agora” returns the enriched playback superset while preserving the original endpoint shape for older Admin consumers.
+
+### Managed legacy compatibility MP4 cache
+
+`internal/webcompat/materialize.go` + `CacheManager` remain for Android/TV/manual compatibility paths. Defaults: 20 GiB max, 48h TTL, 15m cleanup, LRU target 85%, free-space reserve, active-file protection and short-lived oversize artifacts.
 
 ## Android / Android TV / Fire TV
 
-Media3 consumes the same PlaybackPlan contract, publishes MediaCodec capabilities, preserves native multi-audio Direct Play where possible, supports source/version selection and ordered progress, and does not silently bypass the planner. Dynamic HLS is Web-specific; native apps may still use managed seekable compatibility MP4 when explicitly needed.
+Media3 consumes the same PlaybackPlan contract, publishes MediaCodec capabilities, preserves native multi-audio Direct Play where possible, supports source/version selection and ordered progress, and does not silently bypass the planner. This platform-automation release does not change Android source/version.
 
-## Managed legacy compatibility MP4 cache
+## Scanner identity, metadata and sources
 
-`internal/webcompat/materialize.go` + `CacheManager` remain for Android/TV/manual compatibility paths. Defaults: 20 GiB max, 48h TTL, 15m cleanup, LRU target 85%, free-space reserve, active-file protection and short-lived oversize artifacts. Admin → Configurações → **Playback · Cache de compatibilidade** controls this cache.
-
-## Jellyfin compatibility facade
-
-Jellyfin compatibility remains separate from native `/api/v1` and supports the established official-client routes, authentication, Home/resume/latest aliases, user DTO requirements and Android TV/Fire compatibility without becoming the source of truth.
-
-## Scanner identity / metadata
-
-Supported library kinds include `movies`, `series`, `anime`, `mixed`, `anime_series`, `animation_series`, music and existing special kinds. For episodic libraries, scanner-owned identity is authoritative before metadata providers. `media_series_identity` stores source root, stable series key/title, season, episode and absolute episode. Metadata enriches this identity and must not redefine folder hierarchy blindly.
+Supported video library kinds include `movies`, `series`, `anime`, `mixed`, `anime_series`, `animation_series` and existing special kinds. `media_series_identity` owns source root, stable series key/title, season, episode and absolute episode. External metadata enriches but does not redefine folder identity blindly.
 
 Western series/cartoons prefer `Scanner → TMDB TV → TheTVDB v4 → Fanart.tv`. Anime with seasons combines scanner identity with TMDB TV, TheTVDB, AniList/AniDB/MAL recovery and the native HAMA-style Anime-Lists bridge.
 
-### Source-root relocation without metadata rebuild
+Changing a Drive/rclone source root preserves media IDs when the replacement is unambiguous. Metadata, artwork, subtitles and progress stay attached to the same `media_id`. Ambiguous relocations/collisions are not guessed.
 
-Changing a library's physical Drive/rclone mount path must not turn unchanged media into new catalog identities. When old/new roots form an unambiguous one-for-one replacement, Admin library update rewrites existing `media.path` and episodic `source_root` while preserving the same `media.id`.
+## Principal-series manual matching
 
-Because metadata, artwork, subtitles, watch progress and related state are keyed by `media_id`, matched metadata and downloaded covers remain attached. A normal later scan updates the existing row instead of creating a new media item. Relocation is conservative: ambiguous source changes and collisions are not guessed.
+Admin → Catálogo defaults to **Obras principais**. Episodic manual matching lives in `series_metadata_overrides`; queued `series_refresh` updates current episodes and future episodes inherit the override. Normal episode rows are diagnostic children, not independent manual matches.
 
-## Manual matching — principal series only
+## Scan queue and safe simulation
 
-Admin → Catálogo defaults to **Obras principais**. Episodic manual matching is stored once at principal-series level in `series_metadata_overrides`; a queued `series_refresh` updates current episodes and future episodes inherit the same override. Episode diagnostic rows do not expose normal manual matching.
+`scan_jobs` is persistent FIFO and scans are serialized to protect rclone/FUSE + SQLite. Duplicate active jobs are avoided; queued/running work can be cancelled; restart requeues unfinished jobs; unreachable mounts preserve prior catalog.
 
-## Persistent scan queue / stable Admin polling
+`PreviewMulti` is the dry-run path used by Admin **Simular scan**. It traverses the same enabled roots as `ScanMulti`, reports existing/discovered/new/changed/missing/unchanged and never writes media availability or inserts/deletes catalog rows. Offline roots are handled conservatively.
 
-`scan_jobs` is persistent FIFO. Library scans are serialized to avoid rclone/FUSE + SQLite contention, duplicate active entries are avoided, queued/running jobs can be cancelled, restart safely requeues unfinished jobs and unreachable mounts preserve the prior catalog.
+Protected scan, scan-all, library-path and recommended-category operations require a successful automatic database backup before execution.
 
-Admin → **Fila & atividades** merges scan jobs, metadata jobs and `series_refresh`. Bibliotecas and Metadados & Capas patch progress/status in place during polling rather than rebuilding the whole DOM, preventing visible flashing. Metadados & Capas provides individual actions plus bulk **Buscar em todas** and **Atualizar todas**, processed sequentially across active video libraries.
+## Smart Home menus and sections
 
-## Home menus / gallery sections
+`library_categories.parent_id` keeps the two-level presentation contract:
 
-`library_categories.parent_id` has a clear two-level presentation meaning for the native Web interface:
+- `parent_id IS NULL` = **Menu da Home** in top navigation;
+- direct child = **Seção da galeria** / rail inside that menu.
 
-- `parent_id IS NULL` = **Menu da Home** shown in the top navigation;
-- direct child of a root = **Seção da galeria** rendered as its own horizontal rail inside that menu.
+The parent/general rail is never replaced by child sections. Child sections are stacked by `sort_order`; empty sections are omitted. A title may appear once in the general rail and again in a relevant child rail.
 
-The system roots **Filmes**, **Séries** and **Animes** remain. Administrators may create additional root menus such as **Desenhos**. Custom active roots are inserted in the top navigation before Música. Direct child sections never appear as top-menu buttons, category explorer chips or secondary navigation.
+### Persistent smart rules
 
-### Presentation contract when sections exist
+Phase 13 adds `rule_mode` and `rules_json` to categories. A child section can use:
 
-Opening a Home menu with configured child sections must render this shape:
+- `libraries` — selected library IDs only;
+- `rules` — inherit the menu scope and filter automatically;
+- `both` — selected libraries plus rules.
 
-```text
-Animes                 ← aggregate/general rail
-  [all titles]
+Supported filters: genres, media types, year range, minimum rating, recently added days, minimum/maximum resolution, HDR/SDR/HDR10/HLG, Brazilian-Portuguese audio, Brazilian-Portuguese subtitles, technical dub/sub classification and metadata-required.
 
-Animes Dublados        ← configured section
-  [titles from selected libraries]
+Admin → **Menus da Home** supports drag/drop ordering and live preview before save. The recommended organizer creates technically driven 4K/UHD and Anime Dublado/Legendado shelves; custom items are not deleted.
 
-Filmes Animes          ← configured section
-  [titles from selected libraries]
-```
+### Profile-specific Home
 
-The parent/general rail is **never replaced by creating a section**. Child sections are stacked below it in `sort_order`. A work may intentionally appear once in the general rail and again in one or more relevant child sections; this is normal shelf behavior, not a duplicate bug.
+`profile_home_menus` stores root-menu visibility and order per profile. Public navigation merges these preferences with active root categories. Profile/kids/library restrictions remain authoritative after smart filtering.
 
-Configured sections are **library-scoped**. The selected `library_ids` are authoritative for membership. For a direct child section, `kind` is an organizational/presentation hint and must not filter a valid work out of that selected library. In particular, an Anime-labeled section backed by a `mixed` library must still show anime films whose external metadata type is `movie`.
+## Technical catalog index
 
-The Web obtains the root aggregate plus each child payload. The aggregate merges unique works from the root payload and child payloads, so intentionally mixed child libraries also contribute to the general rail. Series identity keys must preserve their string IDs; never coerce scanner series keys to numbers for de-duplication.
+`media_technical` caches real stream inspection keyed by `media_id` + source `modified_unix`:
 
-Empty child sections are omitted from rendering, but one empty/new section must not hide the root/general rail or any populated sibling section.
+- video codec/resolution/HDR/bitrate/duration;
+- audio languages;
+- subtitle languages;
+- pt-BR audio/subtitle flags;
+- technical `dublado`, `legendado` or `original` classification;
+- probe status/error/timestamp and serialized source probe.
 
-When a Home menu has **no active child sections**, the existing automatic metadata organization remains as a compatibility fallback: each title is assigned to one primary normalized pt-BR genre, unknown/missing genre becomes **Outros**, empty groups are hidden and Outros stays last.
+The background indexer runs **one ffprobe at a time** so remote mounts are not hammered. Changed files invalidate their cache. Pending work is automatic; transient probe errors become eligible for retry after 30 minutes. Admin can explicitly requeue all technical analysis.
 
-Admin → **Menus da Home** is the presentation editor. It has root menu cards, `+ Novo menu da Home`, `+ Nova seção`, order/type/active controls and a video-library picker. Section editing allows moving a section to another Home menu. System roots cannot be deleted; custom roots with child sections must have those children removed/moved first.
+Physical versions keep independent technical snapshots. Logical catalog cards remain deduplicated while `/media/{id}/versions` exposes source/quality alternatives.
 
-The recommended organizer follows the model:
+## Catalog health and duplicate identity
 
-- Filmes → 4K / UHD, Animação, Outros filmes;
-- Séries → Séries de TV;
-- Animes → Dublados, Séries, Filmes;
-- when an `animation_series` library exists, create/reuse **Desenhos** as a Home menu and place **Todos os desenhos** (`series-desenhos`) below it;
-- the reserved legacy `series-animes` section under Séries is disabled when the organizer is explicitly run.
+Admin → **Saúde & Automação** exposes totals for missing metadata, cover, genre, `Outros`, unavailable media, technical backlog and duplicate physical versions.
 
-This reformulation reuses the existing category tables and associations; **no schema migration** is required and profile/library access checks remain authoritative.
+Duplicate grouping follows logical identity. TMDB-backed episodic keys include media type + season + episode; fallback keys include normalized title + year + media type + season + episode. Different episodes must never be classified as duplicate copies.
 
-## Home / SQLite performance
+`catalog_changes` records protected catalog/admin actions for audit/history.
 
-SQLite remains intentional. Current optimizations include targeted indexes, a short access-scope-aware static Home cache, uncached profile-specific Continue Watching, concurrent independent reads under WAL and deep-copying cached feeds before request mutation.
+## Backups and restore
+
+`system_backups` registers SQLite snapshots stored under the database directory's `backups/` folder.
+
+- Automatic backups are reused for up to 30 minutes and retain the newest 10.
+- A registry row whose file is missing cannot satisfy the safety gate.
+- Manual backup is available from Admin.
+- Restore never overwrites the live DB. Admin stages `<database>.restore` and fsyncs it.
+- On next startup, before opening the primary DB, StormFlix runs SQLite `quick_check` on the staged file.
+- The previous main DB plus any `-wal`/`-shm` sidecars are moved to a timestamped pre-restore safety copy.
+- If final activation fails, StormFlix rolls the previous database/sidecars back into place.
+
+Media files and asset folders are not part of this SQLite backup mechanism and are never deleted by restore.
+
+## Large-catalog Web performance / artwork caching
+
+`catalog-performance.js` renders at most 28 cards per rail initially and loads further chunks with `IntersectionObserver`/manual load-more. Card images use lazy loading, async decode and low fetch priority.
+
+Authenticated local `/assets/` responses use private one-day browser caching with stale-while-revalidate. When `AssetPublicBaseURL` is configured, that external URL remains the intended CDN layer and controls its own public cache policy.
 
 ## Schema history
 
 - Phase 9: `media_series_identity`.
 - Phase 10: `series_metadata_overrides`, category `parent_id`, performance indexes.
-- Phase 11: ordered series-child index and cleanup of legacy episode manual flags.
+- Phase 11: ordered series-child index and legacy episode-manual cleanup.
 - Phase 12: persistent `scan_jobs` and metadata job type/series/provider fields.
-- Playback/cache, source-root relocation and the Home-menu/category presentation reformulation add no schema migration.
+- **Phase 13:** category smart rules, `media_technical`, `catalog_changes`, `profile_home_menus`, `system_backups` and playback diagnostic columns.
 
-## Required validation
+Migrations are forward/startup migrations. Phase 13 does not move/delete source media.
 
-Before presenting relevant work as ready:
+## Required validation before merge/release
 
-- JavaScript syntax checks, including public category navigation and Admin Home-menu editor;
-- `go test ./...` including Home-menu/category regression tests;
-- `go test -race ./internal/playback ./internal/webcompat` when playback/cache concurrency is touched;
-- Go server build;
-- Android build/tests only when Android code changes.
+- JavaScript syntax checks for public Web + Admin, including automation and large-catalog scripts.
+- `go test ./...`.
+- `go test -race ./internal/playback ./internal/webcompat` when playback/cache concurrency changes.
+- `go build -trimpath ./cmd/stormflix`.
+- Exact PR-head CI must be green before merge.
+- Post-merge `main` CI must also be green before deployment is presented as ready.
+- Android workflow is required only when Android source changes.
 
-Source-root relocation tests must keep proving that the same `media.id`, matched metadata and selected artwork survive a physical root change and the next scan.
+Automation regression coverage includes smart rule normalization, pt-BR stream classification, episode-safe duplicates, read-only scan preview, adaptive HLS bounds, Phase 13 migration and validated staged restore.
 
-## Known pending real-world QA
+## Real-world QA after deployment
 
-Real deployment should still validate:
-
-- Player v4 + dynamic HLS on target browsers and mounted storage;
-- SSD use under concurrent HLS sessions and immediate cleanup after close;
-- custom Home menu creation such as **Desenhos** and its appearance before Música;
-- **Animes** general rail remaining visible after adding multiple child sections;
-- multiple child sections stacking below the general rail in configured order;
-- `mixed` anime-film libraries appearing inside Anime child sections even when TMDB reports `media_type=movie`;
-- profile/library permission filtering with the real catalog;
-- real Drive/rclone root changes preserving IDs/artwork and smooth scan/metadata polling;
-- Jellyfin Android TV/Fire after catalog metadata is known-correct.
+Architecture/tests do not replace device/storage validation. Check representative mounted media for Direct Play, remux/audio-compatibility, multi-audio pt-BR selection, 4K/HDR where supported, dynamic-HLS buffer diagnostics, SSD budget/cleanup, smart Dublado/Legendado/4K rails, profile-specific menu ordering, dry-run scan against real mounts and backup/restore from the Admin flow.
 
 ## Documentation rule
 
