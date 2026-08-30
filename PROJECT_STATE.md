@@ -49,8 +49,8 @@ StormFlix TV/Fire ───┘        │
                               ├── Profiles / progress
                               ├── Library access
                               ├── Metadata / subtitles
-                              ├── Dynamic HLS session cache (Web)
-                              └── Seekable compatibility MP4 cache (native/manual fallback)
+                              ├── Dynamic HLS session cache (Web/Android/TV/Fire)
+                              └── Seekable compatibility MP4 cache (legacy/manual fallback)
 
 Official Jellyfin clients ──> isolated compatibility facade ──> StormFlix core
 ```
@@ -75,7 +75,7 @@ Admin “Reproduzindo agora” returns the enriched playback superset while pres
 
 ### Managed legacy compatibility MP4 cache
 
-`internal/webcompat/materialize.go` + `CacheManager` remain for Android/TV/manual compatibility paths. Defaults: 20 GiB max, 48h TTL, 15m cleanup, LRU target 85%, free-space reserve, active-file protection and short-lived oversize artifacts.
+`internal/webcompat/materialize.go` + `CacheManager` remain for legacy/unknown native and manual compatibility paths. Defaults: 20 GiB max, 48h TTL, 15m cleanup, LRU target 85%, free-space reserve, active-file protection and short-lived oversize artifacts.
 
 ## StormFlix Android / Android TV / Fire TV
 
