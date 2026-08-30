@@ -177,3 +177,23 @@ func TestQualityPreferenceCapsTranscodeResolution(t *testing.T) {
 		t.Fatalf("unexpected plan: %+v", plan)
 	}
 }
+
+func TestExplicitQualityDownshiftTranscodesOtherwiseCompatibleSource(t *testing.T) {
+	req := baseRequest()
+	req.Quality = "720p"
+	source := Source{Container: "mp4", Streams: []Stream{{Index: 0, Type: "video", Codec: "h264", Width: 1920, Height: 1080, FrameRate: 24}, {Index: 1, Type: "audio", Codec: "aac"}}}
+	plan := Decide(source, req)
+	if !plan.Available || plan.Mode != ModeVideoTranscode || !plan.VideoTranscode || plan.ReasonCode != "quality_limit" || plan.TargetVideoWidth != 1280 || plan.TargetVideoHeight != 720 {
+		t.Fatalf("expected explicit 720p quality cap to transcode 1080p source, got %+v", plan)
+	}
+}
+
+func TestOriginalQualityKeepsCompatibleDirectPlay(t *testing.T) {
+	req := baseRequest()
+	req.Quality = "original"
+	source := Source{Container: "mp4", Streams: []Stream{{Index: 0, Type: "video", Codec: "h264", Width: 1920, Height: 1080}, {Index: 1, Type: "audio", Codec: "aac"}}}
+	plan := Decide(source, req)
+	if !plan.Available || plan.Mode != ModeDirectPlay || plan.VideoTranscode || plan.Quality != "original" {
+		t.Fatalf("expected original quality to preserve compatible direct play, got %+v", plan)
+	}
+}
