@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 )
@@ -53,8 +54,12 @@ func (s *server) playbackTelemetry(w http.ResponseWriter, r *http.Request) {
 
 	u := currentUser(r)
 	item, err := s.media.GetStreamItem(r.Context(), mediaID)
-	if err != nil || !item.Available {
-		writeError(w, http.StatusNotFound, err)
+	if err != nil {
+		writeError(w, http.StatusNotFound, errors.New("media not found"))
+		return
+	}
+	if !item.Available {
+		writeError(w, http.StatusNotFound, errors.New("media not found"))
 		return
 	}
 	if roleLevel(u.Role) < 2 && !containsInt64(u.LibraryIDs, item.LibraryID) {
