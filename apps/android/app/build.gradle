@@ -1,4 +1,4 @@
-// StormFlix Android 0.5.2 - Playback Engine v5 mobile playback JSON compatibility fix
+// StormFlix Android 0.5.3 - PlaybackPlan JSON compatibility retry
 plugins {
     id 'com.android.application'
 }
@@ -11,8 +11,8 @@ android {
         applicationId 'cloud.stormflix.app'
         minSdk 23
         targetSdk 36
-        versionCode 16
-        versionName '0.5.2'
+        versionCode 17
+        versionName '0.5.3'
     }
 
     buildTypes {
