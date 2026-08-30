@@ -99,5 +99,9 @@ func (s *server) serveAsset(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	// Local /assets is authenticated, so keep shared caches out while allowing
+	// the browser to reuse artwork aggressively. A configured AssetPublicBaseURL
+	// remains the path for an external CDN and can apply its own public policy.
+	w.Header().Set("Cache-Control", "private, max-age=86400, stale-while-revalidate=604800")
 	http.ServeFile(w, r, path)
 }
