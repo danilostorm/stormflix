@@ -9,6 +9,7 @@ import (
 
 	"github.com/danilostorm/stormflix/internal/admin"
 	"github.com/danilostorm/stormflix/internal/media"
+	"github.com/danilostorm/stormflix/internal/streaming"
 	"github.com/danilostorm/stormflix/internal/transcode"
 )
 
@@ -55,11 +56,16 @@ func (s *server) playbackHeartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if session := normalizePlaybackSessionID(in.PlaybackSession); session != "" {
-		if transcode.IsSessionID(session) {
+		switch {
+		case streaming.IsSessionID(session):
+			if manager, managerErr := streaming.ForDataDir(s.config.DataDir); managerErr == nil {
+				manager.Touch(u.ID, session)
+			}
+		case transcode.IsSessionID(session):
 			if manager, managerErr := transcode.ForDataDir(s.config.DataDir); managerErr == nil {
 				manager.Touch(u.ID, session)
 			}
-		} else {
+		default:
 			s.hlsCache.TouchSession(u.ID, session)
 		}
 	}
@@ -162,11 +168,16 @@ func (s *server) playbackStop(w http.ResponseWriter, r *http.Request) {
 	session := normalizePlaybackSessionID(r.URL.Query().Get("session"))
 	cacheCleared := false
 	if session != "" {
-		if transcode.IsSessionID(session) {
+		switch {
+		case streaming.IsSessionID(session):
+			if manager, managerErr := streaming.ForDataDir(s.config.DataDir); managerErr == nil {
+				cacheCleared = manager.Close(u.ID, session)
+			}
+		case transcode.IsSessionID(session):
 			if manager, managerErr := transcode.ForDataDir(s.config.DataDir); managerErr == nil {
 				cacheCleared = manager.Close(u.ID, session)
 			}
-		} else {
+		default:
 			cacheCleared = s.hlsCache.CloseSession(u.ID, session)
 		}
 	}
