@@ -6,12 +6,15 @@ const automatic4KFallbackHeight = 1080
 
 // applyAutomatic4KCostGuard keeps compatible UHD on Direct Play, but prevents
 // an automatic compatibility transcode from spending server resources on a
-// 4K->4K encode. Explicit user quality choices remain authoritative.
+// 4K->4K encode. Auto and Original both mean "do not intentionally downshift";
+// if the source is incompatible and must be re-encoded anyway, the safe live
+// compatibility ceiling is 1080p. An explicit 2160p choice remains authoritative.
 func applyAutomatic4KCostGuard(plan Plan) Plan {
 	if !plan.Available || plan.Mode != ModeVideoTranscode || !plan.VideoTranscode {
 		return plan
 	}
-	if normalizeQuality(plan.Quality) != "auto" || plan.VideoHeight < 2000 {
+	quality := normalizeQuality(plan.Quality)
+	if (quality != "auto" && quality != "original") || plan.VideoHeight < 2000 {
 		return plan
 	}
 	targetHeight := plan.TargetVideoHeight
