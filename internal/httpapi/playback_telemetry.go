@@ -9,15 +9,18 @@ import (
 )
 
 type playbackTelemetryInput struct {
-	PlaybackSessionID string  `json:"playback_session_id"`
-	Mode              string  `json:"mode"`
-	ClientKind        string  `json:"client_kind"`
-	BitrateKbps       int64   `json:"bitrate_kbps"`
-	BufferSeconds     float64 `json:"buffer_seconds"`
-	ReadMbps          float64 `json:"read_mbps"`
-	VideoCodec        string  `json:"video_codec"`
-	AudioCodec        string  `json:"audio_codec"`
-	LastError         string  `json:"last_error"`
+	PlaybackSessionID  string                   `json:"playback_session_id"`
+	Mode               string                   `json:"mode"`
+	ClientKind         string                   `json:"client_kind"`
+	BitrateKbps        int64                    `json:"bitrate_kbps"`
+	BufferSeconds      float64                  `json:"buffer_seconds"`
+	ReadMbps           float64                  `json:"read_mbps"`
+	VideoCodec         string                   `json:"video_codec"`
+	AudioCodec         string                   `json:"audio_codec"`
+	LastError          string                   `json:"last_error"`
+	Operation          string                   `json:"operation,omitempty"`
+	PlaybackPreferences *playbackPreferenceState `json:"playback_preferences,omitempty"`
+	Marker             *playbackMarkerState     `json:"marker,omitempty"`
 }
 
 func (s *server) playbackTelemetry(w http.ResponseWriter, r *http.Request) {
@@ -62,6 +65,9 @@ func (s *server) playbackTelemetry(w http.ResponseWriter, r *http.Request) {
 	}
 	if roleLevel(u.Role) < 2 && !containsInt64(u.LibraryIDs, item.LibraryID) {
 		writeError(w, http.StatusForbidden, errForbidden)
+		return
+	}
+	if s.handlePlaybackDelightTelemetry(w, r, mediaID, in) {
 		return
 	}
 
