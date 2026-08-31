@@ -23,7 +23,7 @@ Server HTTP port: **8090**, normally behind HTTPS reverse proxy.
 
 - Server: **`0.21.0-playback-v5`**.
 - Web Player: current v5 line, with the v5.3 continuous Web playback session architecture plus later UI/TV-control improvements.
-- Android package: `cloud.stormflix.app`, **0.6.2 / versionCode 20**, minSdk 23, targetSdk 36, Java 17.
+- Android package: `cloud.stormflix.app`, **0.6.3 / versionCode 21**, minSdk 23, targetSdk 36, Java 17.
 - Android phone/tablet, Android TV and Fire TV keep the native StormFlix catalog UI but video playback is delegated to the hosted StormFlix Web Player inside `PlayerActivity` WebView. Media3 remains only where still required by the native music module.
 - Samsung Tizen client: `apps/tizen`, **0.1.0**, a small TV shell that hands control to the hosted StormFlix Web UI/Web Player. Final `.wgt` installation requires the developer's Samsung/Tizen signing profile.
 - LG webOS client: `apps/webos`, **0.1.0**, a small TV shell that hands control to the hosted StormFlix Web UI/Web Player and can be packaged as `.ipk` for Developer Mode installation.
@@ -61,6 +61,16 @@ Authoritative policy:
 
 Native plan modes remain `direct_play`, `remux`, `audio_compatibility`, `video_transcode` and `unsupported`.
 
+### 4K/UHD cost policy
+
+UHD remains a first-class Direct Play format, not a reason to transcode automatically:
+
+- a client that advertises a compatible decoder/profile receives the original 4K source through Direct Play whenever container/audio requirements also permit it;
+- audio-only incompatibility never turns into a 4K video encode: source video stays stream-copy and only the selected audio may become AAC-LC;
+- when an UHD source is incompatible and video encoding is unavoidable under `Auto` or `Original`, live compatibility transcode is capped at **1080p / 8 Mbps** instead of performing an expensive 4K→4K encode;
+- an explicit user choice of `2160p` remains intentional and is not silently overridden by the automatic cost guard;
+- dedicated smart UHD/4K shelves use client resolution/codec hints, while ordinary genre/search/catalog surfaces keep the title visible because PlaybackPlan can still provide a safe lower-resolution route.
+
 ### Web playback
 
 The browser is the reference playback implementation. The current Web path is designed around a stable playback session rather than user-visible retry/fallback loops:
@@ -68,17 +78,23 @@ The browser is the reference playback implementation. The current Web path is de
 - compatible media uses HTTP Range Direct Play;
 - Direct Stream/audio compatibility keeps source video in stream-copy when possible;
 - when FFmpeg is required for Web playback, the Web v5.3 session architecture keeps one continuous execution associated with the playback session instead of restarting FFmpeg for small HLS batches;
+- hardware video encoders exposed by the installed FFmpeg are preferred before CPU encoders; CPU remains the reliability fallback;
+- CPU live H.264 fallback uses a lower-cost `superfast` preset, and UHD→1080 compatibility scaling uses the low-latency FFmpeg scaler to reduce server load; ordinary downscales keep balanced bicubic scaling;
 - resume/seek, audio changes and real quality changes preserve the current position;
 - audio menus expose real source tracks rather than an artificial Original/AAC selector;
 - source-aware quality menus never offer resolutions above the actual source;
 - screen modes (`Ajustar`, `16:9`, `Preencher/Zoom`, `Esticar`) are presentation-only and do not restart the stream;
 - hls.js/native HLS remains available where required by the browser transport.
 
+Hardware acceleration is effective only when the container can actually access the corresponding host device/runtime and the installed FFmpeg exposes the encoder. The Admin transcode diagnostics are authoritative for whether a live session is using NVENC, QSV, VAAPI or CPU; the application must continue falling back safely when hardware acceleration is unavailable.
+
 The user's real-browser test is the final authority for startup and stall behavior; CI proves build/logic safety, not remote-mount latency.
 
 ### Android / Fire TV / Android TV
 
 The native shell keeps the complete StormFlix catalog/navigation. Opening video launches the same hosted Web Player so phone, tablet and TV no longer maintain a separate video playback engine.
+
+Android 0.6.3 derives catalog UHD capability from the device's actual `MediaCodecList` decoder inventory and maximum supported video size rather than assuming every Android/Fire device is 4K-capable. Those hints are used only to decide whether a dedicated UHD shelf is appropriate; PlaybackPlan remains authoritative when a title is opened elsewhere.
 
 For TV remotes, physical Android/Fire key codes are intercepted before System WebView/HTML video and translated into semantic commands. The shared `tv-remote.js` then owns player behavior. This prevents D-pad Up/Down from changing HTML-video volume and provides navigation for OK/select, Back, Menu/Settings/Info, Play/Pause, rewind/fast-forward, previous/next, captions and audio. Hardware volume remains owned by the operating system.
 
@@ -142,9 +158,17 @@ Changing a source root preserves media IDs when replacement is an unambiguous on
 
 `library_categories.parent_id` keeps the two-level Home model: root categories are top navigation menus and direct children are gallery rails. Persistent smart rules can filter by library, genre, media type, year/rating, recency, resolution, HDR/SDR, pt-BR audio/subtitles, dub/sub classification and metadata readiness.
 
+Dedicated UHD smart shelves (`min_height >= 2000`) may additionally use explicit client hints for maximum resolution, video codec and known HDR capability. This is a presentation optimization only; it does not create a new library permission boundary and does not hide UHD titles from ordinary rails.
+
 Profile Home preferences control root visibility/order without bypassing kids/library permissions.
 
 `media_technical` caches ffprobe stream information by `media_id` and source modification time. Background probing is intentionally serialized to protect remote mounts. PlaybackPlan reuses valid technical snapshots and falls back to live probing when required.
+
+## Assets and cleanup
+
+Artwork optimization is lossless by default. The asset store can scan for byte-identical regular files using SHA-256 and consolidate duplicates with hard links when the filesystem supports them. Public/database asset paths remain unchanged, no poster/backdrop/logo is recompressed, and files that cannot be linked are left untouched.
+
+Admin cleanup reports both logical asset bytes and unique physical inode bytes, making deduplication savings visible. The explicit **Otimizar assets sem perda** action performs this deduplication independently from destructive orphan/temp cleanup.
 
 ## Jellyfin compatibility
 
@@ -166,7 +190,7 @@ For a change touching these areas, validate the exact PR head with the applicabl
 
 - JavaScript syntax;
 - `go test ./...`;
-- `go test -race ./internal/playback ./internal/webcompat ./internal/transcode`;
+- `go test -race ./internal/playback ./internal/webcompat ./internal/transcode ./internal/streaming`;
 - `go build -trimpath ./cmd/stormflix`;
 - Android Gradle build when Android files/version change;
 - Tizen manifest/JavaScript validation when Tizen files change;
