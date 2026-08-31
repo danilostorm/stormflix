@@ -47,6 +47,8 @@ type Config struct {
 	HLSBatchSegments           int
 	BootstrapLibraryName       string
 	BootstrapLibraryPath       string
+	ManagedMovieLibraryName    string
+	ManagedMoviePaths          []string
 }
 
 func Load() Config {
@@ -88,10 +90,12 @@ func Load() Config {
 		HLSCacheIdleTTL:            envDuration("STORMFLIX_HLS_CACHE_IDLE_TTL", 30*time.Minute),
 		// Short fragments let Web playback deliver the first frame quickly. The
 		// batch still keeps a healthy buffer ahead without materializing a movie.
-		HLSSegmentDuration:         envDuration("STORMFLIX_HLS_SEGMENT_DURATION", 2*time.Second),
-		HLSBatchSegments:           envInt("STORMFLIX_HLS_BATCH_SEGMENTS", 8),
-		BootstrapLibraryName:       env("STORMFLIX_BOOTSTRAP_LIBRARY_NAME", "Media"),
-		BootstrapLibraryPath:       os.Getenv("STORMFLIX_BOOTSTRAP_LIBRARY_PATH"),
+		HLSSegmentDuration:      envDuration("STORMFLIX_HLS_SEGMENT_DURATION", 2*time.Second),
+		HLSBatchSegments:        envInt("STORMFLIX_HLS_BATCH_SEGMENTS", 8),
+		BootstrapLibraryName:    env("STORMFLIX_BOOTSTRAP_LIBRARY_NAME", "Media"),
+		BootstrapLibraryPath:    os.Getenv("STORMFLIX_BOOTSTRAP_LIBRARY_PATH"),
+		ManagedMovieLibraryName: env("STORMFLIX_MANAGED_MOVIE_LIBRARY_NAME", "Filmes"),
+		ManagedMoviePaths:       envList("STORMFLIX_MANAGED_MOVIE_PATHS"),
 	}
 }
 
@@ -104,6 +108,22 @@ func env(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func envList(key string) []string {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 func envBool(key string, fallback bool) bool {
