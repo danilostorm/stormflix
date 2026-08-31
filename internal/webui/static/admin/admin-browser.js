@@ -75,6 +75,7 @@ async function openFolderBrowser(target){
     modal.innerHTML=`<div class="folder-card">
       <div class="folder-head"><div><p class="kicker">Armazenamento do servidor</p><h2>Selecionar pasta</h2></div><button type="button" id="folder-close">✕</button></div>
       <div class="folder-path" id="folder-current"></div>
+      <div class="folder-roots-wrap" id="folder-roots-wrap"><span>Locais disponíveis</span><div class="folder-roots" id="folder-roots"></div></div>
       <div class="folder-toolbar"><button type="button" id="folder-up">← Voltar</button><button type="button" class="primary" id="folder-use">Usar esta pasta</button></div>
       <div class="folder-list" id="folder-list"></div>
     </div>`;
@@ -83,12 +84,25 @@ async function openFolderBrowser(target){
     modal.onclick=e=>{if(e.target===modal)closeFolderBrowser()};
   }
   modal.classList.remove('hidden');
-  await browseFolder(target.value||'');
+  const initial=target.value||'';
+  const ok=await browseFolder(initial);
+  if(!ok&&initial)await browseFolder('');
 }
 
 function closeFolderBrowser(){
   $('#folder-browser')?.classList.add('hidden');
   folderTarget=null;
+}
+
+function renderFolderRoots(d){
+  const wrap=$('#folder-roots-wrap');
+  const holder=$('#folder-roots');
+  const roots=Array.isArray(d.roots)?d.roots:[];
+  if(!wrap||!holder)return;
+  if(!roots.length){wrap.classList.add('hidden');holder.innerHTML='';return}
+  wrap.classList.remove('hidden');
+  holder.innerHTML=roots.map(root=>`<button type="button" class="folder-root ${root.path===d.root?'active':''}" data-root-path="${esc(root.path)}"><span>📁</span><span><b>${esc(root.name||root.path)}</b><small>${esc(root.path)}</small></span></button>`).join('');
+  holder.querySelectorAll('[data-root-path]').forEach(button=>button.onclick=()=>browseFolder(button.dataset.rootPath));
 }
 
 async function browseFolder(path){
@@ -97,6 +111,7 @@ async function browseFolder(path){
   try{
     const d=await req('/admin/filesystem'+(path?`?path=${encodeURIComponent(path)}`:''));
     $('#folder-current').textContent=d.current;
+    renderFolderRoots(d);
     $('#folder-up').disabled=!d.parent;
     $('#folder-up').onclick=()=>d.parent&&browseFolder(d.parent);
     $('#folder-use').onclick=()=>{
@@ -105,7 +120,9 @@ async function browseFolder(path){
     };
     list.innerHTML=d.directories.length?d.directories.map(dir=>`<button type="button" class="folder-row" data-path="${esc(dir.path)}"><span class="folder-icon">📁</span><span>${esc(dir.name)}</span><span class="folder-arrow">›</span></button>`).join(''):'<div class="folder-empty">Nenhuma subpasta aqui.</div>';
     $$('#folder-list [data-path]').forEach(b=>b.onclick=()=>browseFolder(b.dataset.path));
+    return true;
   }catch(err){
     list.innerHTML=`<div class="folder-empty offline">${esc(err.message)}</div>`;
+    return false;
   }
 }
