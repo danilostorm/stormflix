@@ -64,6 +64,13 @@ func normalizeCatalogCodec(value string) string {
 	}
 }
 
+// Device capability hints are a presentation gate for dedicated UHD shelves,
+// not a catalog access rule. General genre/search rails must keep titles visible
+// because PlaybackPlan can still provide a safe compatibility transcode.
+func shouldGateUHDCategoryByDevice(mode string, rules categoryRules) bool {
+	return mode != "libraries" && rules.MinHeight >= 2000
+}
+
 // clientAllows4KMedia gates only UHD material. 1080p and lower catalog items
 // are unaffected. Older clients that do not send explicit capability hints
 // retain legacy behavior.
