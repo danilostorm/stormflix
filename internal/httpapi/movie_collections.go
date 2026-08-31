@@ -20,6 +20,9 @@ func (s *server) startMovieCollectionIndexer() {
 		return
 	}
 	go func() {
+		// The first Home is latency-sensitive. Give its catalog/profile queries a
+		// clean head start before collection enrichment begins using SQLite/TMDB.
+		time.Sleep(4 * time.Second)
 		for {
 			if !s.metadata.TMDBReady() {
 				time.Sleep(5 * time.Minute)
@@ -30,7 +33,8 @@ func (s *server) startMovieCollectionIndexer() {
 			case err != nil:
 				time.Sleep(30 * time.Second)
 			case worked:
-				time.Sleep(350 * time.Millisecond)
+				// One title at a time and deliberately below metadata/scan priority.
+				time.Sleep(900 * time.Millisecond)
 			default:
 				time.Sleep(5 * time.Minute)
 			}
