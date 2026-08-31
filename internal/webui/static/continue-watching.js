@@ -1,4 +1,4 @@
-/* StormFlix profile progress UI. */
+/* StormFlix profile progress UI. Playback resume is owned by PlaybackPlan/Core. */
 (function(){
   const baseCardHTML=cardHTML;
   cardHTML=function(item){
@@ -10,22 +10,18 @@
     return html;
   };
 
-  const basePlayMedia=playMedia;
-  playMedia=function(item){
-    const resume=Number(item?.position_seconds||0);
-    if(resume>=30){
-      player.addEventListener('loadedmetadata',function resumePosition(){
-        if(Number.isFinite(player.duration)&&resume<player.duration-15){
-          player.currentTime=resume;
-          if(typeof sfToast==='function')sfToast(`Continuando em ${formatResume(resume)}`);
-        }
-      },{once:true});
-    }
-    return basePlayMedia(item);
-  };
+  // Older builds restored item.position_seconds again on loadedmetadata. That
+  // second seek could override PlaybackPlan resume, quality recovery and the
+  // profile rewind-on-resume rule. The unified Playback Core is authoritative.
 
-  function formatResume(seconds){
-    seconds=Math.floor(seconds||0);const h=Math.floor(seconds/3600),m=Math.floor(seconds%3600/60);
-    return h?`${h}h ${m}min`:`${m}min`;
-  }
+  // profiles.js can finish bootstrap before the late player scripts execute.
+  // Re-emit the selected profile once so playback-only controllers always get
+  // the server-side autoplay preference and the correct profile namespace.
+  Promise.resolve().then(async()=>{
+    try{
+      const data=await request('/profiles');
+      const selected=(data?.profiles||[]).find(p=>Number(p.id)===Number(data?.selected_profile_id));
+      if(selected)window.dispatchEvent(new CustomEvent('stormflix:profile',{detail:selected}));
+    }catch{}
+  });
 })();
