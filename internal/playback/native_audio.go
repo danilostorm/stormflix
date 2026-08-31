@@ -5,8 +5,9 @@ package playback
 // select a decoder-supported track locally. This is intentionally narrower
 // than a codec fallback: video/container/resolution/HDR policy must already be
 // valid, and no video transcoding is introduced.
-func DecideForClient(source Source, request Request) Plan {
-	plan := Decide(source, request)
+func DecideForClient(source Source, request Request) (plan Plan) {
+	plan = Decide(source, request)
+	defer func() { plan = applyAutomatic4KCostGuard(plan) }()
 	if !request.Capabilities.NativeAudioTrackSelection || plan.Mode == ModeDirectPlay {
 		return plan
 	}

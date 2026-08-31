@@ -28,6 +28,35 @@
     if(sub){sub.innerHTML='';sub.classList.add('hidden')}
   }
 
+  function catalogCapabilityQuery(){
+    const probe=document.createElement('video');
+    const can=type=>{try{return Boolean(probe.canPlayType(type))}catch{return false}};
+    const codecs=[];
+    if(can('video/mp4; codecs="avc1.42E01E"'))codecs.push('h264');
+    if(can('video/mp4; codecs="hvc1.1.6.L93.B0"')||can('video/mp4; codecs="hev1.1.6.L93.B0"'))codecs.push('hevc');
+    if(can('video/mp4; codecs="av01.0.05M.08"')||can('video/webm; codecs="av01.0.05M.08"'))codecs.push('av1');
+    if(can('video/webm; codecs="vp09.00.10.08"'))codecs.push('vp9');
+
+    let cssHeight=Math.min(Number(screen?.width||innerWidth||0),Number(screen?.height||innerHeight||0));
+    let physicalHeight=Math.round(cssHeight*Math.max(1,Number(devicePixelRatio||1)));
+    try{
+      if(window.webapis?.productinfo?.isUdPanelSupported?.())physicalHeight=Math.max(2160,physicalHeight);
+    }catch{}
+    let maxHeight=480;
+    if(physicalHeight>=2000)maxHeight=2160;
+    else if(physicalHeight>=1300)maxHeight=1440;
+    else if(physicalHeight>=900)maxHeight=1080;
+    else if(physicalHeight>=650)maxHeight=720;
+
+    const q=new URLSearchParams();
+    q.set('client_max_height',String(maxHeight));
+    if(codecs.length)q.set('client_video_codecs',[...new Set(codecs)].join(','));
+    // Browsers do not expose a sufficiently reliable HDR-decoder contract on
+    // every TV platform, so HDR stays unknown instead of hiding valid titles.
+    q.set('client_hdr_known','0');
+    return`?${q.toString()}`;
+  }
+
   async function loadCategories(){
     const loaded=await Promise.all([
       request('/categories').catch(()=>[]),
@@ -56,7 +85,6 @@
       bindRoot(button,root);
       const music=document.querySelector('#music-nav');if(music)nav.insertBefore(button,music);else nav.appendChild(button);
     }
-    // A system root hidden for the selected profile must disappear too.
     categories.filter(c=>!c.parent_id&&c.system).forEach(root=>{
       const button=nav.querySelector(`[data-nav="${root.slug}"]`);if(!button)return;
       const visible=roots.some(x=>Number(x.id)===Number(root.id));button.classList.toggle('hidden',!visible);
@@ -76,10 +104,11 @@
     const target=$('#rows');target.innerHTML='<div class="empty-state">Carregando seções…</div>';
     try{
       const sections=childrenOf(root.id);
+      const caps=catalogCapabilityQuery();
       if(sections.length){
         const [rootData,results]=await Promise.all([
           request(`/categories/${encodeURIComponent(root.slug)}`),
-          Promise.all(sections.map(async section=>({section,data:await request(`/categories/${encodeURIComponent(section.slug)}/smart`)})))
+          Promise.all(sections.map(async section=>({section,data:await request(`/categories/${encodeURIComponent(section.slug)}/smart${caps}`)})))
         ]);
         const sectionRows=[];
         for(const {section,data} of results){

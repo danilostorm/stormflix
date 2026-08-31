@@ -1,4 +1,4 @@
-// StormFlix Android 0.6.2 - native catalog UI + unified Web Video Player + TV remote input
+// StormFlix Android 0.6.3 - native catalog + device-aware UHD shelves + unified Web Video Player
 plugins {
     id 'com.android.application'
 }
@@ -11,8 +11,8 @@ android {
         applicationId 'cloud.stormflix.app'
         minSdk 23
         targetSdk 36
-        versionCode 20
-        versionName '0.6.2'
+        versionCode 21
+        versionName '0.6.3'
     }
 
     buildTypes {

@@ -11,13 +11,13 @@ import org.json.JSONObject;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-/** Builds the native /api/v1 PlaybackPlan v5 capability request for Media3. */
+/** Builds native device capability documents used by StormFlix catalog/playback policy. */
 public final class PlaybackCapabilities {
-    private static final String VERSION = "0.5.3";
+    private static final String VERSION = "0.6.3";
+    private static volatile String catalogQueryCache;
 
     private static final Map<String,String> VIDEO_MIME_TO_CODEC = new LinkedHashMap<>();
     private static final Map<String,String> AUDIO_MIME_TO_CODEC = new LinkedHashMap<>();
@@ -47,6 +47,49 @@ public final class PlaybackCapabilities {
 
     private PlaybackCapabilities() {}
 
+    /**
+     * Query string consumed by /categories/{slug}/smart. UHD shelves are only
+     * returned when the physical Android/Fire device advertises a decoder that
+     * can actually handle the resolution and codec. The value is cached because
+     * MediaCodec enumeration is stable for the lifetime of the app process.
+     */
+    public static String catalogQuery(Context context) {
+        String cached = catalogQueryCache;
+        if (cached != null) return cached;
+
+        MediaCodecInfo[] codecs;
+        try { codecs = new MediaCodecList(MediaCodecList.ALL_CODECS).getCodecInfos(); }
+        catch (Exception e) { codecs = new MediaCodecInfo[0]; }
+
+        Set<String> videoCodecs = new LinkedHashSet<>();
+        int maxHeight = 0;
+        for (Map.Entry<String,String> entry : VIDEO_MIME_TO_CODEC.entrySet()) {
+            VideoLimits limits = inspectVideo(codecs, entry.getKey());
+            if (!limits.supported) continue;
+            videoCodecs.add(entry.getValue());
+            maxHeight = Math.max(maxHeight, limits.height);
+        }
+
+        StringBuilder query = new StringBuilder("?");
+        boolean has = false;
+        if (maxHeight > 0) {
+            query.append("client_max_height=").append(maxHeight);
+            has = true;
+        }
+        if (!videoCodecs.isEmpty()) {
+            if (has) query.append('&');
+            query.append("client_video_codecs=").append(String.join(",", videoCodecs));
+            has = true;
+        }
+        if (has) query.append('&');
+        // Android codec profile reporting is inconsistent across vendors for
+        // display HDR output. Keep HDR unknown instead of falsely hiding valid
+        // UHD titles; codec + resolution are still enforced.
+        query.append("client_hdr_known=0");
+        catalogQueryCache = query.toString();
+        return catalogQueryCache;
+    }
+
     public static JSONObject buildRequest(Context context, SessionStore store, String playbackSessionId) throws Exception {
         Set<String> videoCodecs = new LinkedHashSet<>();
         Set<String> audioCodecs = new LinkedHashSet<>();
@@ -74,9 +117,6 @@ public final class PlaybackCapabilities {
             if (hasDecoder(codecs, entry.getKey())) audioCodecs.add(entry.getValue());
         }
 
-        videoCodecs.add("h264");
-        audioCodecs.add("aac");
-
         boolean television = RemoteUi.isTelevision(context);
         JSONArray containers = array("mp4", "mkv", "webm", "ts", "mpegts", "m2ts", "flv", "ogg");
         JSONObject capabilities = new JSONObject()
@@ -87,7 +127,7 @@ public final class PlaybackCapabilities {
             .put("subtitle_formats", array("vtt", "srt", "ass", "ssa"))
             .put("allow_remux", true)
             .put("allow_audio_compatibility", audioCodecs.contains("aac"))
-            .put("allow_video_transcode", true)
+            .put("allow_video_transcode", videoCodecs.contains("h264"))
             .put("max_transcode_bitrate_kbps", television ? 25000 : 16000)
             .put("native_audio_track_selection", true)
             .put("server_selects_audio", false)

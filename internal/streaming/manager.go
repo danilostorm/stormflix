@@ -624,9 +624,9 @@ func encoderArgs(candidate encoderCandidate, spec Spec) []string {
 	case strings.HasSuffix(candidate.name, "_vaapi"):
 		return []string{"-c:v", candidate.name, "-b:v", b, "-maxrate", b, "-bufsize", buf}
 	case candidate.name == "libx264":
-		return []string{"-c:v", "libx264", "-preset", "veryfast", "-profile:v", "high", "-crf", "21", "-maxrate", b, "-bufsize", buf, "-pix_fmt", "yuv420p"}
+		return []string{"-c:v", "libx264", "-preset", "superfast", "-profile:v", "high", "-crf", "21", "-maxrate", b, "-bufsize", buf, "-pix_fmt", "yuv420p"}
 	case candidate.name == "libx265":
-		return []string{"-c:v", "libx265", "-preset", "fast", "-crf", "24", "-maxrate", b, "-bufsize", buf, "-pix_fmt", "yuv420p"}
+		return []string{"-c:v", "libx265", "-preset", "veryfast", "-crf", "24", "-maxrate", b, "-bufsize", buf, "-pix_fmt", "yuv420p"}
 	case candidate.name == "libsvtav1":
 		return []string{"-c:v", "libsvtav1", "-preset", "8", "-crf", "30", "-b:v", b, "-pix_fmt", "yuv420p"}
 	default:
@@ -652,7 +652,14 @@ func (m *Manager) videoFilter(spec Spec, candidate encoderCandidate) string {
 			filters = append(filters, fmt.Sprintf("scale_vaapi=w=%d:h=%d:format=nv12", w, h))
 		}
 	} else if w > 0 && h > 0 && (w != spec.Width || h != spec.Height) {
-		filters = append(filters, fmt.Sprintf("scale=%d:%d:flags=lanczos", w, h))
+		// Live compatibility transcodes favor low CPU latency over offline-quality
+		// resampling. Direct Play is unaffected, and 4K->1080p gets the cheapest
+		// scaler because its source contains ample spatial detail.
+		flags := "bicubic"
+		if spec.Height >= 2000 && h <= 1080 {
+			flags = "fast_bilinear"
+		}
+		filters = append(filters, fmt.Sprintf("scale=%d:%d:flags=%s", w, h, flags))
 	}
 	if spec.TargetFrameRate > 0 && spec.FrameRate > spec.TargetFrameRate+0.01 {
 		filters = append(filters, fmt.Sprintf("fps=%.3f", spec.TargetFrameRate))

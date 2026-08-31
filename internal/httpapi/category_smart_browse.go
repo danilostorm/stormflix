@@ -66,9 +66,21 @@ func (s *server) browseSmartCategory(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	clientCaps := clientMediaCapsFromRequest(r)
+	gateUHDByDevice := shouldGateUHDCategoryByDevice(config.RuleMode, config.Rules)
 	technicalPending := false
+	allowedByDevice := func(mediaID int64) bool {
+		if !gateUHDByDevice || !clientCaps.Explicit {
+			return true
+		}
+		tech, ok := s.technicalSnapshotFor(r.Context(), mediaID)
+		if !ok || tech.Status != "ok" {
+			return true
+		}
+		return clientAllows4KMedia(clientCaps, tech)
+	}
 	for _, item := range series {
-		if s.smartItemMatches(r.Context(), item.RepresentativeMediaID, item.MediaType, item.Year, item.Rating, item.Genres, item.ModifiedUnix, "matched", config.Rules, config.RuleMode, &technicalPending) {
+		if s.smartItemMatches(r.Context(), item.RepresentativeMediaID, item.MediaType, item.Year, item.Rating, item.Genres, item.ModifiedUnix, "matched", config.Rules, config.RuleMode, &technicalPending) && allowedByDevice(item.RepresentativeMediaID) {
 			response.Series = append(response.Series, item)
 		}
 	}
@@ -76,7 +88,7 @@ func (s *server) browseSmartCategory(w http.ResponseWriter, r *http.Request) {
 		if item.EpisodeNumber > 0 || item.MediaType == "series" {
 			continue
 		}
-		if s.smartItemMatches(r.Context(), item.ID, item.MediaType, item.Year, item.Rating, item.Genres, item.ModifiedUnix, item.MetadataStatus, config.Rules, config.RuleMode, &technicalPending) {
+		if s.smartItemMatches(r.Context(), item.ID, item.MediaType, item.Year, item.Rating, item.Genres, item.ModifiedUnix, item.MetadataStatus, config.Rules, config.RuleMode, &technicalPending) && allowedByDevice(item.ID) {
 			response.Media = append(response.Media, item)
 		}
 	}
