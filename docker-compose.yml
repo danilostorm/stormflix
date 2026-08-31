@@ -8,10 +8,14 @@ services:
     environment:
       STORMFLIX_ADDR: ":8090"
       STORMFLIX_DATA_DIR: "/data"
+      STORMFLIX_MANAGED_MOVIE_LIBRARY_NAME: "Filmes"
+      STORMFLIX_MANAGED_MOVIE_PATHS: "/mnt/remotes/ALIEN_Filmes,/mnt/user/Filmes"
       # Opcional: cria automaticamente a primeira biblioteca no primeiro boot.
       # STORMFLIX_BOOTSTRAP_LIBRARY_NAME: "Filmes"
       # STORMFLIX_BOOTSTRAP_LIBRARY_PATH: "/media/Filmes"
     volumes:
       - ./data:/data
-      # Troque pelo caminho REAL onde seu Google Drive/rclone já está montado.
+      # Montagens de mídia são somente leitura dentro do container.
       - /mnt/gdrive:/media:ro
+      - /mnt/remotes/ALIEN_Filmes:/mnt/remotes/ALIEN_Filmes:ro
+      - /mnt/user/Filmes:/mnt/user/Filmes:ro
