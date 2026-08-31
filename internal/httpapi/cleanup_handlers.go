@@ -157,6 +157,31 @@ func (s *server) buildCleanupReport() (cleanupReport, map[string]int64, map[stri
 	if err := rows.Close(); err != nil {
 		return report, nil, nil, err
 	}
+
+	// Profile photos live in the same asset store as artwork but are referenced
+	// by profiles.avatar_url rather than media_artwork. Treat local avatar URLs
+	// as first-class references so "Limpeza segura" can never delete a profile
+	// picture that is still in use. This also supports a configured public asset
+	// base URL, where the DB stores the absolute public URL instead of /assets/.
+	_, publicBaseURL := s.assets.Snapshot()
+	avatarRows, err := s.db.Query(`SELECT avatar_url FROM profiles WHERE avatar_url<>''`)
+	if err != nil {
+		return report, nil, nil, err
+	}
+	for avatarRows.Next() {
+		var avatarURL string
+		if err := avatarRows.Scan(&avatarURL); err != nil {
+			_ = avatarRows.Close()
+			return report, nil, nil, err
+		}
+		if key := localAssetKeyFromURL(avatarURL, publicBaseURL); key != "" {
+			referenced[key] = true
+		}
+	}
+	if err := avatarRows.Close(); err != nil {
+		return report, nil, nil, err
+	}
+
 	root, _ := s.assets.Snapshot()
 	orphans := map[string]int64{}
 	temps := map[string]int64{}
@@ -207,4 +232,19 @@ func (s *server) buildCleanupReport() (cleanupReport, map[string]int64, map[stri
 		report.DatabaseBytes = info.Size()
 	}
 	return report, orphans, temps, nil
+}
+
+func localAssetKeyFromURL(value, publicBaseURL string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if strings.HasPrefix(value, "/assets/") {
+		return filepath.ToSlash(strings.TrimPrefix(value, "/assets/"))
+	}
+	base := strings.TrimRight(strings.TrimSpace(publicBaseURL), "/")
+	if base != "" && strings.HasPrefix(value, base+"/") {
+		return filepath.ToSlash(strings.TrimPrefix(value, base+"/"))
+	}
+	return ""
 }

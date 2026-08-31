@@ -34,6 +34,7 @@ jobs:
           node --check internal/webui/static/admin/admin-scanner.js
           node --check internal/webui/static/admin/admin-phase2.js
           node --check internal/webui/static/admin/admin-settings.js
+          node --check internal/webui/static/admin/admin-trakt.js
           node --check internal/webui/static/admin/admin-diagnostics.js
           node --check internal/webui/static/admin/admin-enhancements.js
           node --check internal/webui/static/admin/admin-monitoring.js

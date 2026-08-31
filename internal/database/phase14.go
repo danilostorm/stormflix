@@ -24,5 +24,5 @@ func migratePhase14(db *sql.DB) error {
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_metadata_collection ON media_metadata(collection_tmdb_id,collection_name,media_id)`); err != nil {
 		return fmt.Errorf("migrate phase14 movie collections: %w", err)
 	}
-	return nil
+	return migratePhase15(db)
 }
