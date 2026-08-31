@@ -34,6 +34,16 @@ func main() {
 		logger.Error("failed to bootstrap library", "error", err)
 		os.Exit(1)
 	}
+	if len(cfg.ManagedMoviePaths) > 0 {
+		managed, err := libraryService.EnsureManagedSources(context.Background(), cfg.ManagedMovieLibraryName, "movies", cfg.ManagedMoviePaths)
+		if err != nil {
+			// A temporary remote/mount conflict must not stop the media server from
+			// starting. The administrator can still fix the source in the library UI.
+			logger.Warn("could not reconcile managed movie sources", "library", cfg.ManagedMovieLibraryName, "error", err)
+		} else if managed.ID > 0 {
+			logger.Info("managed movie sources ready", "library", managed.Name, "sources", managed.SourceCount)
+		}
+	}
 
 	handler := httpapi.New(db, libraryService, cfg)
 	server := &http.Server{
