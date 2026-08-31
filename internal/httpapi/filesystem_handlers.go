@@ -19,19 +19,19 @@ type browseResponse struct {
 	Current     string            `json:"current"`
 	Parent      string            `json:"parent,omitempty"`
 	Directories []browseDirectory `json:"directories"`
+	Roots       []browseDirectory `json:"roots,omitempty"`
 }
 
 func (s *server) browseFilesystem(w http.ResponseWriter, r *http.Request) {
-	root, err := filepath.Abs(s.config.MediaRoot)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
+	roots := normalizedFilesystemRoots(s.config.MediaRoot, s.config.ManagedMoviePaths)
+	if len(roots) == 0 {
+		writeError(w, http.StatusInternalServerError, errors.New("no media roots are configured"))
 		return
 	}
-	root = filepath.Clean(root)
 
 	requested := strings.TrimSpace(r.URL.Query().Get("path"))
 	if requested == "" {
-		requested = root
+		requested = roots[0].Path
 	}
 	current, err := filepath.Abs(requested)
 	if err != nil {
@@ -40,8 +40,9 @@ func (s *server) browseFilesystem(w http.ResponseWriter, r *http.Request) {
 	}
 	current = filepath.Clean(current)
 
-	if !pathWithinRoot(root, current) {
-		writeError(w, http.StatusForbidden, errors.New("path is outside the configured media root"))
+	allowedRoot, ok := filesystemRootForPath(roots, current)
+	if !ok {
+		writeError(w, http.StatusForbidden, errors.New("path is outside the configured media roots"))
 		return
 	}
 
@@ -73,14 +74,63 @@ func (s *server) browseFilesystem(w http.ResponseWriter, r *http.Request) {
 		return strings.ToLower(dirs[i].Name) < strings.ToLower(dirs[j].Name)
 	})
 
-	resp := browseResponse{Root: root, Current: current, Directories: dirs}
-	if current != root {
+	resp := browseResponse{Root: allowedRoot.Path, Current: current, Directories: dirs, Roots: roots}
+	if current != allowedRoot.Path {
 		parent := filepath.Dir(current)
-		if pathWithinRoot(root, parent) {
+		if pathWithinRoot(allowedRoot.Path, parent) {
 			resp.Parent = parent
 		}
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func normalizedFilesystemRoots(mediaRoot string, managed []string) []browseDirectory {
+	candidates := make([]string, 0, 1+len(managed))
+	candidates = append(candidates, mediaRoot)
+	candidates = append(candidates, managed...)
+
+	seen := make(map[string]struct{}, len(candidates))
+	roots := make([]browseDirectory, 0, len(candidates))
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		absolute, err := filepath.Abs(candidate)
+		if err != nil {
+			continue
+		}
+		absolute = filepath.Clean(absolute)
+		if _, exists := seen[absolute]; exists {
+			continue
+		}
+		seen[absolute] = struct{}{}
+
+		name := filepath.Base(absolute)
+		if name == "." || name == string(os.PathSeparator) || name == "" {
+			name = absolute
+		}
+		roots = append(roots, browseDirectory{Name: name, Path: absolute})
+	}
+	return roots
+}
+
+func filesystemRootForPath(roots []browseDirectory, path string) (browseDirectory, bool) {
+	var winner browseDirectory
+	found := false
+	for _, root := range roots {
+		if !pathWithinRoot(root.Path, path) {
+			continue
+		}
+		// Prefer the most specific root if roots are nested. This prevents the
+		// Back button from escaping a dedicated managed source into a broader
+		// authorized mount.
+		if !found || len(root.Path) > len(winner.Path) {
+			winner = root
+			found = true
+		}
+	}
+	return winner, found
 }
 
 func pathWithinRoot(root, path string) bool {

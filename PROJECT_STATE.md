@@ -118,6 +118,8 @@ STORMFLIX_MANAGED_MOVIE_PATHS
 - a reconciliation warning does not prevent the server from starting;
 - new media appears after the normal library scan, which retains the existing offline-source safety rules.
 
+The Admin folder picker is sandboxed to explicitly authorized media roots. It exposes the configured `MediaRoot` plus deployment-managed movie roots as switchable storage locations, allows normal navigation inside the selected root, and never opens the container filesystem root or unrelated system directories. Nested authorized roots use the most-specific boundary for Back navigation.
+
 Host media mounts should be exposed read-only inside the StormFlix container whenever the server only needs playback/scanning access.
 
 ## Scanner identity and metadata
