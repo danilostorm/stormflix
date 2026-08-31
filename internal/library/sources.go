@@ -73,6 +73,8 @@ func (s *Service) ValidateLibraryPaths(ctx context.Context, ignoreID int64, cand
 	if len(paths) == 0 {
 		return errors.New("at least one library source is required")
 	}
+	// Redundant parent/child roots inside one logical library remain invalid.
+	// They would scan the same content twice and make relocation ambiguous.
 	for i := range paths {
 		for j := i + 1; j < len(paths); j++ {
 			if sameOrInside(paths[i], paths[j]) || sameOrInside(paths[j], paths[i]) {
@@ -80,7 +82,16 @@ func (s *Service) ValidateLibraryPaths(ctx context.Context, ignoreID int64, cand
 			}
 		}
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT ls.library_id,l.name,ls.path FROM library_sources ls JOIN libraries l ON l.id=ls.library_id WHERE ls.library_id<>?`, ignoreID)
+	rows, err := s.db.QueryContext(ctx, `
+SELECT ls.library_id,l.name,ls.path
+FROM library_sources ls
+JOIN libraries l ON l.id=ls.library_id
+WHERE ls.library_id<>?
+UNION ALL
+SELECT l.id,l.name,l.path
+FROM libraries l
+WHERE l.id<>?
+  AND NOT EXISTS (SELECT 1 FROM library_sources own WHERE own.library_id=l.id)`, ignoreID, ignoreID)
 	if err != nil {
 		return err
 	}
@@ -97,8 +108,11 @@ func (s *Service) ValidateLibraryPaths(ctx context.Context, ignoreID int64, cand
 		}
 		existing = filepath.Clean(existing)
 		for _, candidate := range paths {
-			if sameOrInside(candidate, existing) || sameOrInside(existing, candidate) {
-				return fmt.Errorf("source %s overlaps library %q (%s)", candidate, name, existing)
+			// Exact duplicate roots across libraries are ambiguous and remain
+			// forbidden. Parent/child roots are safe: the scanner assigns every
+			// file to the most-specific configured source root.
+			if filepath.Clean(candidate) == existing {
+				return fmt.Errorf("source %s is already used by library %q", candidate, name)
 			}
 		}
 	}
@@ -293,7 +307,8 @@ func (s *Service) ScanMulti(ctx context.Context, libraryID int64) (MultiScanResu
 
 		// Do not gate scans on os.Stat. On rclone/FUSE it is possible for stat to
 		// be slow while directory listing is healthy. discover() performs the real
-		// bounded read and becomes the source-of-truth for scan health.
+		// bounded read and becomes the source-of-truth for scan health. It also
+		// excludes more-specific roots delegated to another logical library.
 		sourceLibrary := lib
 		sourceLibrary.Path = root
 		discovered, discoverErr := s.discover(ctx, sourceLibrary, libraryID)
@@ -387,18 +402,24 @@ ON CONFLICT(library_id,path) DO UPDATE SET
 }
 
 func (s *Service) existingAvailableUnderRoot(ctx context.Context, libraryID int64, root string) (int, error) {
+	delegatedRoots, err := s.delegatedSourceRoots(ctx, libraryID, root)
+	if err != nil {
+		return 0, err
+	}
 	rows, err := s.db.QueryContext(ctx, `SELECT path FROM media WHERE library_id=? AND available=1`, libraryID)
 	if err != nil {
 		return 0, err
 	}
 	defer rows.Close()
 	count := 0
+	root = filepath.Clean(root)
 	for rows.Next() {
 		var path string
 		if err := rows.Scan(&path); err != nil {
 			return 0, err
 		}
-		if sameOrInside(filepath.Clean(path), filepath.Clean(root)) {
+		path = filepath.Clean(path)
+		if sameOrInside(path, root) && !underAnyRoot(path, delegatedRoots) {
 			count++
 		}
 	}
