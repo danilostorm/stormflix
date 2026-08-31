@@ -12,7 +12,7 @@ func TestOpenCreatesPhase14MovieCollectionColumns(t *testing.T) {
 	}
 	defer db.Close()
 
-	for _, column := range []string{"collection_tmdb_id", "collection_name", "collection_checked_at"} {
+	for _, column := range []string{"collection_tmdb_id", "collection_name", "collection_source_tmdb_id", "collection_checked_at"} {
 		if !testColumnExists(t, db, "media_metadata", column) {
 			t.Fatalf("phase14 media_metadata column %s missing", column)
 		}
