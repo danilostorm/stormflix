@@ -24,41 +24,45 @@ type Service struct {
 }
 
 type Public struct {
-	ServerName                  string          `json:"server_name"`
-	MetadataLanguage            string          `json:"metadata_language"`
-	SubtitleLanguages           string          `json:"subtitle_languages"`
-	AssetDir                    string          `json:"asset_dir"`
-	AssetPublicBaseURL          string          `json:"asset_public_base_url"`
-	ThemePreviewEnabled         bool            `json:"theme_preview_enabled"`
-	ThemePreviewCountry         string          `json:"theme_preview_country"`
-	ThemePreviewVolume          int             `json:"theme_preview_volume"`
-	ThemePreviewAutoplay        bool            `json:"theme_preview_autoplay"`
-	HomeHeroMode                string          `json:"home_hero_mode"`
-	CompatCacheMaxBytes         int64           `json:"compat_cache_max_bytes"`
-	CompatCacheTTLHours         int             `json:"compat_cache_ttl_hours"`
-	CompatCacheAutoCleanup      bool            `json:"compat_cache_auto_cleanup"`
-	CompatCacheMinFreeBytes     int64           `json:"compat_cache_min_free_bytes"`
-	CompatCacheMinFreePercent   int             `json:"compat_cache_min_free_percent"`
-	Secrets                     map[string]bool `json:"secrets"`
-	OpenSubtitlesUsername       string          `json:"opensubtitles_username"`
-	OpenSubtitlesUserAgent      string          `json:"opensubtitles_user_agent"`
+	ServerName                   string          `json:"server_name"`
+	MetadataLanguage             string          `json:"metadata_language"`
+	SubtitleLanguages            string          `json:"subtitle_languages"`
+	AssetDir                     string          `json:"asset_dir"`
+	AssetPublicBaseURL           string          `json:"asset_public_base_url"`
+	ThemePreviewEnabled          bool            `json:"theme_preview_enabled"`
+	ThemePreviewCountry          string          `json:"theme_preview_country"`
+	ThemePreviewVolume           int             `json:"theme_preview_volume"`
+	ThemePreviewAutoplay         bool            `json:"theme_preview_autoplay"`
+	HomeHeroMode                 string          `json:"home_hero_mode"`
+	CompatCacheMaxBytes          int64           `json:"compat_cache_max_bytes"`
+	CompatCacheTTLHours          int             `json:"compat_cache_ttl_hours"`
+	CompatCacheAutoCleanup       bool            `json:"compat_cache_auto_cleanup"`
+	CompatCacheMinFreeBytes      int64           `json:"compat_cache_min_free_bytes"`
+	CompatCacheMinFreePercent    int             `json:"compat_cache_min_free_percent"`
+	TraktConfigured              bool            `json:"trakt_configured"`
+	TraktClientIDConfigured      bool            `json:"trakt_client_id_configured"`
+	TraktClientSecretConfigured  bool            `json:"trakt_client_secret_configured"`
+	TraktRedirectURI             string          `json:"trakt_redirect_uri"`
+	Secrets                      map[string]bool `json:"secrets"`
+	OpenSubtitlesUsername        string          `json:"opensubtitles_username"`
+	OpenSubtitlesUserAgent       string          `json:"opensubtitles_user_agent"`
 }
 
 type Update struct {
-	ServerName                 *string `json:"server_name"`
-	MetadataLanguage           *string `json:"metadata_language"`
-	SubtitleLanguages          *string `json:"subtitle_languages"`
-	AssetDir                   *string `json:"asset_dir"`
-	AssetPublicBaseURL         *string `json:"asset_public_base_url"`
-	ThemePreviewEnabled        *bool   `json:"theme_preview_enabled"`
-	ThemePreviewCountry        *string `json:"theme_preview_country"`
-	ThemePreviewVolume         *int    `json:"theme_preview_volume"`
-	ThemePreviewAutoplay       *bool   `json:"theme_preview_autoplay"`
-	HomeHeroMode               *string `json:"home_hero_mode"`
-	CompatCacheMaxBytes        *int64  `json:"compat_cache_max_bytes"`
-	CompatCacheTTLHours        *int    `json:"compat_cache_ttl_hours"`
-	CompatCacheAutoCleanup     *bool   `json:"compat_cache_auto_cleanup"`
-	CompatCacheMinFreeBytes    *int64  `json:"compat_cache_min_free_bytes"`
+	ServerName                  *string `json:"server_name"`
+	MetadataLanguage            *string `json:"metadata_language"`
+	SubtitleLanguages           *string `json:"subtitle_languages"`
+	AssetDir                    *string `json:"asset_dir"`
+	AssetPublicBaseURL          *string `json:"asset_public_base_url"`
+	ThemePreviewEnabled         *bool   `json:"theme_preview_enabled"`
+	ThemePreviewCountry         *string `json:"theme_preview_country"`
+	ThemePreviewVolume          *int    `json:"theme_preview_volume"`
+	ThemePreviewAutoplay        *bool   `json:"theme_preview_autoplay"`
+	HomeHeroMode                *string `json:"home_hero_mode"`
+	CompatCacheMaxBytes         *int64  `json:"compat_cache_max_bytes"`
+	CompatCacheTTLHours         *int    `json:"compat_cache_ttl_hours"`
+	CompatCacheAutoCleanup      *bool   `json:"compat_cache_auto_cleanup"`
+	CompatCacheMinFreeBytes     *int64  `json:"compat_cache_min_free_bytes"`
 	CompatCacheMinFreePercent  *int    `json:"compat_cache_min_free_percent"`
 	TMDBToken                  *string `json:"tmdb_token"`
 	TMDBAPIKey                 *string `json:"tmdb_api_key"`
@@ -67,6 +71,9 @@ type Update struct {
 	FanartAPIKey               *string `json:"fanart_api_key"`
 	FanartClientKey            *string `json:"fanart_client_key"`
 	LastFMAPIKey               *string `json:"lastfm_api_key"`
+	TraktClientID              *string `json:"trakt_client_id"`
+	TraktClientSecret          *string `json:"trakt_client_secret"`
+	TraktRedirectURI           *string `json:"trakt_redirect_uri"`
 	SubDLAPIKey                *string `json:"subdl_api_key"`
 	OpenSubtitlesAPIKey        *string `json:"opensubtitles_api_key"`
 	OpenSubtitlesUsername      *string `json:"opensubtitles_username"`
@@ -77,7 +84,8 @@ type Update struct {
 var secretKeys = map[string]bool{
 	"tmdb_token": true, "tmdb_api_key": true, "tvdb_api_key": true, "tvdb_pin": true,
 	"fanart_api_key": true, "fanart_client_key": true,
-	"lastfm_api_key": true, "subdl_api_key": true, "opensubtitles_api_key": true, "opensubtitles_password": true,
+	"lastfm_api_key": true, "trakt_client_id": true, "trakt_client_secret": true,
+	"subdl_api_key": true, "opensubtitles_api_key": true, "opensubtitles_password": true,
 }
 
 func New(db *sql.DB, dataDir string) (*Service, error) {
@@ -143,6 +151,9 @@ func (s *Service) Apply(ctx context.Context, base config.Config) (config.Config,
 		{"fanart_api_key", &base.FanartAPIKey},
 		{"fanart_client_key", &base.FanartClientKey},
 		{"lastfm_api_key", &base.LastFMAPIKey},
+		{"trakt_client_id", &base.TraktClientID},
+		{"trakt_client_secret", &base.TraktClientSecret},
+		{"trakt_redirect_uri", &base.TraktRedirectURI},
 		{"subdl_api_key", &base.SubDLAPIKey},
 		{"opensubtitles_api_key", &base.OpenSubtitlesAPIKey},
 		{"opensubtitles_username", &base.OpenSubtitlesUsername},
@@ -152,6 +163,9 @@ func (s *Service) Apply(ctx context.Context, base config.Config) (config.Config,
 		if err := set(pair.key, pair.dest); err != nil {
 			return base, err
 		}
+	}
+	if strings.TrimSpace(base.TraktRedirectURI) == "" {
+		base.TraktRedirectURI = "urn:ietf:wg:oauth:2.0:oob"
 	}
 	if value, ok := values["theme_preview_enabled"]; ok {
 		base.ThemePreviewEnabled = value == "1" || strings.EqualFold(value, "true")
@@ -203,6 +217,7 @@ func (s *Service) Public(ctx context.Context, base config.Config) (Public, error
 	for key := range secretKeys {
 		secrets[key] = strings.TrimSpace(values[key]) != ""
 	}
+	traktConfigured := strings.TrimSpace(effective.TraktClientID) != "" && strings.TrimSpace(effective.TraktClientSecret) != ""
 	return Public{
 		ServerName: effective.ServerName, MetadataLanguage: effective.MetadataLanguage, SubtitleLanguages: effective.SubtitleLanguages,
 		AssetDir: effective.AssetDir, AssetPublicBaseURL: effective.AssetPublicBaseURL,
@@ -212,6 +227,8 @@ func (s *Service) Public(ctx context.Context, base config.Config) (Public, error
 		CompatCacheMaxBytes: effective.CompatCacheMaxBytes, CompatCacheTTLHours: int(effective.CompatCacheTTL / time.Hour),
 		CompatCacheAutoCleanup: effective.CompatCacheAutoCleanup, CompatCacheMinFreeBytes: effective.CompatCacheMinFreeBytes,
 		CompatCacheMinFreePercent: effective.CompatCacheMinFreePercent,
+		TraktConfigured: traktConfigured, TraktClientIDConfigured: strings.TrimSpace(effective.TraktClientID) != "",
+		TraktClientSecretConfigured: strings.TrimSpace(effective.TraktClientSecret) != "", TraktRedirectURI: effective.TraktRedirectURI,
 		Secrets: secrets,
 		OpenSubtitlesUsername: effective.OpenSubtitlesUsername, OpenSubtitlesUserAgent: effective.OpenSubtitlesUserAgent,
 	}, nil
@@ -222,13 +239,18 @@ func (s *Service) Update(ctx context.Context, in Update) error {
 		"server_name": in.ServerName, "metadata_language": in.MetadataLanguage, "subtitle_languages": in.SubtitleLanguages,
 		"asset_dir": in.AssetDir, "asset_public_base_url": in.AssetPublicBaseURL,
 		"theme_preview_country": in.ThemePreviewCountry, "home_hero_mode": in.HomeHeroMode,
+		"trakt_redirect_uri": in.TraktRedirectURI,
 		"opensubtitles_username": in.OpenSubtitlesUsername, "opensubtitles_user_agent": in.OpenSubtitlesUserAgent,
 	}
 	for key, value := range plain {
 		if value == nil {
 			continue
 		}
-		if err := s.put(ctx, key, strings.TrimSpace(*value)); err != nil {
+		v := strings.TrimSpace(*value)
+		if key == "trakt_redirect_uri" && v == "" {
+			v = "urn:ietf:wg:oauth:2.0:oob"
+		}
+		if err := s.put(ctx, key, v); err != nil {
 			return err
 		}
 	}
@@ -236,8 +258,8 @@ func (s *Service) Update(ctx context.Context, in Update) error {
 		"tmdb_token": in.TMDBToken, "tmdb_api_key": in.TMDBAPIKey,
 		"tvdb_api_key": in.TVDBAPIKey, "tvdb_pin": in.TVDBPIN,
 		"fanart_api_key": in.FanartAPIKey, "fanart_client_key": in.FanartClientKey,
-		"lastfm_api_key": in.LastFMAPIKey, "subdl_api_key": in.SubDLAPIKey,
-		"opensubtitles_api_key": in.OpenSubtitlesAPIKey, "opensubtitles_password": in.OpenSubtitlesPassword,
+		"lastfm_api_key": in.LastFMAPIKey, "trakt_client_id": in.TraktClientID, "trakt_client_secret": in.TraktClientSecret,
+		"subdl_api_key": in.SubDLAPIKey, "opensubtitles_api_key": in.OpenSubtitlesAPIKey, "opensubtitles_password": in.OpenSubtitlesPassword,
 	} {
 		if value == nil {
 			continue
