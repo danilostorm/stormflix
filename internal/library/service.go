@@ -162,6 +162,10 @@ ON CONFLICT(library_id, path) DO UPDATE SET
 
 func (s *Service) discover(ctx context.Context, lib Library, libraryID int64) ([]discoveredFile, error) {
 	files := make([]discoveredFile, 0, 256)
+	delegatedRoots, err := s.delegatedSourceRoots(ctx, libraryID, lib.Path)
+	if err != nil {
+		return nil, fmt.Errorf("resolve nested library ownership: %w", err)
+	}
 	dirs := []string{lib.Path}
 	lastProgress := time.Time{}
 	statWarnings := 0
@@ -174,6 +178,9 @@ func (s *Service) discover(ctx context.Context, lib Library, libraryID int64) ([
 			rel = "/"
 		}
 		msg := fmt.Sprintf("lendo %s · %d arquivos encontrados", rel, len(files))
+		if len(delegatedRoots) > 0 {
+			msg += fmt.Sprintf(" · %d subpasta(s) delegada(s)", len(delegatedRoots))
+		}
 		if statWarnings > 0 {
 			msg += fmt.Sprintf(" · %d stats lentos ignorados", statWarnings)
 		}
@@ -195,8 +202,15 @@ func (s *Service) discover(ctx context.Context, lib Library, libraryID int64) ([
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
-			path := filepath.Join(dir, entry.Name())
+			path := filepath.Clean(filepath.Join(dir, entry.Name()))
 			if entry.IsDir() {
+				// Another library with a more-specific source root owns this subtree.
+				// Do not descend into it from a broad parent library; this is the
+				// scanner-side half of allowing safe parent/child library roots.
+				if underAnyRoot(path, delegatedRoots) {
+					touchProgress(dir, false)
+					continue
+				}
 				dirs = append(dirs, path)
 				touchProgress(dir, false)
 				continue
