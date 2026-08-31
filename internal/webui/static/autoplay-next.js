@@ -1,129 +1,57 @@
-/* StormFlix streaming-style next episode autoplay for Web. */
+/* StormFlix Playback Delight: autoplay, still-watching, rewind-on-resume and skip markers. */
 (function(){
-  if(window.__sfAutoNextLoaded)return;
-  window.__sfAutoNextLoaded=true;
-
-  const video=document.querySelector('#player');
-  const modal=document.querySelector('#player-modal');
-  if(!video||!modal)return;
-
-  const PREF='stormflix_autoplay_next';
-  const COUNTDOWN_SECONDS=10;
-  let timer=null;
-  let nextItem=null;
-  let remaining=COUNTDOWN_SECONDS;
-
-  function enabled(){
-    try{return localStorage.getItem(PREF)!=='0'}catch{return true}
+  if(window.__sfPlaybackDelightLoaded)return; window.__sfPlaybackDelightLoaded=true;
+  const video=document.querySelector('#player'),modal=document.querySelector('#player-modal'); if(!video||!modal)return;
+  const D={skip_mode:'manual',rewind_seconds:10,still_watching:true,still_watching_episode_limit:3,still_watching_hours:3,autoplay_countdown:10};
+  const allowed={skip:new Set(['manual','automatic','disabled']),rewind:new Set([0,5,10,15,30]),countdown:new Set([0,5,10,15,30])};
+  let profile=null,prefs={...D},next=null,timer=null,remaining=10,mode='next',chain={count:0,started_at:Date.now()},markers={},mediaID=0,introStart=null,skipped=new Set(),undoAt=null,undoTimer=null,pauseAt=0;
+  const cur=()=>typeof sfCurrentMedia!=='undefined'?sfCurrentMedia:null, pid=()=>Number(profile?.id||0);
+  const pkey=()=>`stormflix.playback.profile.${pid()||'account'}`,mkey=id=>`stormflix.playback.markers.${Number(id)||0}`,ckey=()=>`stormflix.playback.chain.${pid()||'account'}`;
+  const read=(store,key,f={})=>{try{const v=JSON.parse(store.getItem(key)||'null');return v&&typeof v==='object'?v:f}catch{return f}},write=(store,key,v)=>{try{store.setItem(key,JSON.stringify(v))}catch{}};
+  function norm(v={}){const r=Number(v.rewind_seconds),c=Number(v.autoplay_countdown);return{skip_mode:allowed.skip.has(v.skip_mode)?v.skip_mode:D.skip_mode,rewind_seconds:allowed.rewind.has(r)?r:D.rewind_seconds,still_watching:v.still_watching!==false,still_watching_episode_limit:Math.max(1,Math.min(12,Number(v.still_watching_episode_limit)||3)),still_watching_hours:Math.max(1,Math.min(12,Number(v.still_watching_hours)||3)),autoplay_countdown:allowed.countdown.has(c)?c:D.autoplay_countdown}}
+  function expose(){window.sfPlaybackPreferences={...prefs,autoplay_next:profile?.autoplay_next!==false,profile_id:pid()}}
+  function loadProfile(p){profile=p||profile;prefs=norm({...D,...read(localStorage,pkey(),{})});chain=read(sessionStorage,ckey(),{count:0,started_at:Date.now()});chain.count=Math.max(0,Number(chain.count)||0);if(!Number(chain.started_at))chain.started_at=Date.now();
+    if(profile?.id){try{const k=`stormflix.playback.autoplay-migrated.${pid()}`;if(localStorage.getItem(k)!=='1'){const old=localStorage.getItem('stormflix_autoplay_next');localStorage.setItem(k,'1');if(old==='0'&&profile.autoplay_next!==false){profile={...profile,autoplay_next:false};setTimeout(()=>setAutoplay(false),0)}}}catch{}}
+    expose();syncUI();ensureSettings();
   }
-  function setEnabled(value){
-    try{localStorage.setItem(PREF,value?'1':'0')}catch{}
-    refreshPreferenceUi();
-  }
-  function current(){return typeof sfCurrentMedia!=='undefined'?sfCurrentMedia:null}
+  function save(v){prefs=norm({...prefs,...v});write(localStorage,pkey(),prefs);expose();syncUI();markerUI()}
+  const autoplay=()=>profile?.autoplay_next!==false;
+  async function setAutoplay(v){v=Boolean(v);if(profile){profile={...profile,autoplay_next:v};expose();try{const b={name:profile.name,avatar_key:profile.avatar_key||'storm-red',avatar_url:profile.avatar_url||'',is_kids:!!profile.is_kids,content_rating_limit:Number(profile.content_rating_limit??18),active:profile.active!==false,autoplay_next:v,autoplay_previews:profile.autoplay_previews!==false,preferred_audio:profile.preferred_audio||'pt-BR',preferred_subtitle:profile.preferred_subtitle||'pt-BR'};const u=await request(`/profiles/${profile.id}`,{method:'PUT',body:JSON.stringify(b)});if(u)profile={...profile,...u}}catch(e){console.warn('StormFlix autoplay profile sync failed',e)}}syncUI();message()}
 
-  const style=document.createElement('style');
-  style.textContent=`
-    .sf-autonext{position:absolute;right:max(24px,4vw);bottom:max(92px,12vh);z-index:40;width:min(430px,calc(100vw - 32px));padding:22px;border-radius:18px;background:rgba(10,12,17,.94);box-shadow:0 18px 60px rgba(0,0,0,.45);color:#fff;font-family:system-ui,-apple-system,sans-serif;backdrop-filter:blur(18px)}
-    .sf-autonext.hidden{display:none}.sf-autonext-kicker{font-size:12px;text-transform:uppercase;letter-spacing:.13em;color:#aeb7c8}.sf-autonext h3{margin:7px 0 5px;font-size:22px}.sf-autonext p{margin:0 0 15px;color:#c8cfda;line-height:1.45}.sf-autonext-actions{display:flex;gap:10px;flex-wrap:wrap}.sf-autonext button{border:0;border-radius:10px;padding:10px 14px;font-weight:700;cursor:pointer}.sf-autonext-play{background:#fff;color:#080a0e}.sf-autonext-cancel{background:#2a2f38;color:#fff}.sf-autonext-pref{display:flex;align-items:center;gap:9px;margin-top:15px;color:#d7dce5;font-size:13px}.sf-autonext-pref input{width:17px;height:17px}.sf-autonext-settings{display:flex;align-items:center;justify-content:space-between;gap:14px;width:100%;margin-top:10px;padding:11px 12px;border:1px solid rgba(255,255,255,.12);border-radius:10px;background:rgba(255,255,255,.06);color:#fff;text-align:left;cursor:pointer}.sf-autonext-settings strong{font-size:13px}.sf-autonext-settings span{font-size:12px;color:#b8c0ce}
-    @media(max-width:700px){.sf-autonext{left:16px;right:16px;bottom:82px;width:auto}}
-  `;
-  document.head.appendChild(style);
+  /* Initial resume only: canonical progress remains untouched. */
+  const baseRequest=window.request;if(typeof baseRequest==='function')window.request=async function(path,opt){const out=await baseRequest(path,opt);try{if(/\/media\/\d+\/playback\/plan(?:\?|$)/.test(String(path))&&String(opt?.method||'GET').toUpperCase()==='POST'){const b=opt?.body?JSON.parse(opt.body):{};if(!Object.prototype.hasOwnProperty.call(b,'start_position_seconds')){const x=Number(out?.resume_position_seconds||0),r=Number(prefs.rewind_seconds||0);if(x>0&&r>0)out.resume_position_seconds=Math.max(0,x-r)}}}catch{}return out};
+  if(typeof window.playMedia==='function'){const play=window.playMedia;window.playMedia=item=>{setMedia(Number(item?.id||0));const x=Number(item?.position_seconds||0),r=Number(prefs.rewind_seconds||0);return play(x&&r?{...item,position_seconds:Math.max(0,x-r)}:item)}}
 
-  const overlay=document.createElement('div');
-  overlay.className='sf-autonext hidden';
-  overlay.innerHTML=`
-    <div class="sf-autonext-kicker">A seguir</div>
-    <h3 id="sf-autonext-title">Próximo episódio</h3>
-    <p id="sf-autonext-message"></p>
-    <div class="sf-autonext-actions">
-      <button class="sf-autonext-play" id="sf-autonext-play" type="button">Reproduzir agora</button>
-      <button class="sf-autonext-cancel" id="sf-autonext-cancel" type="button">Cancelar</button>
-    </div>
-    <label class="sf-autonext-pref"><input id="sf-autonext-enabled" type="checkbox"> Reproduzir próximos episódios automaticamente</label>`;
-  modal.appendChild(overlay);
+  const style=document.createElement('style');style.textContent=`.sf-delight-next{position:absolute;right:max(24px,4vw);bottom:max(92px,12vh);z-index:50;width:min(440px,calc(100vw - 32px));padding:20px;border-radius:18px;background:rgba(10,12,17,.95);color:#fff;box-shadow:0 18px 60px #0008}.sf-delight-next.hidden,.sf-delight-skip.hidden,.sf-delight-undo.hidden{display:none}.sf-delight-next small{color:#aeb7c8;text-transform:uppercase;letter-spacing:.12em}.sf-delight-next h3{margin:7px 0}.sf-delight-next p{color:#c8cfda}.sf-delight-actions{display:flex;gap:9px;flex-wrap:wrap}.sf-delight-next button,.sf-delight-skip,.sf-delight-undo button{border:0;border-radius:10px;padding:10px 14px;font-weight:750;cursor:pointer}.sf-delight-primary{background:#fff;color:#080a0e}.sf-delight-secondary{background:#2a2f38;color:#fff}.sf-delight-pref{display:flex;gap:8px;margin-top:13px}.sf-delight-settings{margin-top:10px;padding-top:12px;border-top:1px solid #ffffff1a}.sf-delight-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.sf-delight-field{display:flex;flex-direction:column;gap:4px;font-size:12px;color:#bfc6d2}.sf-delight-field select{background:#171b23;color:#fff;border:1px solid #ffffff22;border-radius:8px;padding:8px}.sf-delight-check{display:flex;gap:8px;margin:9px 0;font-size:13px}.sf-delight-tools{margin-top:10px;padding-top:9px;border-top:1px solid #ffffff16}.sf-delight-tools p{font-size:12px;color:#aeb7c8}.sf-delight-tools button{margin:3px;border:1px solid #ffffff22;background:#242a35;color:#fff;border-radius:8px;padding:7px;cursor:pointer}.sf-delight-skip{position:absolute;right:max(28px,5vw);bottom:max(132px,17vh);z-index:52;background:#fff;color:#080a0e}.sf-delight-undo{position:absolute;left:50%;bottom:max(125px,16vh);transform:translateX(-50%);z-index:53;display:flex;gap:10px;align-items:center;padding:9px 11px;border-radius:12px;background:rgba(10,12,17,.95);color:#fff}@media(max-width:700px){.sf-delight-next{left:16px;right:16px;bottom:82px;width:auto}.sf-delight-grid{grid-template-columns:1fr}.sf-delight-skip{right:18px;bottom:112px}}`;document.head.appendChild(style);
+  const box=document.createElement('div');box.className='sf-delight-next hidden';box.setAttribute('aria-live','polite');box.innerHTML='<small>A seguir</small><h3></h3><p></p><div class="sf-delight-actions"><button class="sf-delight-primary" type="button">Reproduzir agora</button><button class="sf-delight-secondary" type="button">Cancelar</button></div><label class="sf-delight-pref"><input type="checkbox"> Próximo episódio automático</label>';modal.appendChild(box);
+  const title=box.querySelector('h3'),text=box.querySelector('p'),playBtn=box.querySelector('.sf-delight-primary'),cancelBtn=box.querySelector('.sf-delight-secondary'),autoBox=box.querySelector('input');
+  const skipBtn=document.createElement('button');skipBtn.className='sf-delight-skip hidden';skipBtn.type='button';modal.appendChild(skipBtn);
+  const undo=document.createElement('div');undo.className='sf-delight-undo hidden';undo.innerHTML='<span>Trecho pulado automaticamente.</span><button type="button">Desfazer</button>';modal.appendChild(undo);
+  function stop(){if(timer){clearInterval(timer);timer=null}}
+  function hide(){stop();box.classList.add('hidden');next=null;mode='next'}
+  function syncUI(){autoBox.checked=autoplay();const s=document.querySelector('#sf-playback-delight-settings');if(!s)return;s.querySelector('[data-d="autoplay"]').checked=autoplay();s.querySelector('[data-d="countdown"]').value=String(prefs.autoplay_countdown);s.querySelector('[data-d="rewind"]').value=String(prefs.rewind_seconds);s.querySelector('[data-d="skip"]').value=prefs.skip_mode;s.querySelector('[data-d="episodes"]').value=String(prefs.still_watching_episode_limit);s.querySelector('[data-d="hours"]').value=String(prefs.still_watching_hours);s.querySelector('[data-d="still"]').checked=prefs.still_watching}
+  function message(){if(!next)return;title.textContent=next.title||'Próximo episódio';if(mode==='still'){text.textContent='Ainda está assistindo? O próximo episódio só começa depois da sua confirmação.';playBtn.textContent='Sim, continuar';return}playBtn.textContent='Reproduzir agora';text.textContent=!autoplay()?'A reprodução automática está desligada.':remaining<=0?'Reproduzindo…':`Reprodução automática em ${remaining}s.`}
+  function resetChain(){chain={count:0,started_at:Date.now()};write(sessionStorage,ckey(),chain)}
+  function needConfirm(){if(!prefs.still_watching)return false;return chain.count>=prefs.still_watching_episode_limit||(Date.now()-Number(chain.started_at)>=prefs.still_watching_hours*3600000)}
+  async function playNext(manual=false){const item=next;hide();if(!item?.id||typeof playMedia!=='function')return;if(!manual){chain.count++;write(sessionStorage,ckey(),chain)}try{await playMedia(item)}catch(e){console.warn('StormFlix auto-next failed',e)}}
+  function countdown(){stop();if(mode!=='next'||!autoplay())return;remaining=Number(prefs.autoplay_countdown);message();if(remaining===0){playNext(false);return}timer=setInterval(()=>{remaining--;message();if(remaining<=0){stop();playNext(false)}},1000)}
+  function begin(item){hide();next=item;box.classList.remove('hidden');autoBox.checked=autoplay();if(needConfirm()){mode='still';message();return}mode='next';remaining=Number(prefs.autoplay_countdown);message();countdown()}
+  async function resolveNext(){const item=cur();if(!item?.id)return;try{const r=await request(`/media/${Number(item.id)}/neighbors`);if(Number(cur()?.id)===Number(item.id)&&r?.next)begin(r.next)}catch(e){console.warn('StormFlix next lookup failed',e)}}
+  playBtn.onclick=()=>{if(mode==='still'){resetChain();mode='next';countdown()}else playNext(true)};cancelBtn.onclick=hide;autoBox.onchange=async()=>{await setAutoplay(autoBox.checked);if(next&&mode==='next')countdown()};
 
-  const titleEl=overlay.querySelector('#sf-autonext-title');
-  const messageEl=overlay.querySelector('#sf-autonext-message');
-  const enabledEl=overlay.querySelector('#sf-autonext-enabled');
+  function getMarkers(id){const raw=read(localStorage,mkey(id),{}),out={};for(const k of ['intro','credits']){const m=raw[k],a=Number(m?.start),b=Number(m?.end);if(Number.isFinite(a)&&Number.isFinite(b)&&b>a+.25)out[k]={start:Math.max(0,a),end:b}}return out}
+  function saveMarkers(){if(mediaID)write(localStorage,mkey(mediaID),markers);markerUI();syncUI()}
+  function setMedia(id){mediaID=Number(id||0);markers=mediaID?getMarkers(mediaID):{};introStart=null;skipped=new Set();skipBtn.classList.add('hidden');importChapters()}
+  function activeMarker(){const t=Number(video.currentTime||0);for(const k of ['intro','credits']){const m=markers[k];if(m&&t>=m.start&&t<m.end-.05)return{kind:k,...m}}return null}
+  function jump(m,automatic){if(!m)return;const before=Number(video.currentTime||m.start);video.currentTime=Math.min(Number(video.duration||Infinity),m.end+.05);skipBtn.classList.add('hidden');if(automatic){undoAt=before;undo.classList.remove('hidden');clearTimeout(undoTimer);undoTimer=setTimeout(()=>undo.classList.add('hidden'),8000)}}
+  function markerUI(){if(prefs.skip_mode==='disabled'||modal.classList.contains('hidden')){skipBtn.classList.add('hidden');return}const m=activeMarker();if(!m){skipBtn.classList.add('hidden');return}if(prefs.skip_mode==='automatic'){const k=`${m.kind}:${m.start}:${m.end}`;if(!skipped.has(k)){skipped.add(k);jump(m,true)}return}skipBtn.textContent=m.kind==='credits'?'Pular créditos':'Pular introdução';skipBtn.setAttribute('aria-label',skipBtn.textContent);skipBtn.classList.remove('hidden')}
+  skipBtn.onclick=()=>jump(activeMarker(),false);undo.querySelector('button').onclick=()=>{clearTimeout(undoTimer);undo.classList.add('hidden');if(Number.isFinite(undoAt))video.currentTime=Math.max(0,undoAt)};
+  function importChapters(){setTimeout(()=>{try{let changed=false;for(const tr of [...video.textTracks].filter(t=>t.kind==='chapters'))for(const cue of [...(tr.cues||[])]){const s=String(cue.text||cue.id||'').toLowerCase();if(!markers.intro&&/(intro|opening|abertura|\bop\b)/.test(s)){markers.intro={start:Number(cue.startTime||0),end:Number(cue.endTime||0)};changed=true}if(!markers.credits&&/(credits|créditos|ending|encerramento|\bed\b)/.test(s)){markers.credits={start:Number(cue.startTime||0),end:Number(cue.endTime||video.duration||0)};changed=true}}if(changed)saveMarkers()}catch{}},350)}
+  const toast=t=>typeof sfToast==='function'&&sfToast(t);function markStart(){introStart=Number(video.currentTime||0);toast('Início da introdução marcado')}function markEnd(){const e=Number(video.currentTime||0);if(introStart===null||e<=introStart+.25){toast('Marque primeiro o início da introdução');return}markers.intro={start:introStart,end:e};introStart=null;saveMarkers();toast('Introdução salva')}function markCredits(){const s=Number(video.currentTime||0),e=Math.max(s+.5,Number(video.duration||s+600));markers.credits={start:s,end:e};saveMarkers();toast('Créditos salvos')}
 
-  function stopTimer(){if(timer){clearInterval(timer);timer=null}}
-  function hide(){stopTimer();overlay.classList.add('hidden');nextItem=null;remaining=COUNTDOWN_SECONDS}
-  function refreshPreferenceUi(){
-    enabledEl.checked=enabled();
-    document.querySelectorAll('[data-sf-autonext-state]').forEach(el=>{el.textContent=enabled()?'Ligada':'Desligada'});
-  }
-  function updateMessage(){
-    if(!nextItem)return;
-    const label=String(nextItem.title||'Próximo episódio').trim();
-    titleEl.textContent=label;
-    messageEl.textContent=enabled()?`Reprodução automática em ${remaining}s.`:'A reprodução automática está desligada.';
-  }
-  async function playNext(){
-    const item=nextItem;
-    hide();
-    if(!item?.id||typeof playMedia!=='function')return;
-    try{await playMedia(item)}catch(e){console.warn('StormFlix auto-next failed',e)}
-  }
-  function begin(item){
-    if(!item?.id)return;
-    hide();
-    nextItem=item;
-    remaining=COUNTDOWN_SECONDS;
-    overlay.classList.remove('hidden');
-    refreshPreferenceUi();
-    updateMessage();
-    if(!enabled())return;
-    timer=setInterval(()=>{
-      remaining--;
-      if(remaining<=0){playNext();return}
-      updateMessage();
-    },1000);
-  }
-  async function resolveAndBegin(){
-    const item=current();
-    if(!item?.id||typeof request!=='function')return;
-    try{
-      const result=await request(`/media/${Number(item.id)}/neighbors`);
-      if(Number(current()?.id)!==Number(item.id))return;
-      if(result?.next)begin(result.next);
-    }catch(e){console.warn('StormFlix next-episode lookup failed',e)}
-  }
-
-  overlay.querySelector('#sf-autonext-play').addEventListener('click',playNext);
-  overlay.querySelector('#sf-autonext-cancel').addEventListener('click',hide);
-  enabledEl.addEventListener('change',()=>{
-    const wasEnabled=enabled();
-    setEnabled(enabledEl.checked);
-    stopTimer();
-    if(nextItem&&enabledEl.checked){
-      if(!wasEnabled)remaining=COUNTDOWN_SECONDS;
-      updateMessage();
-      timer=setInterval(()=>{remaining--;if(remaining<=0){playNext();return}updateMessage()},1000);
-    }else updateMessage();
-  });
-
-  function ensureSettingsToggle(){
-    const panel=document.querySelector('#sf-player-settings-panel');
-    if(!panel||panel.querySelector('#sf-autonext-settings'))return;
-    const button=document.createElement('button');
-    button.type='button';
-    button.id='sf-autonext-settings';
-    button.className='sf-autonext-settings';
-    button.innerHTML='<strong>Próximo episódio automático</strong><span data-sf-autonext-state></span>';
-    button.addEventListener('click',()=>setEnabled(!enabled()));
-    panel.appendChild(button);
-    refreshPreferenceUi();
-  }
-  const settingsPanel=document.querySelector('#sf-player-settings-panel');
-  if(settingsPanel){
-    new MutationObserver(ensureSettingsToggle).observe(settingsPanel,{childList:true,subtree:true});
-    ensureSettingsToggle();
-  }
-
-  video.addEventListener('ended',resolveAndBegin);
-  video.addEventListener('play',hide);
-  video.addEventListener('loadedmetadata',()=>{if(!video.ended)hide()});
-  document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!overlay.classList.contains('hidden')){event.preventDefault();hide()}});
-  refreshPreferenceUi();
+  function ensureSettings(){const panel=document.querySelector('#sf-player-settings-panel');if(!panel||panel.querySelector('#sf-playback-delight-settings'))return;const s=document.createElement('section');s.id='sf-playback-delight-settings';s.className='sf-setting-section sf-delight-settings';s.innerHTML=`<h3>Reprodução do perfil</h3><label class="sf-delight-check"><input data-d="autoplay" type="checkbox"> Próximo episódio automático</label><div class="sf-delight-grid"><label class="sf-delight-field">Contagem<select data-d="countdown"><option value="0">Imediato</option><option value="5">5s</option><option value="10">10s</option><option value="15">15s</option><option value="30">30s</option></select></label><label class="sf-delight-field">Voltar ao retomar<select data-d="rewind"><option value="0">Desativado</option><option value="5">5s</option><option value="10">10s</option><option value="15">15s</option><option value="30">30s</option></select></label><label class="sf-delight-field">Skip Intro / Créditos<select data-d="skip"><option value="manual">Manual</option><option value="automatic">Automático</option><option value="disabled">Desativado</option></select></label><label class="sf-delight-field">Confirmar após episódios<select data-d="episodes">${[1,2,3,4,5,6,8,10,12].map(n=>`<option>${n}</option>`).join('')}</select></label><label class="sf-delight-field">Confirmar após horas<select data-d="hours">${[1,2,3,4,5,6,8,10,12].map(n=>`<option value="${n}">${n}h</option>`).join('')}</select></label></div><label class="sf-delight-check"><input data-d="still" type="checkbox"> Perguntar “Ainda está assistindo?”</label><div class="sf-delight-tools"><p>Marcadores deste título neste dispositivo. Capítulos Intro/Opening/Créditos são importados quando disponíveis.</p><button data-m="start" type="button">Intro · início</button><button data-m="end" type="button">Intro · fim</button><button data-m="credits" type="button">Créditos · aqui</button><button data-m="clear" type="button">Limpar</button></div>`;panel.appendChild(s);
+    s.querySelector('[data-d="autoplay"]').onchange=e=>setAutoplay(e.target.checked);s.querySelector('[data-d="still"]').onchange=e=>save({still_watching:e.target.checked});for(const [n,k,num] of [['countdown','autoplay_countdown',1],['rewind','rewind_seconds',1],['skip','skip_mode',0],['episodes','still_watching_episode_limit',1],['hours','still_watching_hours',1]])s.querySelector(`[data-d="${n}"]`).onchange=e=>save({[k]:num?Number(e.target.value):e.target.value});s.querySelector('[data-m="start"]').onclick=markStart;s.querySelector('[data-m="end"]').onclick=markEnd;s.querySelector('[data-m="credits"]').onclick=markCredits;s.querySelector('[data-m="clear"]').onclick=()=>{markers={};introStart=null;saveMarkers();toast('Marcadores removidos')};syncUI()}
+  const settings=document.querySelector('#sf-player-settings-panel');if(settings)new MutationObserver(ensureSettings).observe(settings,{childList:true});
+  window.addEventListener('stormflix:profile',e=>loadProfile(e.detail||null));window.addEventListener('stormflix:playback-plan',()=>setMedia(Number(cur()?.id||0)));video.addEventListener('loadedmetadata',()=>{setMedia(Number(cur()?.id||0));markerUI()});video.addEventListener('timeupdate',markerUI,{passive:true});video.addEventListener('ended',resolveNext);video.addEventListener('play',()=>{hide();if(pauseAt&&Date.now()-pauseAt>=300000)resetChain();pauseAt=0});video.addEventListener('pause',()=>{if(!video.ended)pauseAt=Date.now()},{passive:true});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!box.classList.contains('hidden')){e.preventDefault();hide()}});
+  loadProfile(null);ensureSettings();
 })();
