@@ -10,34 +10,36 @@ import (
 )
 
 type Item struct {
-	ID              int64    `json:"id"`
-	LibraryID       int64    `json:"library_id"`
-	LibraryName     string   `json:"library_name"`
-	Title           string   `json:"title"`
-	Extension       string   `json:"extension"`
-	SizeBytes       int64    `json:"size_bytes"`
-	ModifiedUnix    int64    `json:"modified_unix"`
-	Available       bool     `json:"available"`
-	MediaType       string   `json:"media_type"`
-	Year            int      `json:"year"`
-	SeasonNumber    int      `json:"season_number"`
-	EpisodeNumber   int      `json:"episode_number"`
-	Overview        string   `json:"overview"`
-	Genres          []string `json:"genres"`
-	Rating          float64  `json:"rating"`
-	RuntimeMinutes  int      `json:"runtime_minutes"`
-	MetadataStatus  string   `json:"metadata_status"`
-	TMDBID          int64    `json:"tmdb_id,omitempty"`
-	PosterURL       string   `json:"poster_url"`
-	BackdropURL     string   `json:"backdrop_url"`
-	LogoURL         string   `json:"logo_url"`
-	EntityType      string   `json:"entity_type,omitempty"`
-	SeriesID        string   `json:"series_id,omitempty"`
-	SeasonCount     int      `json:"season_count,omitempty"`
-	EpisodeCount    int      `json:"episode_count,omitempty"`
-	PositionSeconds float64  `json:"position_seconds,omitempty"`
-	DurationSeconds float64  `json:"duration_seconds,omitempty"`
-	ProgressPercent float64  `json:"progress_percent,omitempty"`
+	ID                int64    `json:"id"`
+	LibraryID         int64    `json:"library_id"`
+	LibraryName       string   `json:"library_name"`
+	Title             string   `json:"title"`
+	Extension         string   `json:"extension"`
+	SizeBytes         int64    `json:"size_bytes"`
+	ModifiedUnix      int64    `json:"modified_unix"`
+	Available         bool     `json:"available"`
+	MediaType         string   `json:"media_type"`
+	Year              int      `json:"year"`
+	SeasonNumber      int      `json:"season_number"`
+	EpisodeNumber     int      `json:"episode_number"`
+	Overview          string   `json:"overview"`
+	Genres            []string `json:"genres"`
+	Rating            float64  `json:"rating"`
+	RuntimeMinutes    int      `json:"runtime_minutes"`
+	MetadataStatus    string   `json:"metadata_status"`
+	TMDBID            int64    `json:"tmdb_id,omitempty"`
+	CollectionTMDBID  int64    `json:"collection_tmdb_id,omitempty"`
+	CollectionName    string   `json:"collection_name,omitempty"`
+	PosterURL         string   `json:"poster_url"`
+	BackdropURL       string   `json:"backdrop_url"`
+	LogoURL           string   `json:"logo_url"`
+	EntityType        string   `json:"entity_type,omitempty"`
+	SeriesID          string   `json:"series_id,omitempty"`
+	SeasonCount       int      `json:"season_count,omitempty"`
+	EpisodeCount      int      `json:"episode_count,omitempty"`
+	PositionSeconds   float64  `json:"position_seconds,omitempty"`
+	DurationSeconds   float64  `json:"duration_seconds,omitempty"`
+	ProgressPercent   float64  `json:"progress_percent,omitempty"`
 }
 
 type StreamItem struct {
@@ -61,7 +63,7 @@ func (s *Service) List(ctx context.Context, libraryID int64, query string, limit
 	}
 	args := []any{}
 	sqlText := `SELECT m.id,m.library_id,l.name,m.title,m.extension,m.size_bytes,m.modified_unix,m.available,
-COALESCE(mm.media_type,''),COALESCE(mm.year,0),COALESCE(mm.season_number,0),COALESCE(mm.episode_number,0),COALESCE(mm.overview,''),COALESCE(mm.genres_json,'[]'),COALESCE(mm.rating,0),COALESCE(mm.runtime_minutes,0),COALESCE(mm.status,'pending'),COALESCE(mm.tmdb_id,0),
+COALESCE(mm.media_type,''),COALESCE(mm.year,0),COALESCE(mm.season_number,0),COALESCE(mm.episode_number,0),COALESCE(mm.overview,''),COALESCE(mm.genres_json,'[]'),COALESCE(mm.rating,0),COALESCE(mm.runtime_minutes,0),COALESCE(mm.status,'pending'),COALESCE(mm.tmdb_id,0),COALESCE(mm.collection_tmdb_id,0),COALESCE(mm.collection_name,''),
 COALESCE((SELECT a.public_url FROM media_artwork a WHERE a.media_id=m.id AND a.kind='poster' AND a.selected=1 ORDER BY a.score DESC LIMIT 1),''),
 COALESCE((SELECT a.public_url FROM media_artwork a WHERE a.media_id=m.id AND a.kind='backdrop' AND a.selected=1 ORDER BY a.score DESC LIMIT 1),''),
 COALESCE((SELECT a.public_url FROM media_artwork a WHERE a.media_id=m.id AND a.kind='logo' AND a.selected=1 ORDER BY a.score DESC LIMIT 1),'')
@@ -103,7 +105,7 @@ FROM media m JOIN libraries l ON l.id=m.library_id LEFT JOIN media_metadata mm O
 		var v Item
 		var genres string
 		if err := rows.Scan(&v.ID, &v.LibraryID, &v.LibraryName, &v.Title, &v.Extension, &v.SizeBytes, &v.ModifiedUnix, &v.Available,
-			&v.MediaType, &v.Year, &v.SeasonNumber, &v.EpisodeNumber, &v.Overview, &genres, &v.Rating, &v.RuntimeMinutes, &v.MetadataStatus, &v.TMDBID, &v.PosterURL, &v.BackdropURL, &v.LogoURL); err != nil {
+			&v.MediaType, &v.Year, &v.SeasonNumber, &v.EpisodeNumber, &v.Overview, &genres, &v.Rating, &v.RuntimeMinutes, &v.MetadataStatus, &v.TMDBID, &v.CollectionTMDBID, &v.CollectionName, &v.PosterURL, &v.BackdropURL, &v.LogoURL); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(genres), &v.Genres)
