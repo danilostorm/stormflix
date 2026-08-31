@@ -47,5 +47,5 @@ CREATE INDEX IF NOT EXISTS idx_metadata_collection_browse
 	if _, err := db.Exec(schema); err != nil {
 		return fmt.Errorf("migrate phase15 profile integrations and home indexes: %w", err)
 	}
-	return nil
+	return migratePhase16(db)
 }
