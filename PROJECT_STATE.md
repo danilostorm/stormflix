@@ -2,7 +2,7 @@
 
 > **Authoritative continuation note.** Any coding agent/session continuing StormFlix must read this file and `AGENTS.md` before changing code. Update this document after meaningful architecture, compatibility, schema, playback or deployment changes.
 
-Last architecture update: **2026-08-30**.
+Last architecture update: **2026-08-31**.
 
 ## Deployment
 
@@ -100,6 +100,8 @@ Tizen packaging is certificate-specific: CI validates the project and publishes 
 ## Libraries, multiple sources and managed deployment roots
 
 A logical library may contain multiple physical `library_sources`. `ScanMulti` walks enabled sources and merges their files into one catalog identity. A temporarily unavailable source preserves the previous catalog under that root rather than marking everything missing.
+
+Different logical libraries may intentionally use parent/child source roots. Ownership follows the **most-specific configured source root**: a broad parent scanner does not descend into a subtree reserved by another library, while that child library scans the subtree normally. Exact duplicate roots across libraries remain invalid, and redundant parent/child roots inside the same logical library remain invalid. When a child library is introduced after the parent already indexed that subtree, the next successful parent scan marks the old parent rows unavailable so the title is not duplicated across libraries. Preview uses the same discovery ownership rules.
 
 Deployment may append movie roots automatically with:
 
