@@ -127,6 +127,17 @@ func (s *server) loadMediaMarkers(ctx context.Context, mediaID int64) ([]playbac
 	return out, rows.Err()
 }
 
+func normalizeMarkerSource(source string) (string, float64) {
+	switch strings.ToLower(strings.TrimSpace(source)) {
+	case "chapter":
+		return "chapter", 0.8
+	case "automatic":
+		return "automatic", 0.7
+	default:
+		return "manual", 1
+	}
+}
+
 func (s *server) saveMediaMarker(ctx context.Context, mediaID int64, marker playbackMarkerState) error {
 	marker.Kind = strings.ToLower(strings.TrimSpace(marker.Kind))
 	if !validMarkerKind(marker.Kind) {
@@ -135,12 +146,14 @@ func (s *server) saveMediaMarker(ctx context.Context, mediaID int64, marker play
 	if marker.StartSeconds < 0 || marker.EndSeconds <= marker.StartSeconds || marker.EndSeconds > 86400 {
 		return errors.New("invalid marker interval")
 	}
+	source, confidence := normalizeMarkerSource(marker.Source)
 	_, err := s.db.ExecContext(ctx, `
 INSERT INTO media_markers(media_id,kind,start_seconds,end_seconds,source,confidence)
-VALUES(?,?,?,?,?,1)
+VALUES(?,?,?,?,?,?)
 ON CONFLICT(media_id,kind) DO UPDATE SET
- start_seconds=excluded.start_seconds,end_seconds=excluded.end_seconds,source='manual',confidence=1,updated_at=CURRENT_TIMESTAMP`,
-		mediaID, marker.Kind, marker.StartSeconds, marker.EndSeconds, "manual")
+ start_seconds=excluded.start_seconds,end_seconds=excluded.end_seconds,source=excluded.source,confidence=excluded.confidence,updated_at=CURRENT_TIMESTAMP
+WHERE media_markers.source<>'manual' OR excluded.source='manual'`,
+		mediaID, marker.Kind, marker.StartSeconds, marker.EndSeconds, source, confidence)
 	return err
 }
 
