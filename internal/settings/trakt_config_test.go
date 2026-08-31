@@ -55,3 +55,32 @@ func TestTraktApplicationSettingsAreEncryptedAndApplied(t *testing.T) {
 		t.Fatalf("unexpected public Trakt status: %+v", public)
 	}
 }
+
+func TestTraktExplicitClearOverridesEnvironmentDefaults(t *testing.T) {
+	dir := t.TempDir()
+	db, err := database.Open(filepath.Join(dir, "stormflix.db"))
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer db.Close()
+	service, err := New(db, dir)
+	if err != nil {
+		t.Fatalf("settings service: %v", err)
+	}
+	base := config.Config{TraktClientID: "env-id", TraktClientSecret: "env-secret", TraktRedirectURI: "urn:ietf:wg:oauth:2.0:oob"}
+	id, secret, _, public, err := service.TraktApplication(context.Background(), base)
+	if err != nil || id != "env-id" || secret != "env-secret" || !public.Configured {
+		t.Fatalf("expected environment defaults before clear, id=%q secret=%q public=%+v err=%v", id, secret, public, err)
+	}
+	clear := "__clear__"
+	if err := service.UpdateTraktApplication(context.Background(), TraktApplicationUpdate{ClientID: &clear, ClientSecret: &clear}); err != nil {
+		t.Fatalf("clear Trakt application: %v", err)
+	}
+	id, secret, _, public, err = service.TraktApplication(context.Background(), base)
+	if err != nil {
+		t.Fatalf("resolve after clear: %v", err)
+	}
+	if id != "" || secret != "" || public.Configured {
+		t.Fatalf("explicit Admin clear should override env defaults, id=%q secret=%q public=%+v", id, secret, public)
+	}
+}
