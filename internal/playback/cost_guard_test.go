@@ -17,6 +17,19 @@ func TestAutomatic4KIncompatibleSourceFallsBackTo1080p(t *testing.T) {
 	}
 }
 
+func TestOriginal4KIncompatibleSourceAlsoFallsBackTo1080p(t *testing.T) {
+	req := baseRequest()
+	req.Quality = "original"
+	source := Source{Container: "mp4", Streams: []Stream{
+		{Index: 0, Type: "video", Codec: "hevc", Width: 3840, Height: 2160, FrameRate: 24},
+		{Index: 1, Type: "audio", Codec: "aac"},
+	}}
+	plan := DecideForClient(source, req)
+	if plan.Mode != ModeVideoTranscode || plan.TargetVideoWidth != 1920 || plan.TargetVideoHeight != 1080 || plan.TargetBitrateKbps != 8000 {
+		t.Fatalf("Original cannot preserve incompatible UHD and should use the safe 1080p compatibility ceiling, got %+v", plan)
+	}
+}
+
 func TestCompatible4KRemainsDirectPlayAtFullResolution(t *testing.T) {
 	req := baseRequest()
 	req.Capabilities.VideoCodecs = append(req.Capabilities.VideoCodecs, "hevc")
