@@ -23,6 +23,8 @@ type Config struct {
 	FanartAPIKey               string
 	FanartClientKey            string
 	LastFMAPIKey               string
+	TraktClientID              string
+	TraktClientSecret          string
 	SubDLAPIKey                string
 	OpenSubtitlesAPIKey        string
 	OpenSubtitlesUsername      string
@@ -68,6 +70,8 @@ func Load() Config {
 		FanartAPIKey:               os.Getenv("STORMFLIX_FANART_API_KEY"),
 		FanartClientKey:            os.Getenv("STORMFLIX_FANART_CLIENT_KEY"),
 		LastFMAPIKey:               os.Getenv("STORMFLIX_LASTFM_API_KEY"),
+		TraktClientID:              os.Getenv("STORMFLIX_TRAKT_CLIENT_ID"),
+		TraktClientSecret:          os.Getenv("STORMFLIX_TRAKT_CLIENT_SECRET"),
 		SubDLAPIKey:                os.Getenv("STORMFLIX_SUBDL_API_KEY"),
 		OpenSubtitlesAPIKey:        os.Getenv("STORMFLIX_OPENSUBTITLES_API_KEY"),
 		OpenSubtitlesUsername:      os.Getenv("STORMFLIX_OPENSUBTITLES_USERNAME"),
