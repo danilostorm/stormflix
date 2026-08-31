@@ -1,0 +1,112 @@
+name: Smart TV Apps
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/tizen/**'
+      - 'apps/webos/**'
+      - '.github/workflows/smart-tv.yml'
+  pull_request:
+    paths:
+      - 'apps/tizen/**'
+      - 'apps/webos/**'
+      - '.github/workflows/smart-tv.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  tizen:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Validate JavaScript
+        run: node --check apps/tizen/app.js
+
+      - name: Validate Tizen manifest
+        run: python3 -c "import xml.etree.ElementTree as ET; ET.parse('apps/tizen/config.xml')"
+
+      - name: Prepare certificate-ready Tizen source
+        shell: bash
+        run: |
+          mkdir -p dist/tizen
+          cp -a apps/tizen/. dist/tizen/
+          rm -f dist/tizen/README.md
+          (cd dist/tizen && zip -qr ../StormFlix-Tizen-v0.1.0-source.zip .)
+
+      - name: Upload Tizen source artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: StormFlix-Tizen-0.1.0-source
+          path: dist/StormFlix-Tizen-v0.1.0-source.zip
+          if-no-files-found: error
+
+  webos:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/webos/package.json
+
+      - name: Install webOS CLI
+        run: npm install --prefix apps/webos --no-audit --no-fund
+
+      - name: Validate webOS app
+        run: npm run check --prefix apps/webos
+
+      - name: Package IPK
+        run: npm run package --prefix apps/webos
+
+      - name: Prepare release files
+        shell: bash
+        run: |
+          IPK=$(find apps/webos/build -maxdepth 1 -name '*.ipk' -print -quit)
+          if [ -z "$IPK" ]; then
+            echo 'webOS IPK was not generated' >&2
+            exit 1
+          fi
+          cp "$IPK" StormFlix-webOS-v0.1.0.ipk
+          sha256sum StormFlix-webOS-v0.1.0.ipk > StormFlix-webOS-v0.1.0.sha256
+
+      - name: Upload webOS IPK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: StormFlix-webOS-0.1.0
+          path: |
+            StormFlix-webOS-v0.1.0.ipk
+            StormFlix-webOS-v0.1.0.sha256
+          if-no-files-found: error
+
+      - name: Publish webOS GitHub Release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: webos-v0.1.0
+        shell: bash
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; leaving it unchanged."
+            exit 0
+          fi
+          gh release create "$TAG" \
+            StormFlix-webOS-v0.1.0.ipk \
+            StormFlix-webOS-v0.1.0.sha256 \
+            --target "$GITHUB_SHA" \
+            --title "StormFlix webOS 0.1.0" \
+            --generate-notes \
+            --notes "IPK de teste para instalação direta em LG webOS Developer Mode."
