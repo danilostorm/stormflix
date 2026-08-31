@@ -67,9 +67,10 @@ func (s *server) browseSmartCategory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	clientCaps := clientMediaCapsFromRequest(r)
+	gateUHDByDevice := shouldGateUHDCategoryByDevice(config.RuleMode, config.Rules)
 	technicalPending := false
 	allowedByDevice := func(mediaID int64) bool {
-		if !clientCaps.Explicit {
+		if !gateUHDByDevice || !clientCaps.Explicit {
 			return true
 		}
 		tech, ok := s.technicalSnapshotFor(r.Context(), mediaID)
