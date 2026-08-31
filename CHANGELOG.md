@@ -4,6 +4,17 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 
 ## 2026-08-30
 
+### Samsung Tizen / LG webOS clients and deployment-managed movie sources
+
+- Added the first dedicated **StormFlix Samsung Tizen 0.1.0** shell under `apps/tizen`. It launches the hosted StormFlix TV Web UI/Web Player, registers TV media keys and reuses the shared semantic `tv-remote.js` input layer rather than introducing another playback engine.
+- Added a certificate-aware Tizen packaging helper plus CI validation for JavaScript and `config.xml`. CI publishes a certificate-ready Tizen source artifact; the final WGT remains signed locally with the developer's Samsung/Tizen certificate profile instead of committing private signing material.
+- Added the first dedicated **StormFlix LG webOS 0.1.0** shell under `apps/webos`. It launches the same hosted StormFlix TV Web UI/Web Player and can be packaged as an IPK for LG Developer Mode installation.
+- Added Smart TV CI that validates Tizen, validates/packages webOS, uploads both artifacts and publishes the webOS IPK/SHA-256 release from `main`.
+- Added deployment-managed movie source configuration with `STORMFLIX_MANAGED_MOVIE_LIBRARY_NAME` and comma-separated `STORMFLIX_MANAGED_MOVIE_PATHS`.
+- Startup reconciliation is additive/idempotent: managed movie roots are appended to the logical movie library without deleting existing administrator roots, duplicate/covered roots are skipped, unsafe overlap is rejected and a reconciliation warning never prevents server startup.
+- Added two additional read-only movie mounts to the deployed Compose configuration. Exact host media paths intentionally remain deployment configuration rather than documentation.
+- Added regression tests proving managed sources are appended without removing an existing source and that repeated startup reconciliation does not duplicate them.
+
 ### Android 0.5.3 PlaybackPlan JSON compatibility retry
 
 - Bumped the native Android/Android TV/Fire TV package to **0.5.3 / versionCode 17** after a real phone reproduced a black player at `00:00 / 00:00` with the toast `Não foi possível preparar a reprodução: invalid JSON ...`.

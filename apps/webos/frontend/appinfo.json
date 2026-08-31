@@ -1,0 +1,14 @@
+{
+  "id": "cloud.stormflix.webos",
+  "version": "0.1.0",
+  "vendor": "StormFlix",
+  "type": "web",
+  "main": "index.html",
+  "title": "StormFlix",
+  "appDescription": "StormFlix para LG webOS TV",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "bgColor": "#050608",
+  "iconColor": "#050608",
+  "disableBackHistoryAPI": true
+}

@@ -1,0 +1,13 @@
+{
+  "name": "cloud.stormflix.webos",
+  "version": "0.1.0",
+  "private": true,
+  "description": "StormFlix webOS TV shell",
+  "scripts": {
+    "check": "ares-package --check frontend",
+    "package": "rm -rf build && mkdir -p build && ares-package --no-minify --outdir build frontend"
+  },
+  "devDependencies": {
+    "@webosose/ares-cli": "^2.4.0"
+  }
+}
