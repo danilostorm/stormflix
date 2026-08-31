@@ -69,20 +69,20 @@ func normalizePlaybackPreferences(in playbackPreferenceState) playbackPreference
 	return out
 }
 
-func (s *server) loadPlaybackPreferences(ctx context.Context, profileID int64) (playbackPreferenceState, error) {
+func (s *server) loadPlaybackPreferences(ctx context.Context, profileID int64) (playbackPreferenceState, bool, error) {
 	out := defaultPlaybackPreferences()
 	if profileID <= 0 {
-		return out, nil
+		return out, false, nil
 	}
 	err := s.db.QueryRowContext(ctx, `SELECT skip_mode,rewind_seconds,still_watching,still_watching_episode_limit,still_watching_hours,autoplay_countdown FROM profile_playback_preferences WHERE profile_id=?`, profileID).
 		Scan(&out.SkipMode, &out.RewindSeconds, &out.StillWatching, &out.StillWatchingEpisodeLimit, &out.StillWatchingHours, &out.AutoplayCountdown)
 	if errors.Is(err, sql.ErrNoRows) {
-		return out, nil
+		return out, false, nil
 	}
 	if err != nil {
-		return out, err
+		return out, false, err
 	}
-	return normalizePlaybackPreferences(out), nil
+	return normalizePlaybackPreferences(out), true, nil
 }
 
 func (s *server) savePlaybackPreferences(ctx context.Context, profileID int64, in playbackPreferenceState) (playbackPreferenceState, error) {
@@ -176,7 +176,7 @@ func (s *server) handlePlaybackDelightTelemetry(w http.ResponseWriter, r *http.R
 
 	switch op {
 	case "playback_state_get":
-		prefs, err := s.loadPlaybackPreferences(r.Context(), profileID)
+		prefs, persisted, err := s.loadPlaybackPreferences(r.Context(), profileID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err)
 			return true
@@ -187,7 +187,8 @@ func (s *server) handlePlaybackDelightTelemetry(w http.ResponseWriter, r *http.R
 			return true
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"ok": true, "profile_id": profileID, "playback_preferences": prefs, "markers": markers,
+			"ok": true, "profile_id": profileID, "playback_preferences": prefs,
+			"playback_preferences_persisted": persisted, "markers": markers,
 		})
 		return true
 	case "playback_preferences_set":
