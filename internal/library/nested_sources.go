@@ -23,6 +23,18 @@ func (s *Service) delegatedSourceRoots(ctx context.Context, libraryID int64, roo
 	}
 	rootAbs = filepath.Clean(rootAbs)
 
+	// Some focused unit tests and pre-multi-source legacy databases contain the
+	// original libraries/media schema without library_sources. Keep the legacy
+	// scanner functional there; production migrations create this table before
+	// multi-source ownership is used.
+	var hasSourcesTable int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='library_sources'`).Scan(&hasSourcesTable); err != nil {
+		return nil, err
+	}
+	if hasSourcesTable == 0 {
+		return nil, nil
+	}
+
 	rows, err := s.db.QueryContext(ctx, `
 SELECT path FROM library_sources
 WHERE library_id<>? AND enabled=1
