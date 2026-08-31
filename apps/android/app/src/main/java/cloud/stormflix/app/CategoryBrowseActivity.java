@@ -102,6 +102,7 @@ public class CategoryBrowseActivity extends Activity {
                 JSONObject root = rootData.optJSONObject("category");
                 long rootId = root == null ? 0 : root.optLong("id");
                 String rootTitle = root == null ? requestedTitle : root.optString("name", requestedTitle);
+                String catalogCaps = PlaybackCapabilities.catalogQuery(this);
 
                 JSONArray categories = new JSONArray(api.get("/categories"));
                 List<JSONObject> children = new ArrayList<>();
@@ -122,7 +123,7 @@ public class CategoryBrowseActivity extends Activity {
                 for (JSONObject child : children) {
                     String childSlug = child.optString("slug", "");
                     if (childSlug.isEmpty()) continue;
-                    JSONObject data = new JSONObject(api.get("/categories/" + Uri.encode(childSlug) + "/smart"));
+                    JSONObject data = new JSONObject(api.get("/categories/" + Uri.encode(childSlug) + "/smart" + catalogCaps));
                     List<CardItem> items = categoryItems(data);
                     if (items.isEmpty()) continue;
                     sections.add(new Section(child.optString("name", childSlug), items));
