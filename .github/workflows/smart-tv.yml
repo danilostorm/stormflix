@@ -60,8 +60,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '24'
-          cache: npm
-          cache-dependency-path: apps/webos/package.json
 
       - name: Install webOS CLI
         run: npm install --prefix apps/webos --no-audit --no-fund
