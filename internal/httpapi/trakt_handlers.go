@@ -1,11 +1,13 @@
 package httpapi
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"net/http"
 	"sync"
 
+	appsettings "github.com/danilostorm/stormflix/internal/settings"
 	"github.com/danilostorm/stormflix/internal/trakt"
 )
 
@@ -15,9 +17,42 @@ func (s *server) traktIntegration() *trakt.Service {
 	if value, ok := traktIntegrations.Load(s); ok {
 		return value.(*trakt.Service)
 	}
-	service := trakt.New(s.db, s.settings, s.config.TraktClientID, s.config.TraktClientSecret, s.config.TraktRedirectURI)
+	clientID, clientSecret, redirectURI, _, err := s.settings.TraktApplication(context.Background(), s.baseConfig)
+	if err != nil {
+		clientID, clientSecret, redirectURI = s.config.TraktClientID, s.config.TraktClientSecret, s.config.TraktRedirectURI
+	}
+	service := trakt.New(s.db, s.settings, clientID, clientSecret, redirectURI)
 	actual, _ := traktIntegrations.LoadOrStore(s, service)
 	return actual.(*trakt.Service)
+}
+
+func (s *server) adminTraktSettings(w http.ResponseWriter, r *http.Request) {
+	_, _, _, public, err := s.settings.TraktApplication(r.Context(), s.baseConfig)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, public)
+}
+
+func (s *server) updateAdminTraktSettings(w http.ResponseWriter, r *http.Request) {
+	var in appsettings.TraktApplicationUpdate
+	if decodeJSON(w, r, &in) != nil {
+		return
+	}
+	if err := s.settings.UpdateTraktApplication(r.Context(), in); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	clientID, clientSecret, redirectURI, public, err := s.settings.TraktApplication(r.Context(), s.baseConfig)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	s.traktIntegration().Configure(clientID, clientSecret, redirectURI)
+	u := currentUser(r)
+	s.admin.Log(r.Context(), "info", "settings", "Trakt application settings updated", &u.ID, "client credentials remain encrypted and profile OAuth tokens stay isolated")
+	writeJSON(w, http.StatusOK, public)
 }
 
 func (s *server) ownedProfile(w http.ResponseWriter, r *http.Request) (int64, bool) {
