@@ -3,6 +3,11 @@
   if(typeof req!=='function')return;
   let renderGeneration=0;
 
+  // Keep the shared Admin HTML escaper canonical while this compatibility
+  // transition is deployed. Older cached admin.js builds omitted the semicolon
+  // on &quot;, which is harmless in many browsers but not correct for attributes.
+  window.esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
   function cleanupCard(title,value,note){
     return `<article class="metric-card"><div><strong>${value}</strong><span>${esc(title)}</span></div><small>${esc(note||'')}</small></article>`;
   }
