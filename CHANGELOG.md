@@ -4,6 +4,16 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 
 ## 2026-08-31
 
+### Automatic movie collections and stable Admin cleanup
+
+- Added automatic movie-franchise grouping from TMDB `belongs_to_collection` identity instead of filename/title heuristics.
+- Added database Phase 14 collection metadata so franchise membership is cached by movie identity and becomes stale automatically when a movie's TMDB match changes.
+- Existing matched movies are backfilled lazily by a single low-rate background worker so Home, scans and playback are not blocked by collection discovery.
+- Added authenticated `/api/v1/media?group=collections&minimum_size=2`, preserving library permissions and selected-profile/kids restrictions.
+- Web now adds a **Coleções** top-menu entry only when at least two accessible local movies belong to the same collection, rendering each franchise as its own chronological rail while keeping individual movies in normal Filme/gênero/busca surfaces.
+- Fixed Admin → **Limpeza** so one central page dispatcher owns rendering. The performance module no longer competes by wrapping global navigation, stale async refresh responses are discarded and the transition is cache-busted to prevent the old cleanup view from replacing the new optimization panel.
+- Added regression coverage for Phase 14, TMDB collection lookup, minimum collection size, permission isolation and collection-menu JavaScript syntax.
+
 ### 4K device policy, cheaper live transcode and lossless asset storage
 
 - Dedicated smart **4K / UHD** shelves now use explicit client display/decoder hints. An incompatible device does not receive the dedicated UHD shelf, while the same title remains visible in ordinary catalog/genre surfaces where PlaybackPlan can provide a safe compatibility route.
