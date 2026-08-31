@@ -61,7 +61,8 @@
     const p=await ensureProfile(),profileID=Number(state?.profile_id||p?.id||0);
     if(profileID&&state?.playback_preferences){
       const key=prefKey(profileID),migration=`stormflix.playback.server-migrated.${profileID}`,raw=localStorage.getItem(key);
-      if(raw&&localStorage.getItem(migration)!=='1'){
+      const serverHasPreferences=state?.playback_preferences_persisted===true;
+      if(raw&&localStorage.getItem(migration)!=='1'&&!serverHasPreferences){
         const local=readJSON(key,null);
         if(local)await syncPreferences(mediaID,local);
       }else writeJSON(key,state.playback_preferences);
