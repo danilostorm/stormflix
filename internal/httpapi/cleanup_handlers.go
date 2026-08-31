@@ -6,20 +6,25 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
+
+	"github.com/danilostorm/stormflix/internal/assets"
 )
 
 type cleanupReport struct {
-	AssetFiles       int   `json:"asset_files"`
-	AssetBytes       int64 `json:"asset_bytes"`
-	OrphanAssetFiles int   `json:"orphan_asset_files"`
-	OrphanAssetBytes int64 `json:"orphan_asset_bytes"`
-	TempFiles        int   `json:"temp_files"`
-	TempBytes        int64 `json:"temp_bytes"`
-	ExpiredSessions  int64 `json:"expired_sessions"`
-	UnavailableMedia int64 `json:"unavailable_media"`
-	OldLogs          int64 `json:"old_logs"`
-	DatabaseBytes    int64 `json:"database_bytes"`
+	AssetFiles             int   `json:"asset_files"`
+	AssetBytes             int64 `json:"asset_bytes"`
+	AssetPhysicalBytes     int64 `json:"asset_physical_bytes"`
+	AssetDedupSavingsBytes int64 `json:"asset_dedup_savings_bytes"`
+	OrphanAssetFiles       int   `json:"orphan_asset_files"`
+	OrphanAssetBytes       int64 `json:"orphan_asset_bytes"`
+	TempFiles              int   `json:"temp_files"`
+	TempBytes              int64 `json:"temp_bytes"`
+	ExpiredSessions        int64 `json:"expired_sessions"`
+	UnavailableMedia       int64 `json:"unavailable_media"`
+	OldLogs                int64 `json:"old_logs"`
+	DatabaseBytes          int64 `json:"database_bytes"`
 }
 
 type cleanupRequest struct {
@@ -27,6 +32,7 @@ type cleanupRequest struct {
 	TempFiles         bool `json:"temp_files"`
 	ExpiredSessions   bool `json:"expired_sessions"`
 	UnavailableMedia  bool `json:"unavailable_media"`
+	DeduplicateAssets bool `json:"deduplicate_assets"`
 	LogsOlderThanDays int  `json:"logs_older_than_days"`
 	Vacuum            bool `json:"vacuum"`
 }
@@ -88,6 +94,15 @@ func (s *server) runCleanup(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+
+	optimization := assets.DeduplicateReport{}
+	if in.DeduplicateAssets {
+		optimization, err = s.assets.Deduplicate()
+		if err != nil {
+			writeError(w, 500, err)
+			return
+		}
+	}
 	if in.Vacuum {
 		if _, err := s.db.ExecContext(r.Context(), `VACUUM`); err != nil {
 			writeError(w, 500, err)
@@ -99,7 +114,26 @@ func (s *server) runCleanup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true, "removed_files": removedFiles, "freed_bytes": removedBytes, "report": report})
+	writeJSON(w, 200, map[string]any{
+		"ok":                 true,
+		"removed_files":      removedFiles,
+		"freed_bytes":        removedBytes,
+		"asset_optimization": optimization,
+		"report":             report,
+	})
+}
+
+type assetFileIdentity struct {
+	dev uint64
+	ino uint64
+}
+
+func physicalIdentity(info os.FileInfo) (assetFileIdentity, bool) {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || stat == nil {
+		return assetFileIdentity{}, false
+	}
+	return assetFileIdentity{dev: uint64(stat.Dev), ino: uint64(stat.Ino)}, true
 }
 
 func (s *server) buildCleanupReport() (cleanupReport, map[string]int64, map[string]int64, error) {
@@ -126,12 +160,13 @@ func (s *server) buildCleanupReport() (cleanupReport, map[string]int64, map[stri
 	root, _ := s.assets.Snapshot()
 	orphans := map[string]int64{}
 	temps := map[string]int64{}
+	physical := map[assetFileIdentity]bool{}
 	_ = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil || entry.IsDir() {
 			return nil
 		}
 		info, err := entry.Info()
-		if err != nil {
+		if err != nil || !info.Mode().IsRegular() {
 			return nil
 		}
 		rel, err := filepath.Rel(root, path)
@@ -141,7 +176,15 @@ func (s *server) buildCleanupReport() (cleanupReport, map[string]int64, map[stri
 		rel = filepath.ToSlash(rel)
 		report.AssetFiles++
 		report.AssetBytes += info.Size()
-		if strings.HasSuffix(strings.ToLower(entry.Name()), ".tmp") {
+		if id, ok := physicalIdentity(info); ok {
+			if !physical[id] {
+				physical[id] = true
+				report.AssetPhysicalBytes += info.Size()
+			}
+		} else {
+			report.AssetPhysicalBytes += info.Size()
+		}
+		if strings.HasSuffix(strings.ToLower(entry.Name()), ".tmp") || strings.HasSuffix(strings.ToLower(entry.Name()), ".dedupe-tmp") {
 			report.TempFiles++
 			report.TempBytes += info.Size()
 			temps[path] = info.Size()
@@ -154,6 +197,9 @@ func (s *server) buildCleanupReport() (cleanupReport, map[string]int64, map[stri
 		}
 		return nil
 	})
+	if report.AssetBytes > report.AssetPhysicalBytes {
+		report.AssetDedupSavingsBytes = report.AssetBytes - report.AssetPhysicalBytes
+	}
 	_ = s.db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE expires_at<=CURRENT_TIMESTAMP`).Scan(&report.ExpiredSessions)
 	_ = s.db.QueryRow(`SELECT COUNT(*) FROM media WHERE available=0`).Scan(&report.UnavailableMedia)
 	_ = s.db.QueryRow(`SELECT COUNT(*) FROM activity_logs WHERE created_at<datetime('now','-90 days')`).Scan(&report.OldLogs)
