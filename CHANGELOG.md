@@ -2,6 +2,19 @@
 
 This file records user-visible and architectural changes. `PROJECT_STATE.md` is the authoritative current-state handoff.
 
+## 2026-08-31
+
+### Safe nested library source ownership
+
+- Libraries may now intentionally use parent/child physical source roots when a dedicated subfolder belongs to a more-specific logical library.
+- The scanner assigns ownership to the **most-specific configured source root** and prunes those delegated subtrees from broader parent-library scans, preventing duplicate catalog entries.
+- Exact duplicate roots across different libraries remain blocked, and redundant parent/child roots inside the same logical library remain blocked.
+- Introducing a child library after a parent already indexed that subtree is handled safely: the next successful parent scan marks the old parent rows unavailable while the child library owns the files.
+- Offline-source protection counts only content still owned by the current library, so an intentionally delegated subtree is not mistaken for a failed empty mount.
+- `PreviewMulti` follows the same discovery ownership behavior as the real scanner.
+- Legacy databases/tests without the multi-source table keep the previous scanner behavior until normal migrations provide multi-source ownership state.
+- Added regression coverage for parent-before-child migration, exact-root rejection and same-library overlap rejection.
+
 ## 2026-08-30
 
 ### Samsung Tizen / LG webOS clients and deployment-managed movie sources
@@ -26,7 +39,7 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 
 ### Playback Engine v5, Web Player v5 and Android 0.5.0
 
-- Advanced the server to **0.21.0-playback-v5** and the native Android/Android TV/Fire TV app to **0.5.0 / versionCode 14**.
+- Advanced the server to **`0.21.0-playback-v5`** and the native Android/Android TV/Fire TV app to **0.5.0 / versionCode 14**.
 - Preserved **Direct Play first** as the primary playback rule. Video transcoding is never a hidden bypass: it is selected only by the authoritative PlaybackPlan when the client explicitly advertises `allow_video_transcode` or when the user explicitly selects a quality lower than the source.
 - Added the native `video_transcode` PlaybackPlan mode after Direct Play → Remux → audio-only AAC compatibility. Unsupported video codec, decoder resolution/FPS/HDR limits, explicit Direct Play bitrate limits and user quality caps now produce a structured transcode plan when a safe target exists instead of simply failing playback.
 - Added persistent playback quality options **Auto / Original / 4K / 1440p / 1080p / 720p / 480p**. Choosing a lower quality than a compatible source now intentionally produces `reason_code=quality_limit`; `Original` continues preserving compatible Direct Play and the system never upscales lower-resolution media.
@@ -95,7 +108,7 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 - Added schema **Phase 13** for smart rules, technical media cache, catalog audit history, profile Home preferences, backup registry and playback diagnostics.
 - Added regression tests for smart rule normalization, pt-BR dub/sub classification, episode-safe duplicate detection, read-only scan preview, adaptive HLS bounds, Phase 13 migration and validated staged database restore.
 - CI now syntax-checks the automation/large-catalog scripts in addition to existing Web/Admin scripts, runs the full Go suite, playback/webcompat race tests and the server build.
-- Server version advanced to **0.20.0-platform-automation**.
+- Server version advanced to **`0.20.0-platform-automation`**.
 
 ### Home menus and gallery sections
 
@@ -158,7 +171,7 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 - **Closing or finishing a movie immediately cancels that session's FFmpeg worker and deletes its entire HLS cache directory.** Browser unload also sends best-effort cleanup.
 - Added 30-minute idle cleanup for crash/disconnect recovery and startup orphan cleanup.
 - Added ownership/path safety and HLS lifecycle/budget tests.
-- Server version advanced to **0.19.0-dynamic-hls**.
+- Server version advanced to **`0.19.0-dynamic-hls`**.
 
 ## 2026-08-27
 
