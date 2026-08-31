@@ -14,16 +14,22 @@ import (
 var traktIntegrations sync.Map
 
 func (s *server) traktIntegration() *trakt.Service {
-	if value, ok := traktIntegrations.Load(s); ok {
-		return value.(*trakt.Service)
-	}
 	clientID, clientSecret, redirectURI, _, err := s.settings.TraktApplication(context.Background(), s.baseConfig)
 	if err != nil {
 		clientID, clientSecret, redirectURI = s.config.TraktClientID, s.config.TraktClientSecret, s.config.TraktRedirectURI
 	}
+	if value, ok := traktIntegrations.Load(s); ok {
+		service := value.(*trakt.Service)
+		service.Configure(clientID, clientSecret, redirectURI)
+		return service
+	}
 	service := trakt.New(s.db, s.settings, clientID, clientSecret, redirectURI)
-	actual, _ := traktIntegrations.LoadOrStore(s, service)
-	return actual.(*trakt.Service)
+	actual, loaded := traktIntegrations.LoadOrStore(s, service)
+	if loaded {
+		service = actual.(*trakt.Service)
+		service.Configure(clientID, clientSecret, redirectURI)
+	}
+	return service
 }
 
 func (s *server) adminTraktSettings(w http.ResponseWriter, r *http.Request) {
