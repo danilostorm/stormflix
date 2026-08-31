@@ -4,6 +4,17 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 
 ## 2026-08-31
 
+### 4K device policy, cheaper live transcode and lossless asset storage
+
+- Dedicated smart **4K / UHD** shelves now use explicit client display/decoder hints. An incompatible device does not receive the dedicated UHD shelf, while the same title remains visible in ordinary catalog/genre surfaces where PlaybackPlan can provide a safe compatibility route.
+- Web derives browser codec/display hints, while **Android 0.6.3 / versionCode 21** derives decoder and maximum-resolution capability from the device's real `MediaCodecList` instead of assuming every Android/Fire device is UHD-capable.
+- Compatible UHD remains full-resolution **Direct Play**. Audio-only incompatibility keeps the original video in stream-copy and converts only the selected audio when AAC compatibility is required.
+- When UHD video is incompatible and a video encode is unavoidable under **Auto** or **Original**, automatic compatibility transcode is capped at **1080p / 8 Mbps** instead of performing an expensive 4K→4K encode. An explicit 2160p selection remains intentional and is not overridden by this cost guard.
+- The continuous Web playback engine keeps NVENC/QSV/VAAPI encoders ahead of CPU fallbacks when the installed FFmpeg and container expose them. CPU live H.264 fallback now uses `superfast`; UHD→1080 scaling uses low-cost `fast_bilinear`, while ordinary downscales retain balanced bicubic scaling.
+- Added a lossless asset optimizer that groups byte-identical artwork by SHA-256 and consolidates duplicates with hard links when supported. Poster/backdrop/logo bytes, paths and URLs stay unchanged; no image is recompressed.
+- Admin cleanup now reports logical artwork bytes, unique physical inode bytes and deduplication savings, with an explicit **Otimizar assets sem perda** operation separate from destructive orphan/temp cleanup.
+- Added regression coverage for compatible UHD Direct Play, Auto/Original 4K cost guard, explicit 2160p, audio-only 4K compatibility, device-aware UHD shelf filtering, asset deduplication and lower-cost live transcode parameters.
+
 ### Safe nested library source ownership
 
 - Libraries may now intentionally use parent/child physical source roots when a dedicated subfolder belongs to a more-specific logical library.
