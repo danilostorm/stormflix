@@ -59,6 +59,7 @@ jobs:
           node --check internal/webui/static/profile-hub.js
           node --check internal/webui/static/ratings-ui.js
           node --check internal/webui/static/category-nav.js
+          node --check internal/webui/static/collections-nav.js
           node --check internal/webui/static/music-ui.js
           node --check internal/webui/static/ux-v2.js
           node --check internal/webui/static/ux-v3.js
