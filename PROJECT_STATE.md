@@ -164,11 +164,21 @@ Profile Home preferences control root visibility/order without bypassing kids/li
 
 `media_technical` caches ffprobe stream information by `media_id` and source modification time. Background probing is intentionally serialized to protect remote mounts. PlaybackPlan reuses valid technical snapshots and falls back to live probing when required.
 
+### Automatic movie collections
+
+Movie franchises are built from TMDB's stable `belongs_to_collection` identity rather than filename/title heuristics. Phase 14 stores the collection TMDB id/name, the movie TMDB id used to derive the membership, and the last successful check. If a manual match changes the movie's `tmdb_id`, the cached franchise membership becomes stale automatically and is recalculated.
+
+Collection discovery starts lazily on the first authenticated Home and continues as a single low-rate background worker. Existing matched movies are backfilled without blocking Home, scans or playback; newly matched movies are discovered later by the same worker. A temporary TMDB error is retried later rather than clearing a previously valid movie identity.
+
+Native `/api/v1/media?group=collections&minimum_size=2` returns collection groups through the same library and selected-profile restrictions as ordinary catalog browse. The Web **Coleções** top-menu button appears only when at least two accessible local logical movies belong to the same TMDB collection. Movies remain visible individually in normal Filme/gênero/busca surfaces; collections are a presentation layer, not a replacement catalog or permission boundary.
+
 ## Assets and cleanup
 
 Artwork optimization is lossless by default. The asset store can scan for byte-identical regular files using SHA-256 and consolidate duplicates with hard links when the filesystem supports them. Public/database asset paths remain unchanged, no poster/backdrop/logo is recompressed, and files that cannot be linked are left untouched.
 
 Admin cleanup reports both logical asset bytes and unique physical inode bytes, making deduplication savings visible. The explicit **Otimizar assets sem perda** action performs this deduplication independently from destructive orphan/temp cleanup.
+
+Admin → **Limpeza** has one page-loader owner in the core Admin dispatcher. `admin-performance.js` exposes the renderer instead of wrapping the global `show()` navigation function; stale refresh responses are generation-guarded and the transition is cache-busted. Do not reintroduce independent cleanup renderers or another `show()` wrapper for this page.
 
 ## Jellyfin compatibility
 

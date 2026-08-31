@@ -156,6 +156,35 @@ func (s *server) listMedia(w http.ResponseWriter, r *http.Request) {
 	if roleLevel(u.Role) < 2 {
 		allowed = u.LibraryIDs
 	}
+
+	if strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("group")), "collections") {
+		minimum, _ := strconv.Atoi(r.URL.Query().Get("minimum_size"))
+		if minimum < 2 {
+			minimum = 2
+		}
+		collections, err := s.media.Collections(r.Context(), allowed, minimum)
+		if err != nil {
+			writeError(w, 500, err)
+			return
+		}
+		if s.selectedProfileRestriction(r, u.ID).Restricted {
+			visible := make([]media.Collection, 0, len(collections))
+			for _, collection := range collections {
+				collection.Items = s.filterRestrictedItems(r, u.ID, collection.Items)
+				collection.ItemCount = len(collection.Items)
+				if collection.ItemCount >= minimum {
+					visible = append(visible, collection)
+				}
+			}
+			collections = visible
+		}
+		if collections == nil {
+			collections = []media.Collection{}
+		}
+		writeJSON(w, 200, collections)
+		return
+	}
+
 	items, err := s.media.List(r.Context(), libraryID, q, limit, offset, allowed)
 	if err != nil {
 		writeError(w, 500, err)

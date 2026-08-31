@@ -10,6 +10,10 @@ import (
 )
 
 func (s *server) homeFeed(w http.ResponseWriter, r *http.Request) {
+	// Collection discovery is lazy-started by the first authenticated Home and
+	// continues in the background. Home itself never waits on TMDB.
+	s.startMovieCollectionIndexer()
+
 	u := currentUser(r)
 	var allowed []int64
 	if roleLevel(u.Role) < 2 {

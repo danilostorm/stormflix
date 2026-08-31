@@ -96,5 +96,5 @@ CREATE INDEX IF NOT EXISTS idx_system_backups_created ON system_backups(id DESC)
 	if _, err := db.Exec(schema); err != nil {
 		return fmt.Errorf("migrate phase13 catalog automation: %w", err)
 	}
-	return nil
+	return migratePhase14(db)
 }
