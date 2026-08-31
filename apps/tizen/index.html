@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>StormFlix</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="launcher">
+    <div class="brand">STORM<span>FLIX</span></div>
+    <p class="subtitle">Samsung Tizen</p>
+    <form id="server-form">
+      <label for="server">Servidor StormFlix</label>
+      <input id="server" type="url" inputmode="url" autocomplete="url" spellcheck="false" value="https://stormflix.cloud">
+      <button id="connect" type="submit">Conectar</button>
+    </form>
+    <p id="status" aria-live="polite">Preparando...</p>
+  </main>
+  <script src="$WEBAPIS/webapis/webapis.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
