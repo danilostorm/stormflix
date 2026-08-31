@@ -26,6 +26,12 @@
     return Array.isArray(data)?data:[];
   }
 
+  function displayCollectionName(value){
+    const original=String(value||'').trim();
+    const cleaned=original.replace(/^Coleção\s+/i,'').replace(/\s+Collection$/i,'').trim();
+    return cleaned||original||'Coleção';
+  }
+
   async function refreshCollectionsMenu(){
     try{collections=await fetchCollections()}catch{collections=[]}
     syncButton();
@@ -69,6 +75,8 @@
     if(typeof stopTheme==='function')stopTheme();
     document.querySelectorAll('.main-nav button').forEach(x=>x.classList.toggle('active',x===button));
     $('#search-view').classList.add('hidden');
+    $('#music-view')?.classList.add('hidden');
+    $('#category-explorer')?.classList.add('hidden');
     $('#catalog-view').classList.remove('hidden');
     $('#hero').classList.add('hidden');
     const root=$('#rows');
@@ -78,7 +86,7 @@
       syncButton();
       const rows=collections.map(collection=>({
         id:`tmdb-collection-${collection.tmdb_id}`,
-        title:collection.name,
+        title:displayCollectionName(collection.name),
         items:collection.items||[]
       })).filter(row=>row.items.length>=minimumSize);
       if(rows.length)renderRows(rows);
