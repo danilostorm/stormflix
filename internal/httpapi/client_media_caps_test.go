@@ -41,3 +41,15 @@ func TestClientAllows4KMediaHonorsKnownHDR(t *testing.T) {
 		t.Fatal("HDR10-capable 4K client should receive HDR10 UHD item")
 	}
 }
+
+func TestDeviceGateAppliesOnlyToDedicatedUHDSmartShelf(t *testing.T) {
+	if shouldGateUHDCategoryByDevice("rules", categoryRules{MinHeight: 1080}) {
+		t.Fatal("ordinary FHD or genre smart rails must not hide UHD titles")
+	}
+	if !shouldGateUHDCategoryByDevice("rules", categoryRules{MinHeight: 2000}) {
+		t.Fatal("dedicated UHD smart shelf should use device capability gate")
+	}
+	if shouldGateUHDCategoryByDevice("libraries", categoryRules{MinHeight: 2160}) {
+		t.Fatal("library-only category does not apply technical rules and must not become a device access gate")
+	}
+}
