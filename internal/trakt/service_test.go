@@ -1,6 +1,7 @@
 package trakt
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -58,24 +59,25 @@ func TestDeviceOAuthIsStoredEncryptedPerProfile(t *testing.T) {
 	}))
 	defer server.Close()
 
+	ctx := context.Background()
 	s := New(db, secretStore, "client", "secret", "urn:ietf:wg:oauth:2.0:oob")
 	s.authBase = server.URL
 	s.apiBase = server.URL
-	status, err := s.BeginDevice(t.Context(), profileID)
+	status, err := s.BeginDevice(ctx, profileID)
 	if err != nil {
 		t.Fatalf("begin device: %v", err)
 	}
 	if !status.Authorization || status.UserCode != "ABCD1234" {
 		t.Fatalf("unexpected device status: %+v", status)
 	}
-	status, err = s.PollDevice(t.Context(), profileID)
+	status, err = s.PollDevice(ctx, profileID)
 	if err != nil {
 		t.Fatalf("pending poll: %v", err)
 	}
 	if !status.Authorization || status.Connected {
 		t.Fatalf("pending poll should stay pending: %+v", status)
 	}
-	status, err = s.PollDevice(t.Context(), profileID)
+	status, err = s.PollDevice(ctx, profileID)
 	if err != nil {
 		t.Fatalf("success poll: %v", err)
 	}
