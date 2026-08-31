@@ -1,18 +1,24 @@
 /* StormFlix storage/performance maintenance controls. */
 (function(){
-  if(typeof show!=='function'||typeof req!=='function')return;
-  const baseShow=show;
+  if(typeof req!=='function')return;
+  let renderGeneration=0;
 
   function cleanupCard(title,value,note){
     return `<article class="metric-card"><div><strong>${value}</strong><span>${esc(title)}</span></div><small>${esc(note||'')}</small></article>`;
   }
 
   async function loadPerformanceCleanup(){
+    const generation=++renderGeneration;
     const c=await req('/admin/cleanup');
+    // Ignore a response from an older refresh if the user clicked Atualizar
+    // again while the first request was still in flight.
+    if(generation!==renderGeneration)return;
+    const root=$('#cleanup');
+    if(!root)return;
     const physical=Number(c.asset_physical_bytes||c.asset_bytes||0);
     const logical=Number(c.asset_bytes||0);
     const saved=Number(c.asset_dedup_savings_bytes||0);
-    $('#cleanup').innerHTML=`
+    root.innerHTML=`
       <div class="section-intro"><div><p class="kicker">Armazenamento local</p><h2>Limpeza e otimização</h2><p>Remove somente cache/registros locais do StormFlix. Seus remotes e arquivos de mídia nunca são apagados.</p></div><div class="v3-toolbar"><button onclick="sfRefreshCleanup()">Atualizar análise</button></div></div>
       <div class="metric-grid">
         ${cleanupCard('Assets no disco',bytes(physical),`${c.asset_files||0} caminhos · ${bytes(logical)} lógicos`)}
@@ -35,11 +41,10 @@
       </div>`;
   }
 
-  show=async function(name){
-    await baseShow(name);
-    if(name==='cleanup')await loadPerformanceCleanup();
-  };
-
+  // Core admin navigation owns page loading. Exposing one loader here avoids
+  // stacking wrappers around the global show() function, which could let stale
+  // cleanup renderers race and replace this panel after it appeared.
+  window.loadPerformanceCleanup=loadPerformanceCleanup;
   window.sfRefreshCleanup=async()=>{try{await loadPerformanceCleanup()}catch(err){notice(err.message)}};
   window.sfOptimizeAssets=async()=>{
     if(!confirm('Otimizar assets idênticos sem alterar qualidade, nomes ou URLs?'))return;
