@@ -21,7 +21,9 @@ type TraktApplicationUpdate struct {
 }
 
 // TraktApplication resolves persisted Admin settings over environment defaults.
-// Client credentials are encrypted with settings.key at rest.
+// Presence of an empty persisted credential is intentional: it means the Admin
+// explicitly cleared that value and therefore also overrides an environment
+// default. Non-empty Client credentials are encrypted with settings.key at rest.
 func (s *Service) TraktApplication(ctx context.Context, base config.Config) (string, string, string, TraktApplicationPublic, error) {
 	values, err := s.all(ctx)
 	if err != nil {
@@ -33,16 +35,26 @@ func (s *Service) TraktApplication(ctx context.Context, base config.Config) (str
 	if redirectURI == "" {
 		redirectURI = "urn:ietf:wg:oauth:2.0:oob"
 	}
-	if value := strings.TrimSpace(values["trakt_client_id"]); value != "" {
-		clientID, err = s.decrypt(value)
-		if err != nil {
-			return "", "", "", TraktApplicationPublic{}, err
+	if value, ok := values["trakt_client_id"]; ok {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			clientID = ""
+		} else {
+			clientID, err = s.decrypt(value)
+			if err != nil {
+				return "", "", "", TraktApplicationPublic{}, err
+			}
 		}
 	}
-	if value := strings.TrimSpace(values["trakt_client_secret"]); value != "" {
-		clientSecret, err = s.decrypt(value)
-		if err != nil {
-			return "", "", "", TraktApplicationPublic{}, err
+	if value, ok := values["trakt_client_secret"]; ok {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			clientSecret = ""
+		} else {
+			clientSecret, err = s.decrypt(value)
+			if err != nil {
+				return "", "", "", TraktApplicationPublic{}, err
+			}
 		}
 	}
 	if value, ok := values["trakt_redirect_uri"]; ok && strings.TrimSpace(value) != "" {
