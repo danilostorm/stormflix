@@ -14,6 +14,7 @@ func migratePhase14(db *sql.DB) error {
 	}{
 		{"media_metadata", "collection_tmdb_id", "INTEGER NOT NULL DEFAULT 0"},
 		{"media_metadata", "collection_name", "TEXT NOT NULL DEFAULT ''"},
+		{"media_metadata", "collection_source_tmdb_id", "INTEGER NOT NULL DEFAULT 0"},
 		{"media_metadata", "collection_checked_at", "TEXT NOT NULL DEFAULT ''"},
 	} {
 		if err := ensureColumn(db, column.table, column.name, column.definition); err != nil {
