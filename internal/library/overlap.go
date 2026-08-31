@@ -33,8 +33,10 @@ func (s *Service) ValidateLibraryPath(ctx context.Context, ignoreID int64, candi
 			continue
 		}
 		existing = filepath.Clean(existing)
-		if sameOrInside(abs, existing) || sameOrInside(existing, abs) {
-			return fmt.Errorf("library path overlaps %q (%s); choose the specific media folder instead of a parent/child library root", name, existing)
+		// Exact duplicate roots remain ambiguous. Parent/child roots are valid:
+		// scanner ownership is assigned to the most-specific configured source.
+		if abs == existing {
+			return fmt.Errorf("library path %s is already used by %q", abs, name)
 		}
 	}
 	return rows.Err()
