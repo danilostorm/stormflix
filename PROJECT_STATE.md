@@ -1,6 +1,6 @@
 # StormFlix — Project State / Handoff
 
-> **Authoritative continuation note.** Any coding agent/session continuing StormFlix must read this file and `AGENTS.md` before changing code. Update this document after meaningful architecture, compatibility, schema, playback or deployment changes.
+> **Authoritative continuation note.** Any coding agent/session continuing StormFlix must read this file, `AGENTS.md` and `ENTERTAINMENT_ROADMAP.md` before changing code. Update this document after meaningful architecture, compatibility, schema, playback or deployment changes.
 
 Last architecture update: **2026-08-31**.
 
@@ -10,205 +10,204 @@ Primary deployment is an Unraid checkout:
 
 ```bash
 cd /mnt/user/appdata/stormflix
-git pull origin main
+git pull --ff-only origin main
 docker compose down
 docker compose up -d --build
 curl -s http://127.0.0.1:8090/healthz
 echo
 ```
 
-Server HTTP port: **8090**, normally behind HTTPS reverse proxy.
+Server HTTP port: **8090**, normally behind an HTTPS reverse proxy.
 
-## Current versions and clients
+## Current clients
 
-- Server: **`0.21.0-playback-v5`**.
-- Web Player: current v5 line, with the v5.3 continuous Web playback session architecture plus later UI/TV-control improvements.
+- Server code line: **`0.22.0-web-playback-v53`**.
+- Web Player: v5 line, based on the v5.3 continuous Web playback-session architecture plus v5.4 presentation/TV controls.
 - Android package: `cloud.stormflix.app`, **0.6.3 / versionCode 21**, minSdk 23, targetSdk 36, Java 17.
-- Android phone/tablet, Android TV and Fire TV keep the native StormFlix catalog UI but video playback is delegated to the hosted StormFlix Web Player inside `PlayerActivity` WebView. Media3 remains only where still required by the native music module.
-- Samsung Tizen client: `apps/tizen`, **0.1.0**, a small TV shell that hands control to the hosted StormFlix Web UI/Web Player. Final `.wgt` installation requires the developer's Samsung/Tizen signing profile.
-- LG webOS client: `apps/webos`, **0.1.0**, a small TV shell that hands control to the hosted StormFlix Web UI/Web Player and can be packaged as `.ipk` for Developer Mode installation.
-- Jellyfin compatibility facade advertises numeric compatibility version `10.11.6`; it remains an isolated compatibility surface and does not redefine native StormFlix state.
-- SQLite remains the production database with WAL, bounded connections and safety backup/restore. PostgreSQL remains a separate future migration phase.
+- Android phone/tablet, Android TV and Fire TV keep native StormFlix catalog/navigation but delegate video playback to the hosted StormFlix Web Player inside `PlayerActivity` WebView.
+- Samsung Tizen: `apps/tizen` 0.1.0 thin shell; final WGT requires the developer's Samsung/Tizen signing profile.
+- LG webOS: `apps/webos` 0.1.0 thin shell; CI can package the Developer Mode IPK.
+- Jellyfin compatibility facade remains isolated from native `/api/v1` state.
+- SQLite with WAL remains the production database. PostgreSQL remains a separate future migration.
 
 ## Non-negotiable invariants
 
 1. Native `/api/v1` is the StormFlix source of truth.
-2. **Direct Play is always evaluated first.** Video transcoding is never a silent bypass.
-3. Exact selected audio stream is authoritative. If only audio is incompatible, video stays stream-copy and only audio may become AAC-LC.
-4. Video transcode is selected only by the authoritative PlaybackPlan when the client/device/quality actually requires it.
-5. Scanner-owned series identity (library root → show → season → episode) is authoritative before metadata providers.
-6. A manual episodic match is stored at principal-series level whenever possible.
-7. Profile/kids/library access controls must survive every browse, smart-section and playback path.
-8. Progress is session/sequence aware; source/version/quality/audio changes preserve the intended position.
-9. Jellyfin compatibility stays isolated from the native API and catalog rules.
-10. Temporary/offline FUSE/rclone sources must not make scans destructively erase previously valid catalog state.
+2. **Direct Play is always evaluated first.** Video transcode is never a silent bypass.
+3. If only audio is incompatible, source video remains stream-copy and only selected audio may become AAC-LC.
+4. Video transcode is chosen only by PlaybackPlan when device/codec/quality actually requires it.
+5. Scanner-owned series identity (library root → show → season → episode) precedes metadata-provider guesses.
+6. Manual episodic matches are stored at principal-series level whenever possible.
+7. Profile/kids/library authorization must survive browse, caches, collections, integrations, downloads and future games.
+8. Progress is profile/session/sequence aware; source/version/quality/audio changes preserve intended position.
+9. External providers enrich the system but must not be required for login, Home, local progress or playback.
+10. Temporary/offline FUSE/rclone sources must not cause destructive catalog disappearance.
 
 ## Playback architecture
-
-Authoritative policy:
 
 ```text
 1. Direct Play
    ↓ only if required
-2. Direct Stream / Remux (video copy, compatible selected audio copy)
-   ↓ only if audio alone is incompatible
-3. Audio compatibility (video copy, selected audio → AAC-LC)
+2. Direct Stream / Remux
+   ↓ only if selected audio alone is incompatible
+3. Audio compatibility: video copy + selected audio → AAC-LC
    ↓ only if video/device/quality requires it
 4. Video transcode
    ↓ if no safe route exists
 5. Unsupported
 ```
 
-Native plan modes remain `direct_play`, `remux`, `audio_compatibility`, `video_transcode` and `unsupported`.
+Plan modes remain `direct_play`, `remux`, `audio_compatibility`, `video_transcode` and `unsupported`.
 
-### 4K/UHD cost policy
+### UHD / transcode cost policy
 
-UHD remains a first-class Direct Play format, not a reason to transcode automatically:
+- Compatible UHD stays original-resolution Direct Play.
+- Audio-only incompatibility never becomes a 4K video encode.
+- If an UHD source is incompatible and video encoding is unavoidable under Auto/Original, automatic compatibility transcode is capped at **1080p / 8 Mbps** instead of 4K→4K.
+- Explicit 2160p is an intentional user request and is not silently replaced by the automatic guard.
+- Dedicated UHD smart shelves use device resolution/codec hints; normal catalog/search keeps UHD titles visible because PlaybackPlan may provide a safe lower-resolution route.
+- Hardware encoders exposed to the container/FFmpeg (NVENC/QSV/VAAPI) are preferred; CPU remains the reliability fallback.
+- CPU H.264 live fallback uses the lower-cost `superfast` preset and UHD→1080 scaling uses a low-latency scaler.
 
-- a client that advertises a compatible decoder/profile receives the original 4K source through Direct Play whenever container/audio requirements also permit it;
-- audio-only incompatibility never turns into a 4K video encode: source video stays stream-copy and only the selected audio may become AAC-LC;
-- when an UHD source is incompatible and video encoding is unavoidable under `Auto` or `Original`, live compatibility transcode is capped at **1080p / 8 Mbps** instead of performing an expensive 4K→4K encode;
-- an explicit user choice of `2160p` remains intentional and is not silently overridden by the automatic cost guard;
-- dedicated smart UHD/4K shelves use client resolution/codec hints, while ordinary genre/search/catalog surfaces keep the title visible because PlaybackPlan can still provide a safe lower-resolution route.
+### Web/TV player
 
-### Web playback
+The browser is the reference video implementation. Compatible files use HTTP Range Direct Play. Compatibility playback keeps a stable long-running Web session instead of exposing technical retry loops to users. Quality/audio/source changes preserve progress.
 
-The browser is the reference playback implementation. The current Web path is designed around a stable playback session rather than user-visible retry/fallback loops:
+Android/Fire/Android TV and the Tizen/webOS shells converge on the hosted Web Player. `tv-remote.js` normalizes remote/media keys while hardware volume stays OS-owned.
 
-- compatible media uses HTTP Range Direct Play;
-- Direct Stream/audio compatibility keeps source video in stream-copy when possible;
-- when FFmpeg is required for Web playback, the Web v5.3 session architecture keeps one continuous execution associated with the playback session instead of restarting FFmpeg for small HLS batches;
-- hardware video encoders exposed by the installed FFmpeg are preferred before CPU encoders; CPU remains the reliability fallback;
-- CPU live H.264 fallback uses a lower-cost `superfast` preset, and UHD→1080 compatibility scaling uses the low-latency FFmpeg scaler to reduce server load; ordinary downscales keep balanced bicubic scaling;
-- resume/seek, audio changes and real quality changes preserve the current position;
-- audio menus expose real source tracks rather than an artificial Original/AAC selector;
-- source-aware quality menus never offer resolutions above the actual source;
-- screen modes (`Ajustar`, `16:9`, `Preencher/Zoom`, `Esticar`) are presentation-only and do not restart the stream;
-- hls.js/native HLS remains available where required by the browser transport.
+Real-device behavior is authoritative for startup/stall/remote QA; CI validates code/build logic, not remote-mount latency.
 
-Hardware acceleration is effective only when the container can actually access the corresponding host device/runtime and the installed FFmpeg exposes the encoder. The Admin transcode diagnostics are authoritative for whether a live session is using NVENC, QSV, VAAPI or CPU; the application must continue falling back safely when hardware acceleration is unavailable.
+## Libraries, sources and scanner safety
 
-The user's real-browser test is the final authority for startup and stall behavior; CI proves build/logic safety, not remote-mount latency.
+A logical library can own multiple physical `library_sources`. `ScanMulti` merges enabled sources into one catalog and preserves previous rows for temporarily offline sources.
 
-### Android / Fire TV / Android TV
+Different logical libraries may intentionally use parent/child roots. Ownership follows the **most-specific configured source root**: the parent scanner prunes a subtree owned by another library. Exact duplicate roots across libraries and redundant parent/child roots inside one logical library remain blocked.
 
-The native shell keeps the complete StormFlix catalog/navigation. Opening video launches the same hosted Web Player so phone, tablet and TV no longer maintain a separate video playback engine.
-
-Android 0.6.3 derives catalog UHD capability from the device's actual `MediaCodecList` decoder inventory and maximum supported video size rather than assuming every Android/Fire device is 4K-capable. Those hints are used only to decide whether a dedicated UHD shelf is appropriate; PlaybackPlan remains authoritative when a title is opened elsewhere.
-
-For TV remotes, physical Android/Fire key codes are intercepted before System WebView/HTML video and translated into semantic commands. The shared `tv-remote.js` then owns player behavior. This prevents D-pad Up/Down from changing HTML-video volume and provides navigation for OK/select, Back, Menu/Settings/Info, Play/Pause, rewind/fast-forward, previous/next, captions and audio. Hardware volume remains owned by the operating system.
-
-### Samsung Tizen / LG webOS
-
-Both TV clients follow the same principle used by mature hosted-Web TV clients: keep the platform package small and let the hosted StormFlix Web UI/Web Player remain authoritative.
-
-```text
-Tizen .wgt ──┐
-webOS .ipk ──┼──> hosted StormFlix Web UI ──> Web Player ──> /api/v1 PlaybackPlan
-Android TV ──┘           ↑
-                     tv-remote.js
-```
-
-`tv-remote.js` contains platform key normalization for Android/Fire, Samsung Tizen and LG webOS, including Back/media-key handling and Tizen media-key registration when the platform API is available.
-
-Tizen packaging is certificate-specific: CI validates the project and publishes a certificate-ready source artifact, while the final WGT is signed locally with the developer's Samsung certificate profile. webOS packaging does not require embedding a private developer certificate in the repository; CI can produce the test IPK.
-
-## Libraries, multiple sources and managed deployment roots
-
-A logical library may contain multiple physical `library_sources`. `ScanMulti` walks enabled sources and merges their files into one catalog identity. A temporarily unavailable source preserves the previous catalog under that root rather than marking everything missing.
-
-Different logical libraries may intentionally use parent/child source roots. Ownership follows the **most-specific configured source root**: a broad parent scanner does not descend into a subtree reserved by another library, while that child library scans the subtree normally. Exact duplicate roots across libraries remain invalid, and redundant parent/child roots inside the same logical library remain invalid. When a child library is introduced after the parent already indexed that subtree, the next successful parent scan marks the old parent rows unavailable so the title is not duplicated across libraries. Preview uses the same discovery ownership rules.
-
-Deployment may append movie roots automatically with:
+Deployment-managed movie roots use:
 
 ```text
 STORMFLIX_MANAGED_MOVIE_LIBRARY_NAME
 STORMFLIX_MANAGED_MOVIE_PATHS
 ```
 
-`STORMFLIX_MANAGED_MOVIE_PATHS` is a comma-separated list. Startup reconciliation is additive and idempotent:
+Reconciliation is additive/idempotent and does not remove administrator roots. Admin folder browsing is sandboxed to the explicitly authorized media roots and never exposes the container filesystem root.
 
-- it creates the named movie library only when missing;
-- otherwise it appends managed roots without deleting administrator-configured roots;
-- already-covered roots are not duplicated;
-- unsafe overlapping parent roots are rejected instead of guessed;
-- existing library kind/enabled state is preserved;
-- a reconciliation warning does not prevent the server from starting;
-- new media appears after the normal library scan, which retains the existing offline-source safety rules.
+## Catalog identity, metadata and collections
 
-The Admin folder picker is sandboxed to explicitly authorized media roots. It exposes the configured `MediaRoot` plus deployment-managed movie roots as switchable storage locations, allows normal navigation inside the selected root, and never opens the container filesystem root or unrelated system directories. Nested authorized roots use the most-specific boundary for Back navigation.
+`media_series_identity` owns episodic source root/series/season/episode identity. TMDB/TheTVDB/AniList/HAMA/Fanart enrich that identity.
 
-Host media mounts should be exposed read-only inside the StormFlix container whenever the server only needs playback/scanning access.
+`media_technical` caches ffprobe technical information by media/source modification state. Background probing is intentionally serialized to protect remotes.
 
-## Scanner identity and metadata
+Movie collections use TMDB `belongs_to_collection` rather than title heuristics. Phase 14 stores collection identity and the movie TMDB ID used to derive it. Existing matched movies are backfilled by a low-rate worker. Web **Coleções** appears only when at least two accessible local logical films share a collection; collection grouping never bypasses profile/library/kids filters.
 
-Supported video library kinds include `movies`, `series`, `anime`, `mixed`, `anime_series`, `animation_series` and existing special kinds. `media_series_identity` owns source root, stable series key/title, season, episode and absolute episode. External metadata enriches but does not blindly redefine folder identity.
+The collection worker is delayed after the first Home and processes one item at a time so TMDB enrichment does not compete with initial navigation.
 
-Western series/cartoons prefer scanner identity followed by TMDB TV, TheTVDB and Fanart.tv enrichment. Anime combines scanner identity with the configured TMDB/TVDB/anime-provider recovery flow. Series-level manual overrides propagate to current and future episodes through queued refresh work.
+## Home performance and profiles
 
-Changing a source root preserves media IDs when replacement is an unambiguous one-for-one relocation. Metadata, artwork, subtitles and progress therefore remain attached to the same media identity.
+Home latency is a product SLO, not a cosmetic optimization.
 
-## Scan queue and safety
+Current architecture:
+- selected profile is resolved **before** the expensive Home request;
+- a single-profile account no longer loads Home once before auto-selection and again afterward;
+- a multi-profile account no longer loads a hidden Home behind “Quem está assistindo?”;
+- static/grouped Home uses a **2-minute fresh + 10-minute stale-while-revalidate** cache;
+- stale valid Home can return immediately while a single background refresh rebuilds the grouped catalog;
+- Phase 15 adds covering indexes for selected artwork, available/recent media, collections and collection backfill.
 
-`scan_jobs` is persistent FIFO and scans are serialized to protect rclone/FUSE plus SQLite. Duplicate active jobs are avoided; queued/running work can be cancelled; restart requeues unfinished jobs.
+Dynamic/profile-sensitive rails such as Continue Watching remain outside the static grouped snapshot and are read independently.
 
-`PreviewMulti` is the dry-run path used by Admin **Simular scan** and follows the same enabled roots as the real scan without mutating catalog rows. Protected scan/path/category operations continue to use automatic SQLite safety backups.
+Target documented in `ENTERTAINMENT_ROADMAP.md`: cached Home server response p95 below 500 ms on a large catalog. Future work should add explicit timing/cache-hit diagnostics and mutation-driven cache invalidation.
 
-## Home, profiles and technical catalog
+### Profile avatars
 
-`library_categories.parent_id` keeps the two-level Home model: root categories are top navigation menus and direct children are gallery rails. Persistent smart rules can filter by library, genre, media type, year/rating, recency, resolution, HDR/SDR, pt-BR audio/subtitles, dub/sub classification and metadata readiness.
+Uploaded local profile avatars are first-class referenced assets. Admin safe cleanup now includes local `profiles.avatar_url` references, so an active avatar cannot be classified as an orphan. External avatar URLs are not treated as local files. If an avatar was already deleted by an older build, Web falls back to the configured profile color/initial instead of rendering a broken image; the original custom photo must be uploaded again if desired.
 
-Dedicated UHD smart shelves (`min_height >= 2000`) may additionally use explicit client hints for maximum resolution, video codec and known HDR capability. This is a presentation optimization only; it does not create a new library permission boundary and does not hide UHD titles from ordinary rails.
+## Trakt per profile
 
-Profile Home preferences control root visibility/order without bypassing kids/library permissions.
+Phase 15 adds profile-scoped Trakt OAuth state. The model deliberately separates **application credentials** from **user authorization**:
 
-`media_technical` caches ffprobe stream information by `media_id` and source modification time. Background probing is intentionally serialized to protect remote mounts. PlaybackPlan reuses valid technical snapshots and falls back to live probing when required.
+```text
+Admin configures one Trakt application
+             ↓
+Profile A ─ Device OAuth ─ Trakt account A
+Profile B ─ Device OAuth ─ Trakt account B
+Profile C ─ Device OAuth ─ Trakt account C
+```
 
-### Automatic movie collections
+Administrator configuration:
+- Client ID, Client Secret and redirect URI can be configured in Admin → Configurações;
+- environment variables remain supported as defaults: `STORMFLIX_TRAKT_CLIENT_ID`, `STORMFLIX_TRAKT_CLIENT_SECRET`, `STORMFLIX_TRAKT_REDIRECT_URI`;
+- persisted Client ID/Secret are encrypted with the existing AES-GCM settings key;
+- updating Admin credentials takes effect without restarting the server.
 
-Movie franchises are built from TMDB's stable `belongs_to_collection` identity rather than filename/title heuristics. Phase 14 stores the collection TMDB id/name, the movie TMDB id used to derive the membership, and the last successful check. If a manual match changes the movie's `tmdb_id`, the cached franchise membership becomes stale automatically and is recalculated.
+Profile authorization:
+- existing profiles expose Connect/Disconnect Trakt in the profile editor;
+- Device OAuth displays Trakt verification URL + user code and polls at the provider-supplied interval;
+- access/refresh tokens are encrypted independently per profile;
+- token refresh replaces both returned tokens atomically, which is required for single-use refresh-token rotation;
+- profile ownership is checked on every Trakt endpoint.
 
-Collection discovery starts lazily on the first authenticated Home and continues as a single low-rate background worker. Existing matched movies are backfilled without blocking Home, scans or playback; newly matched movies are discovered later by the same worker. A temporary TMDB error is retried later rather than clearing a previously valid movie identity.
-
-Native `/api/v1/media?group=collections&minimum_size=2` returns collection groups through the same library and selected-profile restrictions as ordinary catalog browse. The Web **Coleções** top-menu button appears only when at least two accessible local logical movies belong to the same TMDB collection. Movies remain visible individually in normal Filme/gênero/busca surfaces; collections are a presentation layer, not a replacement catalog or permission boundary.
+Playback/scrobble:
+- local StormFlix progress is committed first;
+- Trakt scrobble runs asynchronously with timeout and throttling;
+- Trakt outage or rate limiting cannot block playback/progress;
+- movies use TMDB movie identity; episodic scrobble uses TMDB show identity plus season/episode numbers;
+- full bidirectional history/watchlist import is future explicit queued work, not part of the playback critical path.
 
 ## Assets and cleanup
 
-Artwork optimization is lossless by default. The asset store can scan for byte-identical regular files using SHA-256 and consolidate duplicates with hard links when the filesystem supports them. Public/database asset paths remain unchanged, no poster/backdrop/logo is recompressed, and files that cannot be linked are left untouched.
+Artwork optimization remains lossless by default. Byte-identical artwork can be consolidated using SHA-256 + hard links when supported, preserving every public/database path and original image bytes.
 
-Admin cleanup reports both logical asset bytes and unique physical inode bytes, making deduplication savings visible. The explicit **Otimizar assets sem perda** action performs this deduplication independently from destructive orphan/temp cleanup.
+Admin cleanup reports logical bytes, unique physical inode bytes and deduplication savings. **Otimizar assets sem perda** is independent from destructive orphan/temp cleanup.
 
-Admin → **Limpeza** has one page-loader owner in the core Admin dispatcher. `admin-performance.js` exposes the renderer instead of wrapping the global `show()` navigation function; stale refresh responses are generation-guarded and the transition is cache-busted. Do not reintroduce independent cleanup renderers or another `show()` wrapper for this page.
+Admin → Limpeza has one page-loader owner. Do not reintroduce another global `show()` wrapper or competing renderer.
+
+Profile avatar assets are now included in the cleanup reference set.
+
+## Scan queues, safety and backups
+
+`scan_jobs` is persistent FIFO and scans are serialized. Preview/dry-run follows the same source ownership rules without mutating catalog availability. Catalog-changing scan/path/category operations use SQLite safety backups; restore is staged and verified before activation.
+
+## Games and entertainment roadmap
+
+`ENTERTAINMENT_ROADMAP.md` is the executable product roadmap. Major planned work includes:
+- Skip Intro / Skip Credits with profile and per-show behavior;
+- rewind-on-resume and still-watching protection;
+- configurable autoplay countdown;
+- Smart Downloads on mobile;
+- smart playlists;
+- Watch Party / synchronized playback;
+- improved editions/versions/extras;
+- OIDC/optional stronger authentication;
+- reuse of expensive media analysis;
+- native **Jogos** module with scanner/platform/hash identity, browser/WASM emulation, per-profile saves, gamepad/TV/mobile support, metadata adapters and Continue Jogando.
+
+RetroAssembly (MIT) is an architectural reference for browser retro emulation. RomM is a product/reference source for metadata breadth and game-management concepts but is AGPL-3.0; do not copy RomM source into StormFlix without an intentional compatible licensing decision.
 
 ## Jellyfin compatibility
 
-Official Jellyfin clients remain supported through the compatibility facade for users who want that ecosystem. The facade exposes the required discovery/auth/catalog/playback/session/image/series surfaces while native StormFlix APIs remain authoritative.
-
-A Jellyfin Android phone/tablet may use its own WebView shell; Jellyfin Android TV/Fire remains Jellyfin's native UI. The dedicated StormFlix clients are the route for StormFlix-branded interfaces on Android/Fire, Samsung Tizen and LG webOS.
+Official Jellyfin clients remain supported through an isolated compatibility facade. Native StormFlix APIs/catalog rules remain authoritative. The dedicated StormFlix clients are the path for StormFlix-branded UI on Android/Fire/Tizen/webOS.
 
 ## Release/build channels
 
-- `.github/workflows/ci.yml`: Go format/tests, JavaScript syntax, playback/streaming race tests and server build.
-- `.github/workflows/android.yml`: Android APK build and versioned APK/SHA-256 release on `main` when Android files change.
-- `.github/workflows/smart-tv.yml`: validates Tizen JavaScript/manifest, publishes a certificate-ready Tizen source artifact, validates/packages LG webOS and publishes a webOS IPK/SHA-256 release on `main`.
+- `.github/workflows/ci.yml`: Go format/tests, Web/Admin JavaScript syntax, playback/streaming race tests, server build.
+- `.github/workflows/android.yml`: Android APK build and versioned release on `main` when Android files change.
+- `.github/workflows/smart-tv.yml`: Tizen validation/source artifact plus webOS validation/IPK packaging/release.
 
-No signing passwords, API keys, account credentials, Samsung certificates or private media paths belong in repository documentation.
+No signing passwords, API keys, OAuth tokens, private certificates or private media paths belong in repository documentation.
 
 ## Required validation before merge/release
 
-For a change touching these areas, validate the exact PR head with the applicable workflows:
-
+For relevant changes validate the exact PR head with:
 - JavaScript syntax;
 - `go test ./...`;
 - `go test -race ./internal/playback ./internal/webcompat ./internal/transcode ./internal/streaming`;
 - `go build -trimpath ./cmd/stormflix`;
-- Android Gradle build when Android files/version change;
-- Tizen manifest/JavaScript validation when Tizen files change;
-- webOS `ares-package --check` and IPK packaging when webOS files change;
-- post-merge `main` workflow(s) green before presenting a package as production-ready.
+- platform-specific Android/Tizen/webOS workflow when those clients change;
+- post-merge `main` workflow green before presenting the package as production-ready.
 
-Real-device QA remains mandatory for browser playback, Fire/Android TV remote behavior, Samsung Tizen key behavior, LG webOS key behavior and remote/rclone throughput.
+Real-device QA remains mandatory for browser playback, Fire/Android TV remotes, Tizen/webOS key behavior and remote/rclone throughput.
 
 ## Documentation rule
 
-After meaningful architecture/compatibility/schema/playback/deployment changes, update this file and `CHANGELOG.md`. Never store secrets, credentials or private media paths in these documents.
+After meaningful architecture/compatibility/schema/playback/deployment changes, update this file and `CHANGELOG.md`. Roadmap changes belong in `ENTERTAINMENT_ROADMAP.md`. Never store secrets, credentials or private media paths in these documents.
