@@ -99,6 +99,11 @@ func (s *server) playbackHeartbeat(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
+		// External tracking is intentionally downstream of accepted local
+		// progress. Trakt runs asynchronously and can never delay/fail playback.
+		if accepted {
+			s.scrobbleProfilePlayback(profileID, id, in.PositionSeconds, in.DurationSeconds, in.State)
+		}
 	}
 	reason := strings.TrimSpace(in.ProgressReason)
 	if reason != "" && reason != "periodic" && reason != "ready" {
@@ -142,10 +147,10 @@ func (s *server) playbackEvent(w http.ResponseWriter, r *http.Request) {
 	if len(event) > 80 {
 		event = event[:80]
 	}
-	details := strings.TrimSpace(in.Details)
-	if len(details) > 600 {
-		details = details[:600]
+	if len(in.Details) > 600 {
+		in.Details = in.Details[:600]
 	}
+	details := strings.TrimSpace(in.Details)
 	seekable := "unknown"
 	if in.Seekable != nil {
 		seekable = fmt.Sprint(*in.Seekable)
