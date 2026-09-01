@@ -2,6 +2,7 @@
 (function(){
   let detailVersions=[];
   let selectedVersionID=0;
+  let anywhereAnchor=null;
 
   const baseOpenDetail=openDetail;
   openDetail=async function(id){
@@ -69,6 +70,41 @@
     const format=document.querySelector('#detail-format');
     if(format)format.textContent=`${String(version.extension||detail.extension||'').replace('.','').toUpperCase()} · ${version.label||'Original'} · DIRECT PLAY`;
   }
+
+  function clearAnywhereInlinePosition(panel){
+    for(const property of ['left','right','top','bottom'])panel.style.removeProperty(property);
+  }
+
+  function positionAnywhere(trigger=anywhereAnchor){
+    const panel=document.querySelector('#sf-anywhere');
+    if(!panel||panel.classList.contains('hidden')||!trigger?.isConnected)return;
+    if(window.innerWidth<=700){clearAnywhereInlinePosition(panel);return}
+    const rect=trigger.getBoundingClientRect();
+    const box=panel.getBoundingClientRect();
+    const margin=16,gap=12;
+    let left;
+    if(rect.right+gap+box.width<=window.innerWidth-margin)left=rect.right+gap;
+    else if(rect.left-box.width-gap>=margin)left=rect.left-box.width-gap;
+    else left=Math.min(Math.max(margin,rect.left),Math.max(margin,window.innerWidth-box.width-margin));
+    const centered=rect.top+(rect.height/2)-(box.height/2);
+    const top=Math.min(Math.max(70,centered),Math.max(70,window.innerHeight-box.height-margin));
+    panel.style.left=`${Math.round(left)}px`;
+    panel.style.right='auto';
+    panel.style.top=`${Math.round(top)}px`;
+    panel.style.bottom='auto';
+  }
+
+  document.addEventListener('click',event=>{
+    const trigger=event.target.closest?.('#detail-anywhere,#sf-anywhere-toggle');
+    if(!trigger)return;
+    anywhereAnchor=trigger;
+    requestAnimationFrame(()=>requestAnimationFrame(()=>positionAnywhere(trigger)));
+  });
+  document.addEventListener('click',event=>{
+    if(event.target.closest?.('[data-any-close]'))anywhereAnchor=null;
+  });
+  window.addEventListener('resize',()=>positionAnywhere(),{passive:true});
+  window.addEventListener('scroll',()=>positionAnywhere(),{passive:true});
 
   if(typeof sfRenderSettings==='function'){
     const baseRenderSettings=sfRenderSettings;

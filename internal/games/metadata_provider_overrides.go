@@ -9,12 +9,12 @@ func init() {
 		switch d.Key {
 		case "screenscraper":
 			d.Stage = "configuravel"
-			d.Description = "Identificação retro por MD5/SHA1/CRC + títulos, capas, screenshots, regiões e metadados."
+			d.Description = "Identificação por MD5/SHA1/CRC. Usuário/senha são da conta ScreenScraper (doações aumentam limites/threads); Developer ID e Developer Password pertencem ao aplicativo que usa a API e são exigidos pela documentação oficial."
 			d.Fields = []ProviderField{
-				{Key: "dev_id", Label: "Developer ID", Required: true, Placeholder: "ScreenScraper Developer ID"},
-				{Key: "dev_password", Label: "Developer Password", Secret: true, Required: true, Placeholder: "••••••••"},
-				{Key: "username", Label: "Usuário", Required: true, Placeholder: "ScreenScraper"},
-				{Key: "password", Label: "Senha", Secret: true, Required: true, Placeholder: "••••••••"},
+				{Key: "dev_id", Label: "Developer ID do aplicativo", Required: true, Placeholder: "credencial API do software StormFlix"},
+				{Key: "dev_password", Label: "Developer Password do aplicativo", Secret: true, Required: true, Placeholder: "••••••••"},
+				{Key: "username", Label: "Usuário ScreenScraper", Required: true, Placeholder: "sua conta / conta doadora"},
+				{Key: "password", Label: "Senha ScreenScraper", Secret: true, Required: true, Placeholder: "••••••••"},
 			}
 		case "retroachievements":
 			d.Stage = "configuravel"
@@ -22,10 +22,10 @@ func init() {
 			d.Fields = []ProviderField{{Key: "api_key", Label: "Web API Key", Secret: true, Required: true, Placeholder: "••••••••"}}
 		case "hasheous":
 			d.Stage = "configuravel"
-			d.Description = "Correspondência por MD5/SHA1/CRC e ponte de IDs para IGDB, RetroAchievements e TheGamesDB."
+			d.Description = "Correspondência por MD5/SHA1/CRC e ponte de IDs. Use a base https://hasheous.org/api/v1; o StormFlix chama POST /Lookup/ByHash e envia a chave no cabeçalho X-API-Key."
 			d.Fields = []ProviderField{
-				{Key: "base_url", Label: "URL da API", Required: false, Placeholder: "https://hasheous.org/api/v1"},
-				{Key: "api_key", Label: "Client API Key", Secret: true, Required: true, Placeholder: "••••••••"},
+				{Key: "base_url", Label: "URL base da API", Required: false, Placeholder: "https://hasheous.org/api/v1"},
+				{Key: "api_key", Label: "API Key (X-API-Key)", Secret: true, Required: true, Placeholder: "••••••••"},
 			}
 		case "thegamesdb":
 			d.Stage = "configuravel"
