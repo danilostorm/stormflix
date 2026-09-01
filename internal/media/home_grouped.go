@@ -5,20 +5,38 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // HomeGrouped keeps file-level episodes out of the main catalog and replaces
 // them with top-level series cards. It preserves the cinema feed for movies
 // while adding dedicated rails for series and recent episodes.
 func (s *Service) HomeGrouped(ctx context.Context, allowedLibraryIDs []int64, heroMode, serverName string, themeEnabled bool, themeVolume int, themeAutoplay bool) (HomeFeed, error) {
-	feed, err := s.Home(ctx, allowedLibraryIDs, heroMode, serverName, themeEnabled, themeVolume, themeAutoplay)
-	if err != nil {
-		return HomeFeed{}, err
+	// The flat catalog and series grouping are independent DB reads. On a cold
+	// cache they used to run one after the other, which made large video
+	// libraries spend most of the first Home request on a black screen. Run the
+	// two expensive reads concurrently and join them before composing the feed.
+	var feed HomeFeed
+	var groups []SeriesDetail
+	var homeErr, groupsErr error
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		feed, homeErr = s.Home(ctx, allowedLibraryIDs, heroMode, serverName, themeEnabled, themeVolume, themeAutoplay)
+	}()
+	go func() {
+		defer wg.Done()
+		groups, groupsErr = s.seriesGroups(ctx, allowedLibraryIDs)
+	}()
+	wg.Wait()
+	if homeErr != nil {
+		return HomeFeed{}, homeErr
 	}
-	groups, err := s.seriesGroups(ctx, allowedLibraryIDs)
-	if err != nil {
-		return HomeFeed{}, err
+	if groupsErr != nil {
+		return HomeFeed{}, groupsErr
 	}
+
 	seriesCards := make([]Item, 0, len(groups))
 	allEpisodes := []Item{}
 	episodeToSeries := map[int64]Item{}
