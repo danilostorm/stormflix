@@ -23,7 +23,7 @@ type browseResponse struct {
 }
 
 func (s *server) browseFilesystem(w http.ResponseWriter, r *http.Request) {
-	roots := normalizedFilesystemRoots(s.config.MediaRoot, s.config.ManagedMoviePaths)
+	roots := normalizedFilesystemRoots(s.config.MediaRoot, s.config.ManagedMoviePaths, s.config.BrowseRoots)
 	if len(roots) == 0 {
 		writeError(w, http.StatusInternalServerError, errors.New("no media roots are configured"))
 		return
@@ -84,10 +84,16 @@ func (s *server) browseFilesystem(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-func normalizedFilesystemRoots(mediaRoot string, managed []string) []browseDirectory {
-	candidates := make([]string, 0, 1+len(managed))
+func normalizedFilesystemRoots(mediaRoot string, groups ...[]string) []browseDirectory {
+	capacity := 1
+	for _, group := range groups {
+		capacity += len(group)
+	}
+	candidates := make([]string, 0, capacity)
 	candidates = append(candidates, mediaRoot)
-	candidates = append(candidates, managed...)
+	for _, group := range groups {
+		candidates = append(candidates, group...)
+	}
 
 	seen := make(map[string]struct{}, len(candidates))
 	roots := make([]browseDirectory, 0, len(candidates))
@@ -123,8 +129,8 @@ func filesystemRootForPath(roots []browseDirectory, path string) (browseDirector
 			continue
 		}
 		// Prefer the most specific root if roots are nested. This prevents the
-		// Back button from escaping a dedicated managed source into a broader
-		// authorized mount.
+		// Back button from escaping a dedicated authorized source into a broader
+		// root that may also be visible to the server.
 		if !found || len(root.Path) > len(winner.Path) {
 			winner = root
 			found = true
