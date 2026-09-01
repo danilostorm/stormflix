@@ -4,6 +4,20 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 
 ## 2026-08-31
 
+### Automatic intros/credits and native Games G1/G2
+
+- Added Plex-inspired automatic intro detection for episodic libraries using lightweight recurring audio fingerprints. Detection is background/budgeted, yields to playback and preserves manual/chapter marker precedence.
+- Added automatic credits detection using multiple independent recurring tail segments. StormFlix does not assume “credits start → file end”: separated blocks remain separated so unique post-credit scenes are not swallowed by one automatic skip interval.
+- Intro and credits analysis now appears live in Admin → **Fila & atividades**, including progress, detected/failed counts and playback-priority pause messages.
+- Added first-class `games` libraries outside the movie/series media table. G1 scans NES, SNES, Mega Drive/Genesis, Game Boy, Game Boy Color and GBA cartridges, identifies content with SHA-256 and keeps game scans in the same observable Admin queue.
+- Added native Games Web catalog with platforms, search, favorites per profile, sidecar covers and Continue Jogando/playtime state.
+- Added Games G2 browser player architecture using pinned **Nostalgist 0.21.1** and RetroArch Emscripten cores from build **v1.22.2**. Runtime files are fetched by the server only from a fixed allowlist/version on first use, cached under the StormFlix data directory and then served same-origin.
+- ROM access is authenticated and permission-aware; the browser never receives a server filesystem path. StormFlix does not download or distribute ROMs/BIOS.
+- Added profile-owned save state + SRAM synchronization. Save payloads live outside SQLite under `game-saves/profile-<id>/<platform>/<sha256>/`, use atomic replacement and retain three recovery generations.
+- Added bounded play-session heartbeats and profile playtime. Hidden/suspended browser time does not accrue locally and one heartbeat cannot credit an unbounded time jump.
+- Game Player G2 pauses competing StormFlix media, prepares network/runtime work before the final user gesture, supports fullscreen, pause/resume, keyboard/gamepad status, autosave, manual save and **Salvar e sair** that waits for in-flight autosave before terminating the emulator.
+- Phase 20 introduced the Games catalog/scan tables; Phase 21 adds game save metadata and durable game play-session accounting.
+
 ### Profile avatar integrity, faster Home and Trakt per profile
 
 - Fixed the profile-avatar regression caused by safe cleanup: active local `profiles.avatar_url` files now count as referenced assets and cannot be deleted as orphans. Historical missing files fall back to the profile color/initial instead of showing a broken image.

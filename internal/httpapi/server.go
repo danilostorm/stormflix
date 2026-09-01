@@ -23,7 +23,7 @@ import (
 )
 
 const sessionCookie = "stormflix_session"
-const version = "0.22.0-web-playback-v53"
+const version = "0.23.0-games-g2"
 
 type contextKey string
 
@@ -150,10 +150,17 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("POST /api/v1/music/tracks/{id}/favorite", s.requireAuth(s.musicFavorite))
 	mux.HandleFunc("GET /api/v1/music/tracks/{id}/lyrics", s.requireAuth(s.musicLyrics))
 
+	mux.HandleFunc("GET /api/v1/games/runtime/nostalgist.js", s.requireAuth(s.gameRuntimeNostalgist))
+	mux.HandleFunc("GET /api/v1/games/runtime/cores/{asset}", s.requireAuth(s.gameRuntimeCore))
 	mux.HandleFunc("GET /api/v1/games/home", s.requireAuth(s.gamesHome))
 	mux.HandleFunc("GET /api/v1/games", s.requireAuth(s.gamesList))
 	mux.HandleFunc("GET /api/v1/games/{id}", s.requireAuth(s.gameDetail))
 	mux.HandleFunc("GET /api/v1/games/{id}/cover", s.requireAuth(s.gameCover))
+	mux.HandleFunc("GET /api/v1/games/{id}/rom", s.requireAuth(s.gameROM))
+	mux.HandleFunc("GET /api/v1/games/{id}/saves", s.requireAuth(s.gameSaveStatus))
+	mux.HandleFunc("GET /api/v1/games/{id}/saves/{kind}", s.requireAuth(s.gameSaveRead))
+	mux.HandleFunc("PUT /api/v1/games/{id}/saves/{kind}", s.requireAuth(s.gameSaveWrite))
+	mux.HandleFunc("POST /api/v1/games/{id}/playback", s.requireAuth(s.gamePlaybackHeartbeat))
 	mux.HandleFunc("POST /api/v1/games/{id}/favorite", s.requireAuth(s.gameFavorite))
 
 	// The compatibility gateway is available both at /jellyfin-api and at the

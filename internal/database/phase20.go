@@ -98,5 +98,5 @@ CREATE INDEX IF NOT EXISTS idx_game_scan_jobs_library
 	if _, err := db.Exec(schema); err != nil {
 		return fmt.Errorf("migrate phase20 games catalog: %w", err)
 	}
-	return nil
+	return migratePhase21(db)
 }
