@@ -178,7 +178,7 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("GET /api/v1/admin/games/metadata/jobs", s.requireRole("operator", s.adminGamesMetadataJobs))
 	mux.HandleFunc("POST /api/v1/admin/games/metadata", s.requireRole("operator", s.adminStartAllGamesMetadata))
 	mux.HandleFunc("POST /api/v1/admin/games/libraries/{id}/metadata", s.requireRole("operator", s.adminStartGamesMetadata))
-	mux.HandleFunc("PUT /api/v1/admin/games/{id}/metadata-lock", s.requireRole("manager", s.adminGameMetadataLock))
+	mux.HandleFunc("PUT /api/v1/admin/games/catalog/{id}/metadata-lock", s.requireRole("manager", s.adminGameMetadataLock))
 	mux.HandleFunc("GET /api/v1/admin/users", s.requireRole("admin", s.listUsers))
 	mux.HandleFunc("POST /api/v1/admin/users", s.requireRole("admin", s.createUser))
 	mux.HandleFunc("PUT /api/v1/admin/users/{id}", s.requireRole("admin", s.updateUser))
