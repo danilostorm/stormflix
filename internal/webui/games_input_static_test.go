@@ -44,13 +44,23 @@ func TestGamesVirtualPadCoversPlatformControls(t *testing.T) {
 		[]byte(`Math.atan2(dy,dx)`),
 		[]byte(`['down','right']`),
 		[]byte(`['up','left']`),
+		[]byte(`button.setPointerCapture?.(pointerId)`),
+		[]byte(`lostpointercapture`),
+		[]byte(`resetVirtualInputs()`),
+		[]byte(`removeLegacyController(overlay)`),
 	} {
 		if !bytes.Contains(input, required) {
 			t.Fatalf("Games virtual pad missing control/layout %q", required)
 		}
 	}
-	if bytes.Contains(input, []byte(`class="sf-pad-dpad"`)) || bytes.Contains(input, []byte(`class="diag ul"`)) {
-		t.Fatal("Games virtual pad must use the circular touch stick instead of the old nine-button arrow grid")
+	for _, forbidden := range [][]byte{
+		[]byte(`class="sf-pad-dpad"`),
+		[]byte(`class="diag ul"`),
+		[]byte(`buttonFromPoint(`),
+	} {
+		if bytes.Contains(input, forbidden) {
+			t.Fatalf("Games virtual pad contains obsolete/cross-input behavior %q", forbidden)
+		}
 	}
 
 	css, err := Static.ReadFile("static/games-g3-inputs.css")
