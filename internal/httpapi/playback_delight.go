@@ -23,6 +23,7 @@ type playbackMarkerState struct {
 	EndSeconds   float64 `json:"end_seconds"`
 	Source       string  `json:"source,omitempty"`
 	Confidence   float64 `json:"confidence,omitempty"`
+	SegmentIndex *int    `json:"segment_index,omitempty"`
 }
 
 func defaultPlaybackPreferences() playbackPreferenceState {
@@ -131,16 +132,18 @@ func (s *server) loadMediaMarkers(ctx context.Context, mediaID int64) ([]playbac
 	_ = rows.Close()
 
 	segments := []playbackMarkerState{}
-	segmentRows, err := s.db.QueryContext(ctx, `SELECT kind,start_seconds,end_seconds,source,confidence FROM media_marker_segments WHERE media_id=? ORDER BY start_seconds,segment_index`, mediaID)
+	segmentRows, err := s.db.QueryContext(ctx, `SELECT kind,segment_index,start_seconds,end_seconds,source,confidence FROM media_marker_segments WHERE media_id=? ORDER BY start_seconds,segment_index`, mediaID)
 	if err != nil {
 		return nil, err
 	}
 	for segmentRows.Next() {
 		var marker playbackMarkerState
-		if err := segmentRows.Scan(&marker.Kind, &marker.StartSeconds, &marker.EndSeconds, &marker.Source, &marker.Confidence); err != nil {
+		var segmentIndex int
+		if err := segmentRows.Scan(&marker.Kind, &segmentIndex, &marker.StartSeconds, &marker.EndSeconds, &marker.Source, &marker.Confidence); err != nil {
 			_ = segmentRows.Close()
 			return nil, err
 		}
+		marker.SegmentIndex = &segmentIndex
 		segments = append(segments, marker)
 	}
 	if err := segmentRows.Err(); err != nil {
@@ -189,6 +192,23 @@ func (s *server) saveMediaMarker(ctx context.Context, mediaID int64, marker play
 		return errors.New("invalid marker interval")
 	}
 	source, confidence := normalizeMarkerSource(marker.Source)
+	if marker.Kind == "credits" && marker.SegmentIndex != nil {
+		if *marker.SegmentIndex < 0 || *marker.SegmentIndex > 31 {
+			return errors.New("invalid marker segment index")
+		}
+		_, err := s.db.ExecContext(ctx, `
+INSERT INTO media_marker_segments(media_id,kind,segment_index,start_seconds,end_seconds,source,confidence)
+VALUES(?,'credits',?,?,?,?,?)
+ON CONFLICT(media_id,kind,segment_index) DO UPDATE SET
+ start_seconds=excluded.start_seconds,end_seconds=excluded.end_seconds,source=excluded.source,confidence=excluded.confidence,updated_at=CURRENT_TIMESTAMP
+WHERE media_marker_segments.source<>'manual' OR excluded.source='manual'`,
+			mediaID, *marker.SegmentIndex, marker.StartSeconds, marker.EndSeconds, source, confidence)
+		if err == nil && source != "automatic" {
+			_, _ = s.db.ExecContext(ctx, `DELETE FROM media_markers WHERE media_id=? AND kind='credits' AND source='automatic'`, mediaID)
+		}
+		return err
+	}
+
 	_, err := s.db.ExecContext(ctx, `
 INSERT INTO media_markers(media_id,kind,start_seconds,end_seconds,source,confidence)
 VALUES(?,?,?,?,?,?)
