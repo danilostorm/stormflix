@@ -4,6 +4,19 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 
 ## 2026-08-31
 
+### Games G2.5 — dedicated Admin, RomMix-style UI and metadata stack
+
+- Added a dedicated **Admin → Games** control center so ROM libraries, scans, catalog identity, metadata, saves, emulator/runtime status and Games settings no longer compete with the movie/series administration pages.
+- Rebuilt the public Games experience around the controller-friendly visual/interaction language of **RomMix**: full-screen Games shell, large Continue Jogando hero, horizontal rows, Library, platform Collections, Saves, Emulators and Settings. StormFlix keeps its own authenticated catalog, WASM player and per-profile state; it does not adopt RomMix's download/native-emulator model.
+- RomMix is MIT-licensed; the adaptation is attributed in `THIRD_PARTY_NOTICES.md`. RomM remains an AGPL product/architecture research reference and no RomM implementation source is copied into the native Games module.
+- Phase 22 adds rich game metadata/provider IDs, metadata lock, encrypted provider settings and persistent Games metadata jobs without changing platform + SHA-256 as the canonical local ROM identity.
+- Added an AES-GCM Games provider vault under the StormFlix data directory. Secrets are never returned to the Admin browser and are never stored in repository files.
+- Implemented the first automatic metadata pipeline: **IGDB** as primary match, **MobyGames** as fallback and **SteamGridDB** as optional portrait artwork enrichment. ScreenScraper, RetroAchievements, Hasheous, PlayMatch, LaunchBox, TheGamesDB, Flashpoint, HLTB, Demozoo, Pouët, CSDb and Libretro are represented in the provider architecture but remain later integrations unless explicitly marked implemented in Admin.
+- Games metadata jobs are persistent, resume after server restart, appear in the global **Fila & atividades**, expose progress/matched/errors and pause while video playback or browser gameplay is active.
+- Added **metadata lock** so administrator-corrected game metadata can be excluded from automatic refresh.
+- Added a profile-scoped Saves gallery and exact Admin ROM/save/playtime aggregates.
+- Added explicit roadmap/UI guidance for arcade/Neo Geo BIOS + ROMset diagnostics instead of presenting generic launch failures when a set/core is incompatible.
+
 ### Automatic intros/credits and native Games G1/G2
 
 - Added Plex-inspired automatic intro detection for episodic libraries using lightweight recurring audio fingerprints. Detection is background/budgeted, yields to playback and preserves manual/chapter marker precedence.
