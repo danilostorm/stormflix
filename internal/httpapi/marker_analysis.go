@@ -164,7 +164,7 @@ ORDER BY CASE
            ELSE 1
          END,
          si.episode_number,m.id
-LIMIT 32`, season.LibraryID, season.SeriesKey, season.Season, season.Size)
+LIMIT 12`, season.LibraryID, season.SeriesKey, season.Season, season.Size)
 	if err != nil {
 		return nil, err
 	}
