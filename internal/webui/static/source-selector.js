@@ -7,6 +7,7 @@
   openDetail=async function(id){
     await baseOpenDetail(id);
     if(!currentDetail)return;
+    window.sfSelectedDetailMedia={...currentDetail,_logical_id:Number(currentDetail.id),id:Number(currentDetail.id)};
     await renderDetailSources(currentDetail).catch(()=>{});
   };
 
@@ -15,7 +16,7 @@
     selectedVersionID=Number(detail.id);
     let root=document.querySelector('#detail-sources');
     if(root)root.remove();
-    if(!detailVersions.length)return;
+    if(!detailVersions.length){window.sfSelectedDetailMedia={...detail,_logical_id:Number(detail.id),id:Number(detail.id)};return}
 
     const servers=[];
     const seen=new Set();
@@ -25,21 +26,22 @@
       seen.add(key);
       servers.push({key,version});
     }
-    if(servers.length<=1)return;
 
     const current=detailVersions.find(v=>Number(v.id)===Number(detail.id));
     if(current){
       const currentKey=current.server_label||`Servidor ${current.source_index||1}`;
       const server=servers.find(s=>s.key===currentKey);
       if(server)selectedVersionID=Number(server.version.id);
-    }else{
+    }else if(servers.length){
       selectedVersionID=Number(servers[0].version.id);
     }
+
+    if(servers.length<=1){applySelectedSource(detail);return}
 
     root=document.createElement('div');
     root.id='detail-sources';
     root.className='detail-sources';
-    root.innerHTML=`<div class="detail-source-label"><span>Fonte de reprodução</span><small>Escolha o servidor. O título e os metadados são únicos.</small></div><div class="detail-source-buttons">${servers.map(({key,version})=>`<button type="button" class="detail-source-btn ${Number(version.id)===selectedVersionID?'active':''}" data-source-media="${version.id}"><b>${escapeHTML(key)}</b><small>${escapeHTML(version.label||'Original')} · ${escapeHTML(String(version.extension||'').replace('.','').toUpperCase())}</small></button>`).join('')}</div>`;
+    root.innerHTML=`<div class="detail-source-label"><span>Fonte de reprodução</span></div><div class="detail-source-buttons">${servers.map(({key,version})=>`<button type="button" class="detail-source-btn ${Number(version.id)===selectedVersionID?'active':''}" data-source-media="${version.id}"><b>${escapeHTML(key)}</b><small>${escapeHTML(version.label||'Original')} · ${escapeHTML(String(version.extension||'').replace('.','').toUpperCase())}</small></button>`).join('')}</div>`;
     document.querySelector('.detail-actions')?.after(root);
     bindSourceButtons(detail,root);
     applySelectedSource(detail);
@@ -55,12 +57,14 @@
 
   function applySelectedSource(detail){
     const version=detailVersions.find(v=>Number(v.id)===selectedVersionID)||detailVersions[0];
-    if(!version)return;
+    if(!version){window.sfSelectedDetailMedia={...detail,_logical_id:Number(detail.id),id:Number(detail.id)};return}
+    const selected={...detail,_logical_id:Number(detail.id),id:Number(version.id),extension:version.extension,size_bytes:version.size_bytes,server_label:version.server_label,source_index:version.source_index};
+    window.sfSelectedDetailMedia=selected;
     const play=document.querySelector('#detail-play');
     if(play){
       const server=version.server_label||`Servidor ${version.source_index||1}`;
       play.textContent=`▶ Assistir · ${server}`;
-      play.onclick=()=>playMedia({...detail,id:Number(version.id),extension:version.extension,size_bytes:version.size_bytes});
+      play.onclick=()=>playMedia(selected);
     }
     const format=document.querySelector('#detail-format');
     if(format)format.textContent=`${String(version.extension||detail.extension||'').replace('.','').toUpperCase()} · ${version.label||'Original'} · DIRECT PLAY`;

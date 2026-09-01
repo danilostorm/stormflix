@@ -1,4 +1,4 @@
-/* StormFlix Playback Anywhere v1 — Chromecast, external players and TV handoff. */
+/* StormFlix Playback Anywhere v2 — Chromecast, external players and TV handoff. */
 (function(){
   'use strict';
   const modal=document.querySelector('#player-modal');
@@ -10,7 +10,7 @@
   style.textContent=`
     #sf-anywhere-toggle{min-width:44px;height:38px;border:1px solid rgba(255,255,255,.14);border-radius:10px;background:rgba(17,22,30,.88);color:#fff;font-size:18px;cursor:pointer}
     #sf-anywhere-toggle:hover,#sf-anywhere-toggle:focus-visible{outline:0;border-color:#59cdfb;box-shadow:0 0 0 2px rgba(89,205,251,.14)}
-    .sf-anywhere{position:absolute;z-index:80;top:58px;right:14px;width:min(430px,calc(100vw - 28px));max-height:calc(100vh - 82px);overflow:auto;padding:0;border:1px solid #293542;border-radius:18px;background:rgba(9,13,19,.98);box-shadow:0 24px 70px rgba(0,0,0,.55);color:#edf3f8}
+    .sf-anywhere{position:fixed;z-index:240;top:82px;right:18px;width:min(430px,calc(100vw - 28px));max-height:calc(100vh - 104px);overflow:auto;padding:0;border:1px solid #293542;border-radius:18px;background:rgba(9,13,19,.98);box-shadow:0 24px 70px rgba(0,0,0,.62);color:#edf3f8;backdrop-filter:blur(16px)}
     .sf-anywhere.hidden{display:none!important}.sf-anywhere header{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:18px 18px 14px;border-bottom:1px solid #202a34}
     .sf-anywhere header p{margin:0 0 3px;color:#62d4ff;font-size:10px;font-weight:900;letter-spacing:.13em}.sf-anywhere header h2{margin:0;font-size:20px}.sf-anywhere header button{width:36px;height:36px;border:1px solid #2a3540;border-radius:10px;background:#151b23;color:#fff;cursor:pointer}
     .sf-anywhere-body{display:grid;gap:10px;padding:14px 18px 18px}.sf-anywhere-option{display:grid;grid-template-columns:44px minmax(0,1fr) auto;align-items:center;gap:12px;width:100%;padding:13px;border:1px solid #26313d;border-radius:14px;background:#10161e;color:#eaf1f7;text-align:left;cursor:pointer}
@@ -30,29 +30,63 @@
   panel.id='sf-anywhere';panel.className='sf-anywhere hidden';panel.setAttribute('aria-label','Reproduzir em outro dispositivo');
   panel.innerHTML=`<header><div><p>PLAYBACK ANYWHERE</p><h2>Reproduzir em…</h2></div><button type="button" data-any-close aria-label="Fechar">×</button></header>
     <div class="sf-anywhere-body">
-      <button class="sf-anywhere-option" type="button" data-any-local><i>▶</i><span><b>Este dispositivo</b><small>Continuar no player atual do StormFlix.</small></span><em>ATUAL</em></button>
+      <button class="sf-anywhere-option" type="button" data-any-local><i>▶</i><span><b>Este dispositivo</b><small>Reproduzir no player atual do StormFlix.</small></span><em>LOCAL</em></button>
       <button class="sf-anywhere-option" type="button" data-any-cast><i>▣</i><span><b>Chromecast / Google TV</b><small>Enviar para uma TV compatível usando Google Cast.</small></span><em data-any-cast-state>PROCURAR</em></button>
       <button class="sf-anywhere-option" type="button" data-any-external><i>↗</i><span><b>Player externo</b><small>Abrir um stream temporário no VLC, mpv ou outro player do sistema.</small></span><em>ABRIR</em></button>
       <button class="sf-anywhere-option" type="button" data-any-tv-info><i>TV</i><span><b>Samsung Tizen / LG webOS</b><small>Os apps StormFlix TV usam o mesmo PlaybackPlan, progresso e perfil.</small></span><em>PRONTO</em></button>
-      <div class="sf-anywhere-status" data-any-status>Escolha onde deseja continuar a reprodução.</div>
+      <div class="sf-anywhere-status" data-any-status>Escolha onde deseja reproduzir.</div>
       <div class="sf-anywhere-link hidden" data-any-link><input readonly aria-label="Link temporário de reprodução"><button type="button">Copiar</button></div>
     </div>`;
-  modal.appendChild(panel);
+  document.body.appendChild(panel);
 
   const status=panel.querySelector('[data-any-status]');
   const linkBox=panel.querySelector('[data-any-link]');
-  let castLoadPromise=null,remotePlan=null,remoteGrant=null,castHeartbeat=0,castSequence=0;
+  let castLoadPromise=null,remotePlan=null,remoteGrant=null,castHeartbeat=0,castSequence=0,targetMedia=null;
 
-  function mediaID(){return Number(window.sfLastPlaybackPlan?.media_id||window.sfPlaybackCore?.currentPlan?.()?.media_id||0)}
-  function currentPlan(){return window.sfPlaybackCore?.currentPlan?.()||window.sfLastPlaybackPlan||{}}
-  function title(){return document.querySelector('#player-title')?.textContent?.trim()||'StormFlix'}
+  function livePlan(){return window.sfPlaybackCore?.currentPlan?.()||window.sfLastPlaybackPlan||{}}
+  function currentPlayingID(){return Number(window.sfLastPlaybackPlan?.media_id||window.sfPlaybackCore?.currentPlan?.()?.media_id||0)}
+  function activeDetail(){try{return typeof currentDetail!=='undefined'&&currentDetail?.id?currentDetail:null}catch{return null}}
+  function detailMedia(){
+    const current=activeDetail();
+    const selected=window.sfSelectedDetailMedia;
+    if(selected?.id&&(!current||Number(selected._logical_id||selected.id)===Number(current.id)))return selected;
+    if(current?.id)return current;
+    return selected?.id?selected:null;
+  }
+  function mediaID(){return Number(targetMedia?.id||currentPlayingID()||0)}
+  function currentPlan(){const plan=livePlan();return !targetMedia||Number(plan?.media_id||0)===mediaID()?plan:{}}
+  function title(){return String(targetMedia?.title||document.querySelector('#player-title')?.textContent||'StormFlix').trim()||'StormFlix'}
+  function position(){if(targetMedia&&Number(targetMedia.id)!==currentPlayingID())return 0;return Number.isFinite(video.currentTime)?Math.max(0,video.currentTime):0}
   function setStatus(message,type=''){status.textContent=message;status.className='sf-anywhere-status'+(type?' '+type:'')}
   function showLink(url){const input=linkBox.querySelector('input');input.value=url||'';linkBox.classList.toggle('hidden',!url)}
   function close(){panel.classList.add('hidden')}
-  function open(){panel.classList.remove('hidden');showLink('');setStatus('Escolha onde deseja continuar a reprodução.')}
-  toggle.addEventListener('click',e=>{e.stopPropagation();panel.classList.contains('hidden')?open():close()});
+  function open(){panel.classList.remove('hidden');showLink('');setStatus(targetMedia?.title?`Escolha onde reproduzir ${targetMedia.title}.`:'Escolha onde deseja continuar a reprodução.')}
+  function openForMedia(media){if(!media?.id)return;targetMedia={...media,id:Number(media.id)};open()}
+  function openCurrent(){targetMedia=null;open()}
+
+  toggle.addEventListener('click',e=>{e.stopPropagation();if(panel.classList.contains('hidden'))openCurrent();else close()});
   panel.querySelector('[data-any-close]').onclick=close;
-  panel.querySelector('[data-any-local]').onclick=()=>{close();video.play().catch(()=>{})};
+  panel.querySelector('[data-any-local]').onclick=()=>{
+    const selected=targetMedia;
+    close();
+    if(selected?.id&&typeof playMedia==='function'){
+      targetMedia=null;
+      playMedia(selected);
+      return;
+    }
+    video.play().catch(()=>{});
+  };
+
+  document.addEventListener('click',e=>{
+    const button=e.target.closest?.('#detail-anywhere');
+    if(button){
+      e.preventDefault();e.stopPropagation();
+      const selected=detailMedia();
+      if(selected?.id)openForMedia(selected);else{targetMedia=null;open();setStatus('Não foi possível identificar este título para transmissão.','error')}
+      return;
+    }
+    if(e.target.closest?.('[data-close-detail],#player-close'))close();
+  },true);
 
   async function json(url,options={}){
     const response=await fetch(url,{credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json',...(options.headers||{})},...options});
@@ -66,9 +100,9 @@
   }
 
   async function prepareRemote(){
-    const id=mediaID();if(!id)throw new Error('Nenhuma mídia ativa para transmitir.');
+    const id=mediaID();if(!id)throw new Error('Nenhuma mídia selecionada para transmitir.');
     const base=currentPlan();
-    const request={client_kind:'tv',client_name:'StormFlix Playback Anywhere',client_version:'1.0',quality:'auto',capabilities:remoteCapabilities(),start_position_seconds:Number.isFinite(video.currentTime)?Math.max(0,video.currentTime):0};
+    const request={client_kind:'tv',client_name:'StormFlix Playback Anywhere',client_version:'2.0',quality:'auto',capabilities:remoteCapabilities(),start_position_seconds:position()};
     if(Number.isInteger(base.audio_stream)&&base.audio_stream>=0)request.audio_stream=base.audio_stream;
     const plan=await json(`/api/v1/media/${id}/playback/plan`,{method:'POST',body:JSON.stringify(request)});
     if(!plan?.available||!plan?.url)throw new Error(plan?.reason||'A TV não recebeu uma rota de reprodução compatível.');
@@ -99,8 +133,8 @@
   function startCastHeartbeat(session,id,plan){
     stopCastHeartbeat();castSequence=0;
     const send=()=>{
-      const position=castMediaPosition(session),duration=Number(session?.getMediaSession?.()?.media?.duration||video.duration||0);if(!Number.isFinite(position)||position<0)return;
-      fetch(`/api/v1/media/${id}/playback`,{method:'POST',credentials:'same-origin',keepalive:true,headers:{'Content-Type':'application/json'},body:JSON.stringify({position_seconds:position,duration_seconds:Number.isFinite(duration)?duration:0,state:'playing',mode:'cast',playback_session_id:String(plan?.playback_session_id||''),progress_sequence:++castSequence,progress_event_ms:Date.now(),progress_reason:'cast'})}).catch(()=>{});
+      const castPosition=castMediaPosition(session),duration=Number(session?.getMediaSession?.()?.media?.duration||video.duration||0);if(!Number.isFinite(castPosition)||castPosition<0)return;
+      fetch(`/api/v1/media/${id}/playback`,{method:'POST',credentials:'same-origin',keepalive:true,headers:{'Content-Type':'application/json'},body:JSON.stringify({position_seconds:castPosition,duration_seconds:Number.isFinite(duration)?duration:0,state:'playing',mode:'cast',playback_session_id:String(plan?.playback_session_id||''),progress_sequence:++castSequence,progress_event_ms:Date.now(),progress_reason:'cast'})}).catch(()=>{});
     };
     send();castHeartbeat=setInterval(send,10000);
   }
@@ -114,8 +148,8 @@
       await context.requestSession();const session=context.getCurrentSession();if(!session)throw new Error('Nenhum Chromecast foi selecionado.');
       const info=new chrome.cast.media.MediaInfo(prepared.url,castContentType(prepared.plan,prepared.url));
       const metadata=new chrome.cast.media.GenericMediaMetadata();metadata.title=title();metadata.subtitle='StormFlix';info.metadata=metadata;
-      const request=new chrome.cast.media.LoadRequest(info);request.autoplay=true;request.currentTime=Number.isFinite(video.currentTime)?Math.max(0,video.currentTime):0;
-      await session.loadMedia(request);video.pause();startCastHeartbeat(session,prepared.id,prepared.plan);showLink(prepared.url);setStatus('Transmitindo para o Chromecast. O progresso continua vinculado ao perfil atual.','ok');
+      const request=new chrome.cast.media.LoadRequest(info);request.autoplay=true;request.currentTime=position();
+      await session.loadMedia(request);if(!modal.classList.contains('hidden'))video.pause();startCastHeartbeat(session,prepared.id,prepared.plan);showLink(prepared.url);setStatus('Transmitindo para o Chromecast. O progresso continua vinculado ao perfil atual.','ok');
       const state=panel.querySelector('[data-any-cast-state]');if(state)state.textContent='CONECTADO';
     }catch(err){setStatus(err?.message||'Não foi possível transmitir para o Chromecast.','error')}
     finally{button.disabled=false}
@@ -141,6 +175,7 @@
   panel.querySelector('[data-any-tv-info]').onclick=()=>setStatus('Samsung Tizen e LG webOS usam os apps StormFlix TV. Eles abrem a interface completa, usam o PlaybackPlan do servidor e preservam perfil, progresso, áudio e qualidade.','ok');
   linkBox.querySelector('button').onclick=async()=>{const value=linkBox.querySelector('input').value;if(!value)return;try{await navigator.clipboard.writeText(value);setStatus('Link temporário copiado. Ele expira automaticamente.','ok')}catch{linkBox.querySelector('input').select();document.execCommand('copy')}};
 
+  window.StormFlixPlaybackAnywhere={openForMedia,openCurrent,close};
   window.addEventListener('stormflix:playback-plan',()=>{remotePlan=null;remoteGrant=null;showLink('')});
   document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!panel.classList.contains('hidden')){e.stopPropagation();close()}},true);
   window.addEventListener('beforeunload',stopCastHeartbeat);
