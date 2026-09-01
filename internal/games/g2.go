@@ -20,6 +20,7 @@ const (
 	RetroArchBuild    = "v1.22.2"
 	maxStateBytes     = int64(32 << 20)
 	maxSRAMBytes      = int64(8 << 20)
+	maxPreviewBytes   = int64(2 << 20)
 	maxRuntimeBytes   = int64(128 << 20)
 )
 
@@ -178,7 +179,7 @@ func (s *Service) savePath(ctx context.Context, profileID, gameID int64, kind st
 	if profileID <= 0 || gameID <= 0 {
 		return "", errors.New("profile and game are required")
 	}
-	if kind != "state" && kind != "sram" {
+	if kind != "state" && kind != "sram" && kind != "preview" {
 		return "", errors.New("invalid game save kind")
 	}
 	if slot < 0 || slot > 9 {
@@ -201,6 +202,8 @@ func (s *Service) savePath(ctx context.Context, profileID, gameID int64, kind st
 	name := fmt.Sprintf("state-%d.state", slot)
 	if kind == "sram" {
 		name = fmt.Sprintf("battery-%d.srm", slot)
+	} else if kind == "preview" {
+		name = fmt.Sprintf("preview-%d.webp", slot)
 	}
 	return filepath.Join(dir, name), nil
 }
@@ -211,6 +214,9 @@ func MaxSaveBytes(kind string) int64 {
 	}
 	if kind == "state" {
 		return maxStateBytes
+	}
+	if kind == "preview" {
+		return maxPreviewBytes
 	}
 	return 0
 }

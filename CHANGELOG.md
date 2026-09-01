@@ -2,6 +2,19 @@
 
 This file records user-visible and architectural changes. `PROJECT_STATE.md` is the authoritative current-state handoff and `ENTERTAINMENT_ROADMAP.md` tracks planned work.
 
+## 2026-09-01
+
+### Games G3 — mobile controls, living-room gamepad and save previews
+
+- Added an optional **virtual mobile controller** for the native browser game player with D-pad, A/B, SELECT and START, pointer-based multi-touch, Auto/On/Off visibility and optional short haptic feedback.
+- Added responsive portrait/landscape/safe-area placement and keep virtual controls hidden while the ROM/runtime preparation screen is still visible.
+- Added controller-oriented spatial focus navigation to the Games shell. Standard gamepad D-pad/axes move focus, A activates focused UI and B backs out when outside active gameplay.
+- Added a gameplay **quick menu**: Back/Escape opens it instead of immediately exiting, while holding SELECT + START on a standard gamepad opens the same menu. It exposes resume, save, fullscreen, virtual-controller mode and Save-and-exit.
+- Phase 23 extends `game_saves` with a profile-owned `preview` artifact while preserving the existing atomic replacement/version/recovery model. The migration detects an already-upgraded CHECK constraint and becomes a no-op on later server restarts.
+- Save previews are bounded to 2 MiB, live beside the same profile/platform/SHA-256 save identity and are served only through the authenticated, library-permission-aware save endpoint.
+- The browser captures a compact emulator-canvas preview during save/periodic lifecycle points and the profile Saves gallery displays it when available without exposing another profile's data.
+- Added migration/reopen tests plus preview version/recovery and cross-profile isolation tests. Real touch/gamepad/TV behavior remains real-device QA even when CI is green.
+
 ## 2026-08-31
 
 ### Games G2.5 — dedicated Admin, RomMix-style UI and metadata stack
