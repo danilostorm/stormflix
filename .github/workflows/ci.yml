@@ -70,6 +70,8 @@ jobs:
           node --check internal/webui/static/games-g4-polish.js
           node --check internal/webui/static/games-g43-ui.js
           node --check internal/webui/static/games-g45-home-compat.js
+          node --check internal/webui/static/games-g48-home.js
+          node --check internal/webui/static/games-g49-collections.js
           node --check internal/webui/static/ux-v2.js
           node --check internal/webui/static/ux-v3.js
           node --check internal/webui/static/source-selector.js
