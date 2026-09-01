@@ -1,7 +1,8 @@
 /* Games stays a native StormFlix section. RomMix-inspired visuals live inside the content area instead of replacing the app shell. */
 body.games-mode{overflow-x:hidden!important;overflow-y:auto!important}
 body.games-mode #topbar{z-index:900}
-body.games-mode #games-nav{color:#fff!important;position:relative}
+body.games-mode .main-nav button.active:not(#games-nav){color:#cbd0da!important;background:transparent!important}
+body.games-mode #games-nav{color:#fff!important;position:relative;background:rgba(255,255,255,.06)!important}
 body.games-mode #games-nav:after{content:"";position:absolute;left:12px;right:12px;bottom:4px;height:2px;border-radius:999px;background:linear-gradient(90deg,#ff315a,#ff764b)}
 .games-view{position:relative!important;inset:auto!important;z-index:3!important;overflow:visible!important;min-height:100vh;padding-top:70px;overscroll-behavior:auto!important;background:#080a0f}
 .gx-app{min-height:calc(100vh - 70px)!important}
@@ -17,14 +18,18 @@ body.games-mode #games-nav:after{content:"";position:absolute;left:12px;right:12
   .gx-mainnav{justify-content:flex-start!important}
   .gx-mainnav button span{display:inline!important}
 }
+@media(max-width:800px){
+  body.games-mode .main-nav{grid-template-columns:repeat(6,minmax(0,1fr))!important}
+  body.games-mode #games-nav:after{left:6px;right:6px;bottom:3px}
+}
 @media(max-width:720px){
-  .games-view{padding-top:70px;padding-bottom:58px}
+  .games-view{padding-top:70px;padding-bottom:var(--sf-bottom-nav,66px)}
   .gx-topbar{position:sticky!important;top:70px!important;display:block!important;min-height:48px!important;padding:0!important;overflow:hidden}
   .gx-mainnav{position:static!important;height:48px!important;justify-content:flex-start!important;overflow-x:auto!important;overflow-y:hidden!important;border-top:0!important;border-bottom:1px solid #202731!important;background:#0c1016!important;padding:0 10px;scrollbar-width:none}
   .gx-mainnav::-webkit-scrollbar{display:none}
   .gx-mainnav button{flex:0 0 auto!important;height:48px!important;min-width:max-content;padding:0 12px!important;border-top:0!important;border-bottom:2px solid transparent!important}
   .gx-mainnav button.active{border-top-color:transparent!important;border-bottom-color:#54caff!important}
   .gx-mainnav button:nth-child(n){display:flex!important}
-  .gx-content{width:calc(100% - 24px)!important;padding:16px 0 54px!important}
+  .gx-content{width:calc(100% - 24px)!important;padding:16px 0 calc(18px + var(--sf-bottom-nav,66px))!important}
   .gx-hints{display:none!important}
 }
