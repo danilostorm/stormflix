@@ -1,4 +1,4 @@
-// StormFlix Android 0.6.3 - native catalog + device-aware UHD shelves + unified Web Video Player
+// StormFlix Android 0.6.4 - native catalog + Web Player + Playback Anywhere native routing
 plugins {
     id 'com.android.application'
 }
@@ -11,8 +11,8 @@ android {
         applicationId 'cloud.stormflix.app'
         minSdk 23
         targetSdk 36
-        versionCode 21
-        versionName '0.6.3'
+        versionCode 22
+        versionName '0.6.4'
     }
 
     buildTypes {
@@ -29,9 +29,12 @@ android {
 }
 
 dependencies {
-    // Video playback no longer uses Media3. It is provided by Android System
-    // WebView + the StormFlix Web Playback Engine on phone/tablet/TV/Fire TV.
-    // Keep ExoPlayer only because the native MusicActivity still uses it for
-    // audio playback and listening progress.
+    // Playback Anywhere uses the current Google Cast Application Framework on
+    // Android so discovery/session management is native instead of relying on
+    // the Web Sender SDK inside Android System WebView.
+    implementation 'com.google.android.gms:play-services-cast-framework:22.3.1'
+
+    // Video playback itself remains the StormFlix Web Playback Engine. Keep
+    // ExoPlayer because the native MusicActivity still uses Media3 for audio.
     implementation 'androidx.media3:media3-exoplayer:1.11.0'
 }
