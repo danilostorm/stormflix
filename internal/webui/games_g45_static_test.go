@@ -39,8 +39,8 @@ func TestGamesG47PlacesRailsOnlyAfterNativeRowsExist(t *testing.T) {
 		t.Fatalf("read games-g45-home-compat.js: %v", err)
 	}
 	for _, required := range [][]byte{
-		[]byte(`[data-g44-home-row=\"continue\"]`),
-		[]byte(`[data-g44-home-row=\"recent\"]`),
+		[]byte(`[data-g44-home-row="continue"]`),
+		[]byte(`[data-g44-home-row="recent"]`),
 		[]byte(`nativeRow('Em alta agora')`),
 		[]byte(`nativeRow('Em alta nesta semana')`),
 		[]byte(`nativeRow('Lançamentos')`),
