@@ -1,4 +1,4 @@
-// StormFlix Android 0.6.4 - native catalog + Web Player + Playback Anywhere native routing
+// StormFlix Android 0.6.5 - native catalog + Web Player + Google Cast + DLNA/UPnP
 plugins {
     id 'com.android.application'
 }
@@ -11,8 +11,8 @@ android {
         applicationId 'cloud.stormflix.app'
         minSdk 23
         targetSdk 36
-        versionCode 22
-        versionName '0.6.4'
+        versionCode 23
+        versionName '0.6.5'
     }
 
     buildTypes {
@@ -29,11 +29,9 @@ android {
 }
 
 dependencies {
-    // Playback Anywhere uses the current Google Cast Application Framework on
-    // Android so discovery/session management is native instead of relying on
-    // the Web Sender SDK inside Android System WebView.
+    // Google Cast is native; DLNA/UPnP is implemented directly with Android/
+    // Java network APIs and does not require a casting application dependency.
     implementation 'com.google.android.gms:play-services-cast-framework:22.3.1'
-    // MediaRouteChooserDialog is an AppCompat dialog in current MediaRouter.
     implementation 'androidx.appcompat:appcompat:1.7.1'
 
     // Video playback itself remains the StormFlix Web Playback Engine. Keep
