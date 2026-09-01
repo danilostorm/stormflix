@@ -21,9 +21,9 @@ Server HTTP port: **8090**, normally behind an HTTPS reverse proxy.
 
 ## Current clients
 
-- Server code line: **`0.23.0-games-g2`**.
+- Server code line: **`0.24.0-games-admin`**.
 - Web Player: v5 line, based on the v5.3 continuous Web playback-session architecture plus v5.4 presentation/TV controls.
-- Games Web Player: G2 browser/WASM line with pinned Nostalgist/RetroArch runtime, profile-owned saves and playtime.
+- Games Web Player: G2 browser/WASM line with pinned Nostalgist/RetroArch runtime, profile-owned saves and playtime; the G2.5 Games shell adds the dedicated Admin/metadata layer and RomMix-inspired browsing presentation.
 - Android package: `cloud.stormflix.app`, **0.6.3 / versionCode 21**, minSdk 23, targetSdk 36, Java 17.
 - Android phone/tablet, Android TV and Fire TV keep native StormFlix catalog/navigation but delegate video playback to the hosted StormFlix Web Player inside `PlayerActivity` WebView.
 - Samsung Tizen: `apps/tizen` 0.1.0 thin shell; final WGT requires the developer's Samsung/Tizen signing profile.
@@ -68,7 +68,7 @@ Plan modes remain `direct_play`, `remux`, `audio_compatibility`, `video_transcod
 - Explicit 2160p is an intentional user request and is not silently replaced by the automatic guard.
 - Dedicated UHD smart shelves use device resolution/codec hints; normal catalog/search keeps UHD titles visible because PlaybackPlan may provide a safe lower-resolution route.
 - Hardware encoders exposed to the container/FFmpeg (NVENC/QSV/VAAPI) are preferred; CPU remains the reliability fallback.
-- CPU H.264 live fallback uses the lower-cost `superfast` preset and UHD→1080 scaling uses a low-latency scaler.
+- CPU H.264 live fallback uses the lower-cost `superfast` preset and UHD→1080 uses a low-latency scaler.
 
 ### Web/TV player
 
@@ -184,9 +184,9 @@ Profile avatar assets are now included in the cleanup reference set.
 
 `scan_jobs` is persistent FIFO and media scans are serialized. Game libraries use their own persistent `game_scan_jobs` queue so ROM files never enter the movie/series scanner. Both queues remain visible through the unified Admin → **Fila & atividades** view.
 
-Game scans hash supported cartridges with SHA-256, pause while video playback is active and preserve the previous game catalog for unavailable sources. Preview/dry-run for media follows the source ownership rules without mutating catalog availability. Catalog-changing scan/path/category operations use SQLite safety backups; restore is staged and verified before activation.
+Game scans hash supported cartridges with SHA-256, pause while video playback or a browser game session is active and preserve the previous game catalog for unavailable sources. Preview/dry-run for media follows the source ownership rules without mutating catalog availability. Catalog-changing scan/path/category operations use SQLite safety backups; restore is staged and verified before activation.
 
-## Games — current G1/G2 architecture
+## Games — current G1/G2/G2.5 architecture
 
 Games are a first-class StormFlix media domain, not an iframe and not rows in the video `media` table.
 
@@ -244,13 +244,43 @@ Player UX:
 - fullscreen, pause/resume, gamepad status, keyboard focus, autosave, manual save and Save-and-exit are built in;
 - Save-and-exit waits for an in-flight autosave and performs a final save before terminating the emulator.
 
-G2 CI can validate schema, service behavior, JS syntax and server build. Actual emulation/audio/gamepad behavior must still be validated with user-provided legal ROMs and real browsers/controllers. G3 remains responsible for virtual mobile controls, broader TV/gamepad QA, save-state thumbnails and richer living-room polish.
+### G2.5 Games administration, library UI and metadata
+
+Admin has a dedicated **Games** group/page with tabs for Overview, Libraries & ROMs, Queue & scans, Metadata, Saves, Emulators and Settings. Games metadata jobs are also mirrored into the global **Fila & atividades** view so long work stays observable.
+
+The public Games shell adapts the visual/interaction language of **RomMix** (MIT): full-screen controller-oriented navigation, Continue Jogando hero, horizontal rows, Library, platform Collections, profile Saves, Emulators and Settings. StormFlix still owns the catalog, authorization, WASM player, ROM delivery and saves. Attribution and the complete RomMix MIT notice live in `THIRD_PARTY_NOTICES.md`.
+
+Phase 22 adds:
+- `game_metadata` for provider IDs, rich metadata/artwork references, errors and `metadata_locked`;
+- `game_provider_settings` for enabled/provider configuration;
+- `game_metadata_jobs` for persistent enrichment work.
+
+The canonical game identity remains **platform + SHA-256**. External metadata can rename/enrich a card but cannot replace that local identity. Administrator metadata lock removes a game from automatic refresh candidates.
+
+Provider security:
+- Games provider secrets are AES-GCM encrypted before SQLite persistence;
+- the encryption key is a server-local `DataDir/game-providers.key` file with mode 0600;
+- API responses expose only public fields plus boolean “secret configured” state;
+- provider secrets are never committed to Git and should be entered/rotated in Admin after deployment.
+
+Implemented automatic metadata path:
+1. **IGDB** — primary title/summary/date/genres/companies/rating/cover/screenshots match;
+2. **MobyGames** — primary fallback when IGDB has no acceptable match;
+3. **SteamGridDB** — optional portrait artwork enrichment after a primary match.
+
+A metadata job requires IGDB or MobyGames to be configured; SteamGridDB alone cannot identify a game. Work is persistent, resumes queued/running jobs after server restart, rate-limits provider calls and pauses while video playback or gameplay is active.
+
+The provider registry also models ScreenScraper, RetroAchievements, Hasheous, PlayMatch, LaunchBox, TheGamesDB, Flashpoint, HLTB, Demozoo, Pouët, CSDb and Libretro, but these are **not considered implemented** until their provider-specific adapters are wired. Admin deliberately labels non-wired providers as future integrations rather than presenting them as functional.
+
+Community-driven next work before/beside G3 includes smarter no-rehash scans for unchanged ROMs, explicit BIOS/ROMset diagnostics (especially arcade/Neo Geo), multidisc/DLC structure, broader metadata providers and RetroAchievements.
+
+G2/G2.5 CI can validate schema, service behavior, JS syntax and server build. Actual emulation/audio/gamepad behavior and real provider results must still be validated with user-provided legal ROMs, provider credentials and real browsers/controllers. G3 remains responsible for virtual mobile controls, broader TV/gamepad QA, save-state thumbnails and richer living-room polish.
 
 RetroAssembly (MIT) remains an architectural reference for browser retro emulation. RomM is a product/reference source for metadata breadth and game-management concepts but is AGPL-3.0; do not copy RomM source into StormFlix without an intentional compatible licensing decision.
 
 ## Entertainment roadmap
 
-`ENTERTAINMENT_ROADMAP.md` is the executable product roadmap. Games G1/G2 and automatic intro/credit foundations are now implemented. Remaining major roadmap work includes Smart Downloads, smart playlists, Watch Party, improved editions/versions/extras, OIDC/optional stronger authentication, reuse of expensive media analysis, game metadata/achievements and G3 living-room/mobile game polish.
+`ENTERTAINMENT_ROADMAP.md` is the executable product roadmap. Games G1/G2/G2.5 and automatic intro/credit foundations are implemented. Remaining major roadmap work includes Smart Downloads, smart playlists, Watch Party, improved editions/versions/extras, OIDC/optional stronger authentication, reuse of expensive media analysis, the remaining Games metadata/achievement adapters and G3 living-room/mobile game polish.
 
 ## Jellyfin compatibility
 
