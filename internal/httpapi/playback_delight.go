@@ -111,20 +111,62 @@ func validMarkerKind(kind string) bool {
 }
 
 func (s *server) loadMediaMarkers(ctx context.Context, mediaID int64) ([]playbackMarkerState, error) {
+	legacy := []playbackMarkerState{}
 	rows, err := s.db.QueryContext(ctx, `SELECT kind,start_seconds,end_seconds,source,confidence FROM media_markers WHERE media_id=? ORDER BY start_seconds,kind`, mediaID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := []playbackMarkerState{}
 	for rows.Next() {
 		var marker playbackMarkerState
 		if err := rows.Scan(&marker.Kind, &marker.StartSeconds, &marker.EndSeconds, &marker.Source, &marker.Confidence); err != nil {
+			_ = rows.Close()
 			return nil, err
+		}
+		legacy = append(legacy, marker)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	_ = rows.Close()
+
+	segments := []playbackMarkerState{}
+	segmentRows, err := s.db.QueryContext(ctx, `SELECT kind,start_seconds,end_seconds,source,confidence FROM media_marker_segments WHERE media_id=? ORDER BY start_seconds,segment_index`, mediaID)
+	if err != nil {
+		return nil, err
+	}
+	for segmentRows.Next() {
+		var marker playbackMarkerState
+		if err := segmentRows.Scan(&marker.Kind, &marker.StartSeconds, &marker.EndSeconds, &marker.Source, &marker.Confidence); err != nil {
+			_ = segmentRows.Close()
+			return nil, err
+		}
+		segments = append(segments, marker)
+	}
+	if err := segmentRows.Err(); err != nil {
+		_ = segmentRows.Close()
+		return nil, err
+	}
+	_ = segmentRows.Close()
+
+	protectedCredits := false
+	for _, marker := range legacy {
+		if marker.Kind == "credits" && !strings.EqualFold(marker.Source, "automatic") {
+			protectedCredits = true
+			break
+		}
+	}
+	out := make([]playbackMarkerState, 0, len(legacy)+len(segments))
+	for _, marker := range legacy {
+		if marker.Kind == "credits" && strings.EqualFold(marker.Source, "automatic") && len(segments) > 0 {
+			continue
 		}
 		out = append(out, marker)
 	}
-	return out, rows.Err()
+	if !protectedCredits {
+		out = append(out, segments...)
+	}
+	return out, nil
 }
 
 func normalizeMarkerSource(source string) (string, float64) {
@@ -154,6 +196,12 @@ ON CONFLICT(media_id,kind) DO UPDATE SET
  start_seconds=excluded.start_seconds,end_seconds=excluded.end_seconds,source=excluded.source,confidence=excluded.confidence,updated_at=CURRENT_TIMESTAMP
 WHERE media_markers.source<>'manual' OR excluded.source='manual'`,
 		mediaID, marker.Kind, marker.StartSeconds, marker.EndSeconds, source, confidence)
+	if err != nil {
+		return err
+	}
+	if marker.Kind == "credits" && source != "automatic" {
+		_, err = s.db.ExecContext(ctx, `DELETE FROM media_marker_segments WHERE media_id=? AND kind='credits' AND source='automatic'`, mediaID)
+	}
 	return err
 }
 
@@ -162,8 +210,21 @@ func (s *server) deleteMediaMarker(ctx context.Context, mediaID int64, kind stri
 	if !validMarkerKind(kind) {
 		return errors.New("invalid marker kind")
 	}
-	_, err := s.db.ExecContext(ctx, `DELETE FROM media_markers WHERE media_id=? AND kind=?`, mediaID, kind)
-	return err
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `DELETE FROM media_markers WHERE media_id=? AND kind=?`, mediaID, kind); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if kind == "credits" {
+		if _, err = tx.ExecContext(ctx, `DELETE FROM media_marker_segments WHERE media_id=? AND kind='credits'`, mediaID); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *server) handlePlaybackDelightTelemetry(w http.ResponseWriter, r *http.Request, mediaID int64, in playbackTelemetryInput) bool {
