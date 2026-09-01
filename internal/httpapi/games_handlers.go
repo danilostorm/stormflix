@@ -48,7 +48,7 @@ func (s *server) gameDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u := currentUser(r)
-	game, err := s.games.Detail(r.Context(), id, s.selectedProfileID(r, u.ID), s.gameAllowedLibraries(r))
+	game, err := s.games.Find(r.Context(), id, s.selectedProfileID(r, u.ID), s.gameAllowedLibraries(r))
 	if errors.Is(err, sql.ErrNoRows) {
 		writeError(w, http.StatusNotFound, errors.New("game not found"))
 		return
@@ -68,7 +68,7 @@ func (s *server) gameFavorite(w http.ResponseWriter, r *http.Request) {
 	}
 	u := currentUser(r)
 	profileID := s.selectedProfileID(r, u.ID)
-	if _, err := s.games.Detail(r.Context(), id, profileID, s.gameAllowedLibraries(r)); err != nil {
+	if _, err := s.games.Find(r.Context(), id, profileID, s.gameAllowedLibraries(r)); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			writeError(w, http.StatusNotFound, errors.New("game not found"))
 		} else {
@@ -96,7 +96,7 @@ func (s *server) gameCover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u := currentUser(r)
-	if _, err := s.games.Detail(r.Context(), id, s.selectedProfileID(r, u.ID), s.gameAllowedLibraries(r)); err != nil {
+	if _, err := s.games.Find(r.Context(), id, s.selectedProfileID(r, u.ID), s.gameAllowedLibraries(r)); err != nil {
 		writeError(w, http.StatusNotFound, errors.New("game not found"))
 		return
 	}
