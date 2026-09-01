@@ -68,6 +68,7 @@ jobs:
           node --check internal/webui/static/games-g4.js
           node --check internal/webui/static/games-g4-video.js
           node --check internal/webui/static/games-g4-polish.js
+          node --check internal/webui/static/games-g43-ui.js
           node --check internal/webui/static/ux-v2.js
           node --check internal/webui/static/ux-v3.js
           node --check internal/webui/static/source-selector.js
