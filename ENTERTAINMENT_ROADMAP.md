@@ -181,19 +181,25 @@ Large-library follow-up:
 
 ### Metadata and artwork
 
-G2.5 establishes replaceable provider adapters and an encrypted Admin provider vault.
+G2.5 establishes replaceable provider adapters and an encrypted Admin provider vault. Metadata Stack v2 is now implemented while preserving platform + SHA-256 as the canonical local ROM identity.
 
-Implemented first wave:
-- **IGDB** primary metadata;
+Implemented runtime stack:
+- **Hasheous** optional MD5/SHA-1/CRC32 identity correlation and cross-provider IDs;
+- **ScreenScraper** hash/media primary lookup;
+- **IGDB** primary fallback;
 - **MobyGames** primary fallback;
-- **SteamGridDB** artwork enrichment.
+- **TheGamesDB** complementary metadata/boxart fallback;
+- **RetroAchievements** enrichment from verified RA IDs only;
+- **SteamGridDB** preferred polished portrait artwork;
+- **Libretro Thumbnails** public/no-key artwork fallback.
 
-Next provider waves:
-- ScreenScraper hash/media integration;
-- RetroAchievements game identity/account/achievement enrichment;
-- Hasheous / PlayMatch hash correlation;
-- LaunchBox/TheGamesDB/Libretro local/cached artwork and metadata options;
-- specialist Flashpoint, HLTB, Demozoo, Pouët and CSDb adapters where they materially improve a platform.
+Provider lookup hashes are secondary correlation data only. For single-ROM ZIP cartridges, MD5/SHA-1/CRC32 are calculated from the native inner ROM. They never replace local platform + SHA-256 identity. RetroAchievements is deliberately not queried by blindly reusing ordinary file MD5/SHA-1 because RA hashing can be platform-specific.
+
+Remaining provider waves:
+- PlayMatch hash correlation where it improves confidence beyond Hasheous;
+- LaunchBox local/offline metadata support;
+- specialist Flashpoint, HLTB, Demozoo, Pouët and CSDb adapters where they materially improve a platform;
+- richer RetroAchievements account/achievement presentation on top of the already wired game-ID enrichment path.
 
 Provider calls run in persistent background queues, resume after server restart, are observable in Admin and yield to active video/game playback. A game with no metadata remains playable from its local platform + SHA-256 identity. Administrator **metadata lock** protects manual fixes from automatic refresh.
 
@@ -252,13 +258,13 @@ StormFlix indexes and plays user-provided game files. It does not ship or downlo
 
 **G2 — Browser play — implemented:** NES/SNES/Mega Drive/Game Boy/GBC/GBA browser WASM player with gamepad + per-profile state/SRAM and playtime.
 
-**G2.5 — Admin / library UX / metadata — implemented:** dedicated Admin Games hub; RomMix-inspired full-screen Games library; profile Saves gallery; encrypted provider vault; persistent metadata queue; IGDB + MobyGames + SteamGridDB; metadata lock.
+**G2.5 — Admin / library UX / metadata — implemented:** dedicated Admin Games hub; RomMix-inspired full-screen Games library; profile Saves gallery; encrypted provider vault; persistent metadata queue; Metadata Stack v2 with ScreenScraper/Hasheous/IGDB/MobyGames/TheGamesDB/RetroAchievements/SteamGridDB/Libretro; metadata lock.
 
 **G3 — Living room/mobile — implemented:** virtual multi-touch mobile controls, spatial Games gamepad navigation, gameplay quick menu and versioned profile-owned save-state previews. Real-device/controller QA remains continuous.
 
 **G3.5 — Compatibility foundation — next:** unchanged-ROM no-rehash cache; BIOS inventory/diagnostics; ROMset/core compatibility; initial arcade/Neo Geo expansion only after diagnostics are reliable.
 
-**G4 — Rich ecosystem:** RetroAchievements, manuals, multi-disc, DLC/base-game grouping, patches/mods, specialist providers and optional sync clients.
+**G4 — Rich ecosystem:** achievement UI/account progression, manuals, multi-disc, DLC/base-game grouping, patches/mods, specialist providers and optional sync clients.
 
 ## Home experience target
 
