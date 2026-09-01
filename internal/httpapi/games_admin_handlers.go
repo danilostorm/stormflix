@@ -71,3 +71,42 @@ func (s *server) adminUpdateGameProvider(w http.ResponseWriter, r *http.Request)
 	s.admin.Log(r.Context(), "info", "games", "Games metadata provider settings updated", &uid, provider)
 	s.adminGamesProviders(w, r)
 }
+
+func (s *server) adminGamesMetadataJobs(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	items, err := s.games.MetadataJobs(r.Context(), limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (s *server) adminStartGamesMetadata(w http.ResponseWriter, r *http.Request) {
+	libraryID, err := parseID(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	refresh := r.URL.Query().Get("refresh") == "1" || strings.EqualFold(r.URL.Query().Get("refresh"), "true")
+	job, err := s.games.EnqueueMetadata(r.Context(), libraryID, refresh)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	uid := currentUser(r).ID
+	s.admin.Log(r.Context(), "info", "games", "Games metadata job queued", &uid, job.Library)
+	writeJSON(w, http.StatusAccepted, job)
+}
+
+func (s *server) adminStartAllGamesMetadata(w http.ResponseWriter, r *http.Request) {
+	refresh := r.URL.Query().Get("refresh") == "1" || strings.EqualFold(r.URL.Query().Get("refresh"), "true")
+	job, err := s.games.EnqueueMetadata(r.Context(), 0, refresh)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	uid := currentUser(r).ID
+	s.admin.Log(r.Context(), "info", "games", "All Games metadata job queued", &uid, job.Provider)
+	writeJSON(w, http.StatusAccepted, job)
+}
