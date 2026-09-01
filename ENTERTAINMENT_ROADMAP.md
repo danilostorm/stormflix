@@ -203,6 +203,8 @@ RetroAssembly is an MIT-licensed architectural reference for browser retro emula
 
 The G2.5 browsing shell adapts the controller-oriented visual language of **RomMix** under its MIT license. Attribution is retained in `THIRD_PARTY_NOTICES.md`; StormFlix keeps its own catalog, authorization, ROM endpoints, browser player and saves.
 
+G3 keeps the same player/runtime and adds a thin living-room/mobile control layer rather than introducing another emulator frontend.
+
 RomM is an excellent product/reference source for metadata breadth, multi-disc/DLC/mod/manual concepts, RetroAchievements and client integrations, but its code is AGPL-3.0. StormFlix reimplements those concepts behind its own interfaces rather than copying RomM source.
 
 ### Saves and profiles
@@ -211,6 +213,7 @@ RomM is an excellent product/reference source for metadata breadth, multi-disc/D
 - Cloud/server sync is atomic and versioned; retain a small recovery history.
 - A profile can play the same ROM independently from another profile.
 - G2.5 exposes a profile-scoped Saves gallery without leaking another profile's state.
+- G3 adds a bounded profile-owned WebP preview beside the save state; it uses the same authorization and recovery model and is not a replacement for the actual state/SRAM payload.
 - Future handheld/desktop clients may sync saves without exposing arbitrary server filesystem paths.
 
 ### BIOS, arcade and ROMsets
@@ -226,10 +229,18 @@ This work is prioritized from real community pain around Neo Geo/FBNeo sets wher
 
 ### TV/mobile controls
 
-- Catalog remains navigable with the existing TV semantic remote layer.
-- Gameplay prefers USB/Bluetooth gamepad; remote keys are not silently mapped to destructive emulator actions.
-- Mobile can expose an optional virtual controller.
-- Exiting a game flushes saves before returning to the StormFlix catalog.
+Implemented in G3:
+- Games catalog has spatial gamepad focus navigation with D-pad/axes, A activation and B back behavior outside active gameplay;
+- gameplay still prefers USB/Bluetooth gamepad and does not remap normal gameplay buttons through the UI layer;
+- Back/Escape opens a quick menu during active gameplay rather than immediately exiting;
+- holding SELECT + START opens the same quick menu on standard gamepads;
+- mobile has an optional multi-touch D-pad + A/B + SELECT/START controller with Auto/On/Off and optional haptics;
+- exiting a game continues to flush saves before returning to the StormFlix catalog.
+
+Remaining QA/polish:
+- test mappings on representative Xbox/PlayStation/generic Bluetooth controllers;
+- validate Android Chrome/WebView, iOS Safari and landscape/portrait safe areas;
+- validate remote/back behavior on Android TV/Fire TV and hosted TV browsers without stealing OS-level keys.
 
 ### Safety/legal boundary
 
@@ -243,7 +254,9 @@ StormFlix indexes and plays user-provided game files. It does not ship or downlo
 
 **G2.5 — Admin / library UX / metadata — implemented:** dedicated Admin Games hub; RomMix-inspired full-screen Games library; profile Saves gallery; encrypted provider vault; persistent metadata queue; IGDB + MobyGames + SteamGridDB; metadata lock.
 
-**G3 — Living room/mobile — next:** TV focus/gamepad QA, virtual mobile controls, save-state thumbnails, controller mapping polish, explicit BIOS/ROMset diagnostics and initial arcade/Neo Geo expansion after diagnostics exist.
+**G3 — Living room/mobile — implemented:** virtual multi-touch mobile controls, spatial Games gamepad navigation, gameplay quick menu and versioned profile-owned save-state previews. Real-device/controller QA remains continuous.
+
+**G3.5 — Compatibility foundation — next:** unchanged-ROM no-rehash cache; BIOS inventory/diagnostics; ROMset/core compatibility; initial arcade/Neo Geo expansion only after diagnostics are reliable.
 
 **G4 — Rich ecosystem:** RetroAchievements, manuals, multi-disc, DLC/base-game grouping, patches/mods, specialist providers and optional sync clients.
 
