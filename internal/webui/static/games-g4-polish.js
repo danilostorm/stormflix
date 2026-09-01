@@ -1,4 +1,4 @@
-/* StormFlix Games G4.1 presentation layer: cinema shell + auto-hiding chrome. */
+/* StormFlix Games G4.2 presentation layer: cinema shell + auto-hiding chrome. */
 (function(){
   let overlay=null,hideTimer=0,abort=null,panelObserver=null;
   const $=(s,r=document)=>r.querySelector(s);
@@ -8,7 +8,7 @@
   function clearTimer(){if(hideTimer)clearTimeout(hideTimer);hideTimer=0}
   function normalizeLabels(){
     if(!overlay)return;const kicker=$('.game-player-kicker',overlay),menuKicker=$('.sf-g4-card>header small',overlay);
-    if(kicker)kicker.textContent='STORMFLIX GAME PLAYER G4.1';if(menuKicker)menuKicker.textContent='STORMFLIX GAME PLAYER G4.1';
+    if(kicker)kicker.textContent='STORMFLIX GAME PLAYER G4.2';if(menuKicker)menuKicker.textContent='STORMFLIX GAME PLAYER G4.2';
   }
   function showChrome(autoHide=true){
     if(!overlay)return;overlay.classList.remove('sf-g41-ui-hidden');clearTimer();
