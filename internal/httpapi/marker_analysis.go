@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"math"
 	"net/http"
 	"os/exec"
@@ -23,10 +24,12 @@ var markerAnalyzerKick = make(chan struct{}, 1)
 var mediaAnalysisBudget sync.Mutex
 
 type markerSeason struct {
-	LibraryID int64
-	SeriesKey string
-	Season    int
-	Size      int
+	LibraryID  int64
+	Library    string
+	SeriesKey  string
+	SeriesTitle string
+	Season     int
+	Size       int
 }
 
 type markerEpisode struct {
@@ -43,6 +46,12 @@ type markerEpisode struct {
 
 func (s *server) startMarkerAnalyzer(ctx context.Context) {
 	markerAnalyzerOnce.Do(func() {
+		// A process restart cannot resume an ffmpeg pipe halfway through. Keep the
+		// operational history honest and let the normal selector retry the season.
+		_, _ = s.db.ExecContext(context.Background(), `
+UPDATE marker_analysis_jobs
+SET status='error',progress=100,message='Interrompido por reinício do servidor; a temporada será analisada novamente.',finished_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
+WHERE status='running'`)
 		go func() {
 			// Let startup, migrations, the first Home and the technical indexer get
 			// ahead before audio comparison starts.
@@ -103,7 +112,7 @@ func (s *server) markerAnalysisPlaybackBusy(ctx context.Context) bool {
 func (s *server) nextIntroSeason(ctx context.Context) (markerSeason, error) {
 	var season markerSeason
 	err := s.db.QueryRowContext(ctx, `
-SELECT si.library_id,si.series_key,si.season_number,
+SELECT si.library_id,l.name,si.series_key,COALESCE(si.series_title,''),si.season_number,
        (SELECT COUNT(*)
           FROM media sm
           JOIN media_series_identity ssi ON ssi.media_id=sm.id
@@ -113,6 +122,7 @@ SELECT si.library_id,si.series_key,si.season_number,
            AND ssi.season_number=si.season_number
            AND ssi.episode_number>0) AS season_size
 FROM media m
+JOIN libraries l ON l.id=m.library_id
 JOIN media_series_identity si ON si.media_id=m.id
 JOIN media_technical mt ON mt.media_id=m.id
 LEFT JOIN media_marker_analysis ma ON ma.media_id=m.id
@@ -137,12 +147,15 @@ WHERE m.available=1
        OR (ma.intro_status='error' AND (ma.analyzed_at IS NULL OR ma.analyzed_at<=datetime('now','-6 hours')))
   )
 ORDER BY CASE WHEN ma.media_id IS NULL THEN 0 WHEN ma.intro_status='pending' THEN 1 ELSE 2 END,m.id
-LIMIT 1`).Scan(&season.LibraryID, &season.SeriesKey, &season.Season, &season.Size)
+LIMIT 1`).Scan(&season.LibraryID, &season.Library, &season.SeriesKey, &season.SeriesTitle, &season.Season, &season.Size)
 	if err != nil {
 		return markerSeason{}, err
 	}
 	if season.Size < 2 {
 		return markerSeason{}, sql.ErrNoRows
+	}
+	if strings.TrimSpace(season.SeriesTitle) == "" {
+		season.SeriesTitle = season.SeriesKey
 	}
 	return season, nil
 }
@@ -180,6 +193,54 @@ LIMIT 12`, season.LibraryID, season.SeriesKey, season.Season, season.Size)
 	return out, rows.Err()
 }
 
+func (s *server) beginIntroAnalysisJob(ctx context.Context, season markerSeason, total int) int64 {
+	message := fmt.Sprintf("Preparando fingerprints · %s · temporada %d · lote de %d/%d episódio(s)", season.SeriesTitle, season.Season, total, season.Size)
+	result, err := s.db.ExecContext(ctx, `
+INSERT INTO marker_analysis_jobs(library_id,series_key,series_title,season_number,status,progress,total,processed,detected,failed,message,started_at)
+VALUES(?,?,?,?,'running',1,?,0,0,0,?,CURRENT_TIMESTAMP)`, season.LibraryID, season.SeriesKey, season.SeriesTitle, season.Season, total, message)
+	if err != nil {
+		return 0
+	}
+	id, _ := result.LastInsertId()
+	s.admin.Log(ctx, "info", "markers", "Detecção automática de introduções iniciada", nil, fmt.Sprintf("%s · temporada %d · %d episódio(s)", season.SeriesTitle, season.Season, total))
+	return id
+}
+
+func (s *server) updateIntroAnalysisJob(ctx context.Context, jobID int64, progress, processed, detected, failed int, message string) {
+	if jobID <= 0 {
+		return
+	}
+	if progress < 0 {
+		progress = 0
+	}
+	if progress > 99 {
+		progress = 99
+	}
+	_, _ = s.db.ExecContext(ctx, `UPDATE marker_analysis_jobs SET progress=?,processed=?,detected=?,failed=?,message=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='running'`, progress, processed, detected, failed, message, jobID)
+}
+
+func (s *server) finishIntroAnalysisJob(ctx context.Context, jobID int64, season markerSeason, status string, processed, detected, failed int, message string) {
+	if jobID <= 0 {
+		return
+	}
+	_, _ = s.db.ExecContext(ctx, `UPDATE marker_analysis_jobs SET status=?,progress=100,processed=?,detected=?,failed=?,message=?,finished_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`, status, processed, detected, failed, message, jobID)
+	level := "info"
+	if status == "error" || status == "completed_with_errors" {
+		level = "warn"
+	}
+	s.admin.Log(ctx, level, "markers", "Detecção automática de introduções finalizada", nil, fmt.Sprintf("%s · temporada %d · detectadas %d · erros %d · %s", season.SeriesTitle, season.Season, detected, failed, message))
+}
+
+func (s *server) waitForPlaybackBeforeMarkerDecode(ctx context.Context, jobID int64, processed, detected, failed int, season markerSeason) bool {
+	for s.markerAnalysisPlaybackBusy(ctx) {
+		s.updateIntroAnalysisJob(ctx, jobID, 5, processed, detected, failed, fmt.Sprintf("Pausado para priorizar uma reprodução ativa · %s · temporada %d", season.SeriesTitle, season.Season))
+		if !waitMarkerAnalyzer(ctx, 30*time.Second) {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *server) analyzeOneIntroSeason(ctx context.Context) bool {
 	season, err := s.nextIntroSeason(ctx)
 	if errors.Is(err, sql.ErrNoRows) || err != nil {
@@ -190,11 +251,15 @@ func (s *server) analyzeOneIntroSeason(ctx context.Context) bool {
 		return false
 	}
 
-	usable := 0
+	jobID := s.beginIntroAnalysisJob(ctx, season, len(episodes))
+	usable, extractFailed := 0, 0
 	for i := range episodes {
-		if s.markerAnalysisPlaybackBusy(ctx) {
+		if !s.waitForPlaybackBeforeMarkerDecode(ctx, jobID, i, 0, extractFailed, season) {
+			s.finishIntroAnalysisJob(context.Background(), jobID, season, "error", i, 0, extractFailed, "Interrompido durante encerramento do servidor")
 			return true
 		}
+		progress := 5 + i*65/len(episodes)
+		s.updateIntroAnalysisJob(ctx, jobID, progress, i, 0, extractFailed, fmt.Sprintf("Extraindo fingerprint %d/%d · episódio %d", i+1, len(episodes), episodes[i].EpisodeNumber))
 		probeCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
 		mediaAnalysisBudget.Lock()
 		frames, extractErr := markerdetect.ExtractIntroFingerprint(probeCtx, episodes[i].Path, episodes[i].DurationSeconds)
@@ -203,10 +268,13 @@ func (s *server) analyzeOneIntroSeason(ctx context.Context) bool {
 		episodes[i].Frames, episodes[i].ExtractErr = frames, extractErr
 		if extractErr == nil && len(frames) > 0 {
 			usable++
+		} else {
+			extractFailed++
 		}
-		// Yield between remote reads and give live playback a chance to preempt.
+		s.updateIntroAnalysisJob(ctx, jobID, 5+(i+1)*65/len(episodes), i+1, 0, extractFailed, fmt.Sprintf("Fingerprint %d/%d concluído · episódio %d", i+1, len(episodes), episodes[i].EpisodeNumber))
 		select {
 		case <-ctx.Done():
+			s.finishIntroAnalysisJob(context.Background(), jobID, season, "error", i+1, 0, extractFailed, "Interrompido durante encerramento do servidor")
 			return true
 		case <-time.After(150 * time.Millisecond):
 		}
@@ -220,9 +288,11 @@ func (s *server) analyzeOneIntroSeason(ctx context.Context) bool {
 			}
 			s.storeIntroAnalysis(ctx, episode, season.Size, "error", 0, message)
 		}
+		s.finishIntroAnalysisJob(ctx, jobID, season, "completed_with_errors", len(episodes), 0, maxIntHTTP(extractFailed, 1), "Não houve episódios analisáveis suficientes para comparar a abertura")
 		return true
 	}
 
+	s.updateIntroAnalysisJob(ctx, jobID, 74, len(episodes), 0, extractFailed, fmt.Sprintf("Comparando fingerprints · %s · temporada %d", season.SeriesTitle, season.Season))
 	candidates := make(map[int64][]markerdetect.Candidate, len(episodes))
 	for i := 0; i < len(episodes); i++ {
 		if episodes[i].ExtractErr != nil || len(episodes[i].Frames) == 0 {
@@ -248,7 +318,8 @@ func (s *server) analyzeOneIntroSeason(ctx context.Context) bool {
 	if usable >= 3 {
 		minimumSupport = 2
 	}
-	for _, episode := range episodes {
+	detected := 0
+	for index, episode := range episodes {
 		if episode.ExtractErr != nil {
 			s.storeIntroAnalysis(ctx, episode, season.Size, "error", 0, shortMarkerError(episode.ExtractErr))
 			continue
@@ -259,18 +330,32 @@ func (s *server) analyzeOneIntroSeason(ctx context.Context) bool {
 				_, _ = s.db.ExecContext(ctx, `DELETE FROM media_markers WHERE media_id=? AND kind='intro' AND source='automatic'`, episode.ID)
 			}
 			s.storeIntroAnalysis(ctx, episode, season.Size, "none", 0, "")
-			continue
-		}
-		support := len(candidates[episode.ID])
-		confidence := math.Min(0.96, 0.55+0.06*float64(minIntHTTP(support, 4))+0.25*candidate.Similarity)
-		_, _ = s.db.ExecContext(ctx, `
+		} else {
+			support := len(candidates[episode.ID])
+			confidence := math.Min(0.96, 0.55+0.06*float64(minIntHTTP(support, 4))+0.25*candidate.Similarity)
+			_, _ = s.db.ExecContext(ctx, `
 INSERT INTO media_markers(media_id,kind,start_seconds,end_seconds,source,confidence)
 VALUES(?,'intro',?,?,'automatic',?)
 ON CONFLICT(media_id,kind) DO UPDATE SET
  start_seconds=excluded.start_seconds,end_seconds=excluded.end_seconds,source='automatic',confidence=excluded.confidence,updated_at=CURRENT_TIMESTAMP
 WHERE media_markers.source='automatic'`, episode.ID, candidate.Start, candidate.End, confidence)
-		s.storeIntroAnalysis(ctx, episode, season.Size, "detected", confidence, "")
+			s.storeIntroAnalysis(ctx, episode, season.Size, "detected", confidence, "")
+			detected++
+		}
+		progress := 80 + (index+1)*19/len(episodes)
+		s.updateIntroAnalysisJob(ctx, jobID, progress, len(episodes), detected, extractFailed, fmt.Sprintf("Salvando resultados %d/%d · %d intro(s) detectada(s)", index+1, len(episodes), detected))
 	}
+
+	status := "completed"
+	if extractFailed > 0 {
+		status = "completed_with_errors"
+	}
+	withoutMatch := len(episodes) - extractFailed - detected
+	message := fmt.Sprintf("%d intro(s) detectada(s) · %d sem correspondência", detected, maxIntHTTP(withoutMatch, 0))
+	if extractFailed > 0 {
+		message += fmt.Sprintf(" · %d erro(s) de leitura/análise", extractFailed)
+	}
+	s.finishIntroAnalysisJob(ctx, jobID, season, status, len(episodes), detected, extractFailed, message)
 	return true
 }
 
@@ -302,8 +387,15 @@ func minIntHTTP(a, b int) int {
 	return b
 }
 
+func maxIntHTTP(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
 func (s *server) markerAnalysisStatus(w http.ResponseWriter, r *http.Request) {
-	var eligible, detected, noMatch, pending, failed int
+	var eligible, detected, noMatch, pending, failed, running int
 	_ = s.db.QueryRowContext(r.Context(), `
 SELECT COUNT(*) FROM media m
 JOIN media_series_identity si ON si.media_id=m.id
@@ -314,6 +406,7 @@ WHERE m.available=1 AND si.series_key<>'' AND si.episode_number>0
 	_ = s.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM media_marker_analysis WHERE intro_status='none'`).Scan(&noMatch)
 	_ = s.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM media_marker_analysis WHERE intro_status='pending'`).Scan(&pending)
 	_ = s.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM media_marker_analysis WHERE intro_status='error'`).Scan(&failed)
+	_ = s.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM marker_analysis_jobs WHERE status='running'`).Scan(&running)
 	_, ffmpegErr := exec.LookPath("ffmpeg")
 	writeJSON(w, http.StatusOK, map[string]any{
 		"automatic": true,
@@ -323,6 +416,7 @@ WHERE m.available=1 AND si.series_key<>'' AND si.episode_number>0
 		"no_match": noMatch,
 		"pending": pending,
 		"failed": failed,
+		"running_jobs": running,
 		"pauses_for_playback": true,
 		"method": "season_audio_fingerprint",
 	})
@@ -340,5 +434,7 @@ WHERE media_id IN (
 		return
 	}
 	s.kickMarkerAnalyzer()
+	uid := currentUser(r).ID
+	s.admin.Log(r.Context(), "info", "markers", "Reanálise automática de introduções solicitada", &uid, "Todas as temporadas elegíveis foram marcadas para nova análise")
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "message": "detecção automática de introduções colocada em segundo plano"})
 }
