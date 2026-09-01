@@ -19,3 +19,12 @@ services:
       - /mnt/gdrive:/media:ro
       - /mnt/remotes/ALIEN_Filmes:/mnt/remotes/ALIEN_Filmes:ro
       - /mnt/user/Filmes:/mnt/user/Filmes:ro
+      # Biblioteca de ROMs do Unraid. Mantemos o mesmo caminho dentro do
+      # container para que o Admin possa cadastrar /mnt/user/Games/roms.
+      - /mnt/user/Games/roms:/mnt/user/Games/roms:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8090/healthz >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 15s
