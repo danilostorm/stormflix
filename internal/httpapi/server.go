@@ -11,6 +11,7 @@ import (
 	"github.com/danilostorm/stormflix/internal/assets"
 	"github.com/danilostorm/stormflix/internal/auth"
 	"github.com/danilostorm/stormflix/internal/config"
+	"github.com/danilostorm/stormflix/internal/games"
 	"github.com/danilostorm/stormflix/internal/library"
 	"github.com/danilostorm/stormflix/internal/media"
 	"github.com/danilostorm/stormflix/internal/metadata"
@@ -33,6 +34,7 @@ type server struct {
 	libraries   *library.Service
 	media       *media.Service
 	music       *music.Service
+	games       *games.Service
 	auth        *auth.Service
 	admin       *admin.Service
 	metadata    *metadata.Service
@@ -72,7 +74,7 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 		panic(err)
 	}
 	music.ConfigureProviders(effective.LastFMAPIKey)
-	s := &server{db: db, libraries: libraries, media: media.NewService(db), music: music.NewService(db), auth: auth.NewService(db), admin: admin.NewService(db), assets: assetStore, settings: settingsService, compatCache: compatCache, hlsCache: hlsCache, baseConfig: cfg, config: effective, startedAt: time.Now()}
+	s := &server{db: db, libraries: libraries, media: media.NewService(db), music: music.NewService(db), games: games.NewService(db), auth: auth.NewService(db), admin: admin.NewService(db), assets: assetStore, settings: settingsService, compatCache: compatCache, hlsCache: hlsCache, baseConfig: cfg, config: effective, startedAt: time.Now()}
 	s.metadata = metadata.NewService(db, effective, assetStore)
 	s.metadata.ResumeQueuedJobs()
 	s.subtitles = subtitles.NewService(db, effective, assetStore)
@@ -110,8 +112,8 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("POST /api/v1/libraries", s.requireRole("manager", s.createLibrary))
 	mux.HandleFunc("PUT /api/v1/libraries/{id}", s.requireRole("manager", s.updateLibraryWithBackup))
 	mux.HandleFunc("DELETE /api/v1/libraries/{id}", s.requireRole("manager", s.deleteLibrary))
-	mux.HandleFunc("POST /api/v1/libraries/{id}/scan", s.requireRole("operator", s.scanLibraryWithBackup))
-	mux.HandleFunc("POST /api/v1/libraries/{id}/scan/cancel", s.requireRole("operator", s.cancelLibraryScan))
+	mux.HandleFunc("POST /api/v1/libraries/{id}/scan", s.requireRole("operator", s.scanLibraryDispatchWithBackup))
+	mux.HandleFunc("POST /api/v1/libraries/{id}/scan/cancel", s.requireRole("operator", s.cancelLibraryScanDispatch))
 
 	mux.HandleFunc("GET /api/v1/categories", s.requireAuth(s.listCategories))
 	mux.HandleFunc("GET /api/v1/categories/{slug}", s.requireAuth(s.browseCategory))
@@ -147,6 +149,12 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("POST /api/v1/music/tracks/{id}/listening", s.requireAuth(s.musicListening))
 	mux.HandleFunc("POST /api/v1/music/tracks/{id}/favorite", s.requireAuth(s.musicFavorite))
 	mux.HandleFunc("GET /api/v1/music/tracks/{id}/lyrics", s.requireAuth(s.musicLyrics))
+
+	mux.HandleFunc("GET /api/v1/games/home", s.requireAuth(s.gamesHome))
+	mux.HandleFunc("GET /api/v1/games", s.requireAuth(s.gamesList))
+	mux.HandleFunc("GET /api/v1/games/{id}", s.requireAuth(s.gameDetail))
+	mux.HandleFunc("GET /api/v1/games/{id}/cover", s.requireAuth(s.gameCover))
+	mux.HandleFunc("POST /api/v1/games/{id}/favorite", s.requireAuth(s.gameFavorite))
 
 	// The compatibility gateway is available both at /jellyfin-api and at the
 	// root paths expected when an official client is given https://host directly.
