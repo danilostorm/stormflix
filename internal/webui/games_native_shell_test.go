@@ -21,7 +21,7 @@ func TestGamesUsesNativeStormFlixShell(t *testing.T) {
 	for _, required := range [][]byte{
 		[]byte(`.games-view{position:relative!important`),
 		[]byte(`.gx-brand,.gx-user{display:none!important}`),
-		[]byte(`body.games-mode #topbar{z-index:900}`),
+		[]byte(`body.games-mode #topbar{z-index:900;`),
 		[]byte(`grid-template-columns:repeat(6,minmax(0,1fr))!important`),
 	} {
 		if !bytes.Contains(css, required) {
