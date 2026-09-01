@@ -16,10 +16,10 @@ func TestFindMatchesKeepsPostCreditGapSeparate(t *testing.T) {
 	sceneA := creditFrames(0x0000aa11, 70)    // unique 35 second scene
 	sceneB := creditFrames(0x0000bb22, 70)
 
-	a := append(creditFrames(0x100, 40), creditsA...)
+	a := append(creditFrames(0x00aaaaaa, 40), creditsA...)
 	a = append(a, sceneA...)
 	a = append(a, creditsB...)
-	b := append(creditFrames(0x200, 55), creditsA...)
+	b := append(creditFrames(0x00555555, 55), creditsA...)
 	b = append(b, sceneB...)
 	b = append(b, creditsB...)
 
