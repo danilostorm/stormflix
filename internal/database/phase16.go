@@ -43,5 +43,5 @@ CREATE INDEX IF NOT EXISTS idx_media_markers_media
 	if _, err := db.Exec(schema); err != nil {
 		return fmt.Errorf("migrate phase16 playback delight state: %w", err)
 	}
-	return nil
+	return migratePhase17(db)
 }
