@@ -4,6 +4,19 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 
 ## 2026-09-01
 
+### Games Metadata Stack v2 — hash identity and multi-provider enrichment
+
+- Expanded the automatic Games metadata worker from the initial IGDB/MobyGames/SteamGridDB trio to a real **8-provider runtime stack**: ScreenScraper, IGDB, MobyGames, TheGamesDB, Hasheous, RetroAchievements, SteamGridDB and Libretro.
+- Added bounded MD5, SHA-1 and CRC32 calculation for provider lookups while preserving **platform + SHA-256** as the only canonical local ROM identity. Single-ROM ZIP cartridges are hashed from the native inner ROM rather than the ZIP container.
+- Added **Hasheous** hash correlation to bridge verified IGDB, RetroAchievements and TheGamesDB IDs without replacing local identity.
+- Added **ScreenScraper** hash-aware primary lookup with Developer ID/Password plus account credentials stored through the existing encrypted Games provider vault.
+- Primary metadata now follows ScreenScraper → IGDB → MobyGames → TheGamesDB, with conservative title matching and Hasheous as an identity/title fallback.
+- **RetroAchievements** is enrichment-only and is queried only from a verified RA game ID (for example from Hasheous or an explicit `(ra-ID)` filename tag). StormFlix deliberately does not assume that a normal ROM MD5/SHA1 is a valid RA hash.
+- **SteamGridDB** remains the preferred polished portrait-art source and **Libretro Thumbnails** is now a public no-key artwork fallback aligned with the RetroArch ecosystem.
+- Provider IDs are persisted independently in the existing `game_metadata` columns so one metadata source and another artwork/community source can coexist for the same ROM.
+- Admin → Games → Metadados now exposes only adapters that really execute at runtime; specialized PlayMatch/LaunchBox/Flashpoint/HLTB/Demozoo/Pouët/CSDb entries remain visibly ROADMAP instead of pretending to be active.
+- Added regression tests for provider promotion, encrypted configuration state, cross-provider ID persistence, raw-ROM MD5/SHA1/CRC32 and explicit RetroAchievements ID parsing. CI now syntax-checks the Games Admin scripts too.
+
 ### Games ZIP cartridges, direct launch and RetroArch runtime fix
 
 - Added bounded **single-ROM ZIP** discovery for the existing NES/SNES/Mega Drive/GB/GBC/GBA cartridge matrix. Platform and SHA-256 identity come from the uncompressed inner ROM; ambiguous multi-ROM ZIPs are ignored instead of guessed.
