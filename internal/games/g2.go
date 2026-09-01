@@ -25,10 +25,11 @@ const (
 )
 
 var (
-	gameSaveMu    sync.Mutex
-	gameRuntimeMu sync.Mutex
-	playSessionID = regexp.MustCompile(`^[A-Za-z0-9_-]{16,96}$`)
-	contentHashRE = regexp.MustCompile(`^[a-f0-9]{64}$`)
+	gameSaveMu     sync.Mutex
+	gameRuntimeMu  sync.Mutex
+	gameROMCacheMu sync.Mutex
+	playSessionID  = regexp.MustCompile(`^[A-Za-z0-9_-]{16,96}$`)
+	contentHashRE  = regexp.MustCompile(`^[a-f0-9]{64}$`)
 )
 
 type SaveInfo struct {
@@ -123,6 +124,16 @@ WHERE g.id=? AND EXISTS(SELECT 1 FROM game_files gf WHERE gf.game_id=g.id AND gf
 	rec.ROMName = filepath.Base(rec.romPath)
 	rec.Playable = rec.romPath != "" && rec.ROMSizeBytes > 0
 	rec.Core = CoreForPlatform(rec.Platform)
+	if rec.Playable && strings.EqualFold(rec.romExtension, ".zip") {
+		archive, inner, platform, zipErr := singleZIPROM(rec.romPath)
+		if zipErr != nil || platform != rec.Platform {
+			rec.Playable = false
+		} else {
+			rec.ROMName = filepath.Base(inner.Name)
+			rec.ROMSizeBytes = int64(inner.UncompressedSize64)
+			_ = archive.Close()
+		}
+	}
 	return rec, nil
 }
 
@@ -153,7 +164,76 @@ func (s *Service) PlayableFile(ctx context.Context, id, profileID int64, allowed
 	if info.Size() <= 0 || info.Size() > maxROMBytes {
 		return GameFile{}, errors.New("ROM file size is outside the supported G2 cartridge limit")
 	}
-	return GameFile{Path: rec.romPath, Name: filepath.Base(rec.romPath), Extension: rec.romExtension, SizeBytes: info.Size(), ModifiedUnix: info.ModTime().Unix()}, nil
+	if !strings.EqualFold(rec.romExtension, ".zip") {
+		return GameFile{Path: rec.romPath, Name: filepath.Base(rec.romPath), Extension: rec.romExtension, SizeBytes: info.Size(), ModifiedUnix: info.ModTime().Unix()}, nil
+	}
+
+	archive, inner, platform, err := singleZIPROM(rec.romPath)
+	if err != nil {
+		return GameFile{}, fmt.Errorf("open ZIP cartridge: %w", err)
+	}
+	defer archive.Close()
+	if platform != rec.Platform {
+		return GameFile{}, errors.New("ZIP cartridge platform no longer matches catalog identity")
+	}
+	innerExt := strings.ToLower(filepath.Ext(inner.Name))
+	if platformByExtension[innerExt] != rec.Platform || inner.UncompressedSize64 == 0 || inner.UncompressedSize64 > uint64(maxROMBytes) {
+		return GameFile{}, errors.New("ZIP cartridge contains an invalid playable ROM")
+	}
+	if !contentHashRE.MatchString(strings.ToLower(rec.contentHash)) {
+		return GameFile{}, errors.New("invalid persisted game identity")
+	}
+	dataDir, err := s.dataDir(ctx)
+	if err != nil {
+		return GameFile{}, err
+	}
+	cacheDir := filepath.Join(dataDir, "game-rom-cache", rec.Platform)
+	destination := filepath.Join(cacheDir, strings.ToLower(rec.contentHash)+innerExt)
+
+	gameROMCacheMu.Lock()
+	defer gameROMCacheMu.Unlock()
+	if cached, statErr := os.Stat(destination); statErr == nil && !cached.IsDir() && cached.Size() == int64(inner.UncompressedSize64) {
+		return GameFile{Path: destination, Name: filepath.Base(inner.Name), Extension: innerExt, SizeBytes: cached.Size(), ModifiedUnix: info.ModTime().Unix()}, nil
+	}
+	if err := os.MkdirAll(cacheDir, 0o700); err != nil {
+		return GameFile{}, err
+	}
+	reader, err := inner.Open()
+	if err != nil {
+		return GameFile{}, err
+	}
+	defer reader.Close()
+	tmp, err := os.CreateTemp(cacheDir, ".stormflix-rom-*")
+	if err != nil {
+		return GameFile{}, err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return GameFile{}, err
+	}
+	n, copyErr := io.Copy(tmp, io.LimitReader(reader, maxROMBytes+1))
+	if copyErr == nil && n > maxROMBytes {
+		copyErr = errors.New("ZIP cartridge exceeded safe ROM limit while preparing playback")
+	}
+	if copyErr == nil && n != int64(inner.UncompressedSize64) {
+		copyErr = errors.New("ZIP cartridge size changed while preparing playback")
+	}
+	if copyErr == nil {
+		copyErr = tmp.Sync()
+	}
+	closeErr := tmp.Close()
+	if copyErr != nil {
+		return GameFile{}, copyErr
+	}
+	if closeErr != nil {
+		return GameFile{}, closeErr
+	}
+	if err := os.Rename(tmpName, destination); err != nil {
+		return GameFile{}, err
+	}
+	return GameFile{Path: destination, Name: filepath.Base(inner.Name), Extension: innerExt, SizeBytes: n, ModifiedUnix: info.ModTime().Unix()}, nil
 }
 
 func (s *Service) dataDir(ctx context.Context) (string, error) {
