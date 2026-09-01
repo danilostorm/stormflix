@@ -1,4 +1,4 @@
-/* StormFlix Games G4.1: single-owner Nostalgist/RetroArch browser session. */
+/* StormFlix Games G4.2: single-owner Nostalgist/RetroArch browser session. */
 (function(){
   const RUNTIME_LABEL='Nostalgist 0.21.1 · RetroArch cores v1.22.2';
   const PREF_KEY='stormflix.games.g4.preferences';
@@ -50,6 +50,13 @@
   function firstGamepad(){try{return [...(navigator.getGamepads?.()||[])].find(Boolean)||null}catch{return null}}
   function gamepadConfig(){const p=preferences(),pad=firstGamepad(),custom=pad?.id?p.gamepads?.[pad.id]:null;return {...defaultGamepad,...(custom||{})}}
 
+  function platformAspect(platform){return ({gba:3/2,gb:10/9,gbc:10/9}[platform]||4/3)}
+  function emulatorSurfaceSize(platform){
+    if(platform==='gba')return {width:1200,height:800};
+    if(platform==='gb'||platform==='gbc')return {width:1000,height:900};
+    return {width:1280,height:960};
+  }
+
   function randomSession(){if(globalThis.crypto?.randomUUID)return crypto.randomUUID();return `sf-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`}
   async function jsonFetch(url,options){const r=await fetch(url,{credentials:'same-origin',...(options||{})});const text=await r.text();let data={};try{data=text?JSON.parse(text):{}}catch{}if(!r.ok)throw new Error(data.error||`HTTP ${r.status}`);return data}
   async function blobFetch(url,optional=false){const r=await fetch(url,{credentials:'same-origin',cache:'no-store'});if(optional&&r.status===404)return null;if(!r.ok){let msg=`HTTP ${r.status}`;try{const d=await r.json();msg=d.error||msg}catch{}throw new Error(msg)}return r.blob()}
@@ -62,12 +69,12 @@
 
   function createOverlay(game){
     if(overlay)overlay.remove();overlay=document.createElement('section');overlay.id='game-player-overlay';overlay.className='game-player-overlay sf-game-g4';overlay.setAttribute('role','dialog');overlay.setAttribute('aria-modal','true');overlay.setAttribute('aria-label',`Jogando ${game.title}`);
-    overlay.innerHTML=`<header class="game-player-top"><div><span class="game-player-kicker">STORMFLIX GAME PLAYER G4.1</span><strong data-game-player-title>${esc(game.title)}</strong></div><div class="game-player-top-actions"><button type="button" data-game-menu aria-label="Configurações do jogo">☰</button><span class="game-runtime-badge">${esc(RUNTIME_LABEL)}</span><button type="button" data-game-fullscreen aria-label="Tela cheia">⛶</button><button type="button" data-game-close aria-label="Sair do jogo">✕</button></div></header><div class="game-player-stage" data-game-stage><canvas id="stormflix-game-canvas" class="game-player-canvas" tabindex="0"></canvas><div class="game-launch-panel" data-game-launch></div><div class="game-player-toast hidden" data-game-toast></div></div><footer class="game-player-controls hidden" data-game-controls><div class="game-player-status"><span class="gamepad-dot" data-gamepad-dot></span><span data-gamepad-label>Teclado pronto</span><span data-game-input-label>Input: —</span><span data-playtime>Tempo deste perfil: ${clock(game.play_seconds)}</span></div><div class="game-player-buttons"><button type="button" data-game-pause>Pausar</button><button type="button" data-game-save>Salvar agora</button><button type="button" data-game-exit>Salvar e sair</button></div></footer>`;
+    overlay.innerHTML=`<header class="game-player-top"><div><span class="game-player-kicker">STORMFLIX GAME PLAYER G4.2</span><strong data-game-player-title>${esc(game.title)}</strong></div><div class="game-player-top-actions"><button type="button" data-game-menu aria-label="Configurações do jogo">☰</button><span class="game-runtime-badge">${esc(RUNTIME_LABEL)}</span><button type="button" data-game-fullscreen aria-label="Tela cheia">⛶</button><button type="button" data-game-close aria-label="Sair do jogo">✕</button></div></header><div class="game-player-stage" data-game-stage><canvas id="stormflix-game-canvas" class="game-player-canvas" tabindex="0"></canvas><div class="game-launch-panel" data-game-launch></div><div class="game-player-toast hidden" data-game-toast></div></div><footer class="game-player-controls hidden" data-game-controls><div class="game-player-status"><span class="gamepad-dot" data-gamepad-dot></span><span data-gamepad-label>Teclado pronto</span><span data-game-input-label>Input: —</span><span data-playtime>Tempo deste perfil: ${clock(game.play_seconds)}</span></div><div class="game-player-buttons"><button type="button" data-game-pause>Pausar</button><button type="button" data-game-save>Salvar agora</button><button type="button" data-game-exit>Salvar e sair</button></div></footer>`;
     document.body.appendChild(overlay);canvas=$('#stormflix-game-canvas',overlay);
     $('[data-game-close]',overlay).onclick=()=>close(true);$('[data-game-exit]',overlay).onclick=()=>close(true);$('[data-game-fullscreen]',overlay).onclick=toggleFullscreen;$('[data-game-pause]',overlay).onclick=togglePause;$('[data-game-save]',overlay).onclick=()=>saveAll(true);$('[data-game-menu]',overlay).onclick=()=>window.dispatchEvent(new CustomEvent('stormflix:game-menu-request'));
     const stage=$('[data-game-stage]',overlay);stage?.addEventListener('pointerdown',e=>{if(e.target===stage||e.target===canvas)focusGame()});updateGamepadLabel();applyPresentation();
   }
-  function loadingHTML(game,mode){return `<div class="game-launch-card loading"><span class="game-loader"></span><p>${esc(platformLabel(game.platform))}</p><h2>Abrindo ${esc(game.title)}…</h2><div class="game-launch-facts"><span>${esc(game.rom_name||'ROM')}</span><span>${fmtBytes(game.rom_size_bytes)}</span><span>${esc(game.core||coreByPlatform[game.platform]||'core')}</span></div><p>${mode==='continue'?'Restaurando seu save state e carregando o emulador.':'Carregando ROM e emulador.'}</p><small>Teclado, gamepad e touch usam a mesma camada de input do G4.</small></div>`}
+  function loadingHTML(game,mode){return `<div class="game-launch-card loading"><span class="game-loader"></span><p>${esc(platformLabel(game.platform))}</p><h2>Abrindo ${esc(game.title)}…</h2><div class="game-launch-facts"><span>${esc(game.rom_name||'ROM')}</span><span>${fmtBytes(game.rom_size_bytes)}</span><span>${esc(game.core||coreByPlatform[game.platform]||'core')}</span></div><p>${mode==='continue'?'Restaurando seu save state e carregando o emulador.':'Carregando ROM e emulador.'}</p><small>Teclado, gamepad, touch e filtros usam a mesma sessão RetroArch do G4.2.</small></div>`}
   function showLaunchError(message,mode){const launch=$('[data-game-launch]',overlay);if(!launch)return;launch.classList.remove('hidden');launch.innerHTML=`<div class="game-launch-card error"><span class="game-ready-icon">!</span><h2>Não foi possível abrir o jogo</h2><p>${esc(message)}</p><button class="primary" type="button" data-game-retry>Tentar novamente</button></div>`;$('[data-game-retry]',launch).onclick=()=>prepare(mode)}
 
   async function open(gameInput){
@@ -85,13 +92,13 @@
     const core=current.core||coreByPlatform[current.platform];if(!core)throw new Error('Core não configurado para esta plataforma.');const p=preferences();
     const [Nostalgist,romBlob,coreJS,coreWASM]=await Promise.all([ensureRuntime(),romPromise||blobFetch(`/api/v1/games/${current.id}/rom`),blobFetch(`/api/v1/games/runtime/cores/${encodeURIComponent(core)}.js`),blobFetch(`/api/v1/games/runtime/cores/${encodeURIComponent(core)}.wasm`)]);
     const rom=typeof File==='function'?new File([romBlob],current.rom_name||`game.${current.platform}`,{type:'application/octet-stream'}):{fileName:current.rom_name||`game.${current.platform}`,fileContent:romBlob};let state=null,sram=null;if(current.saves?.sram?.exists)sram=await blobFetch(`/api/v1/games/${current.id}/saves/sram`,true);if(mode==='continue'&&current.saves?.state?.exists)state=await blobFetch(`/api/v1/games/${current.id}/saves/state`,true);
-    const options={element:canvas,core:{name:core,js:{fileName:`${core}_libretro.js`,fileContent:coreJS},wasm:{fileName:`${core}_libretro.wasm`,fileContent:coreWASM}},rom,cache:{core:true,rom:false,bios:false,shader:false},respondToGlobalEvents:false,retroarchConfig:{savestate_thumbnail_enable:false,input_auto_game_focus:true,input_player1_analog_dpad_mode:1,video_force_aspect:p.video.display!=='stretch',video_smooth:!!p.video.smooth,video_scale_integer:!!p.video.integerScale,rewind_enable:!!p.emulator.rewind,...internalKeyboardConfig,...gamepadConfig()}};
+    const options={element:canvas,size:emulatorSurfaceSize(current.platform),core:{name:core,js:{fileName:`${core}_libretro.js`,fileContent:coreJS},wasm:{fileName:`${core}_libretro.wasm`,fileContent:coreWASM}},rom,cache:{core:true,rom:false,bios:false,shader:true},respondToGlobalEvents:false,retroarchConfig:{savestate_thumbnail_enable:false,input_auto_game_focus:true,input_player1_analog_dpad_mode:1,video_force_aspect:true,video_smooth:false,video_scale_integer:!!p.video.integerScale,rewind_enable:!!p.emulator.rewind,...internalKeyboardConfig,...gamepadConfig()}};
     if(sram)options.sram=sram;if(state)options.state=state;
-    try{window.StormFlixGameVideo?.decorateOptions?.(options,p.video||{})}catch(error){throw new Error(`Não foi possível preparar o filtro gráfico: ${error?.message||error}`)}
+    try{window.StormFlixGameVideo?.decorateOptions?.(options,p.video||{})}catch(error){throw new Error(`Não foi possível preparar vídeo: ${error?.message||error}`)}
     instance=await Nostalgist.prepare(options);
   }
   async function startPrepared(){
-    if(!instance||!overlay)throw new Error('Emulador não está preparado.');await instance.start();releaseAllInputs();$('[data-game-launch]',overlay)?.classList.add('hidden');$('[data-game-controls]',overlay)?.classList.remove('hidden');installKeyboardOwner();installViewportOwner();focusGame();startTracking();await heartbeat();window.dispatchEvent(new CustomEvent('stormflix:game-started',{detail:{id:current?.id,platform:current?.platform,core:current?.core}}));queueResize(0);queueResize(160);if(preferences().emulator.fullscreen&&!document.fullscreenElement)void toggleFullscreen();toast('G4.1 ativo · teclado, gamepad e touch prontos');
+    if(!instance||!overlay)throw new Error('Emulador não está preparado.');await instance.start();releaseAllInputs();$('[data-game-launch]',overlay)?.classList.add('hidden');$('[data-game-controls]',overlay)?.classList.remove('hidden');installKeyboardOwner();installViewportOwner();focusGame();startTracking();await heartbeat();window.dispatchEvent(new CustomEvent('stormflix:game-started',{detail:{id:current?.id,platform:current?.platform,core:current?.core}}));queueResize(0);queueResize(160);if(preferences().emulator.fullscreen&&!document.fullscreenElement)void toggleFullscreen();toast('G4.2 ativo · viewport estável e filtros em tempo real');
   }
 
   function focusGame(){try{canvas?.focus({preventScroll:true})}catch{canvas?.focus()}}
@@ -108,9 +115,19 @@
   }
   function installKeyboardOwner(){if(keyboardAbort)keyboardAbort.abort();keyboardAbort=new AbortController();window.addEventListener('keydown',e=>handleKeyboard(e,true),{capture:true,signal:keyboardAbort.signal});window.addEventListener('keyup',e=>handleKeyboard(e,false),{capture:true,signal:keyboardAbort.signal});window.addEventListener('blur',releaseAllInputs,{signal:keyboardAbort.signal});document.addEventListener('visibilitychange',()=>{if(document.hidden)releaseAllInputs()},{signal:keyboardAbort.signal})}
 
-  function applyPresentation(){if(!overlay||!canvas)return;const p=preferences();overlay.dataset.g4Display=p.video.display||'fit';canvas.style.filter=`saturate(${Math.max(50,Math.min(150,Number(p.video.saturation)||100))}%)`;canvas.style.imageRendering=p.video.smooth?'auto':'pixelated';queueResize(30)}
-  function resizeEmulator(){if(!instance||!canvas||!overlay||instance.getStatus?.()==='terminated')return false;const stage=$('[data-game-stage]',overlay);if(!stage)return false;const rect=stage.getBoundingClientRect();if(rect.width<2||rect.height<2)return false;const dpr=Math.min(1.5,Math.max(1,Number(devicePixelRatio)||1));let width=Math.round(rect.width*dpr),height=Math.round(rect.height*dpr);const scale=Math.min(1,1920/width,1200/height);width=Math.max(320,Math.round(width*scale));height=Math.max(240,Math.round(height*scale));try{instance.resize({width,height});return true}catch{return false}}
-  function queueResize(delay=40){clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{resizeTimer=null;requestAnimationFrame(resizeEmulator)},Math.max(0,delay))}
+  function applyPresentation(){
+    if(!overlay||!canvas)return;const p=preferences(),filter=String(p.video.filter||'pixel');overlay.dataset.g4Display=p.video.display||'fit';canvas.style.filter=`saturate(${Math.max(50,Math.min(150,Number(p.video.saturation)||100))}%)`;canvas.style.imageRendering=filter==='pixel'?'pixelated':'auto';queueResize(16);
+  }
+  function fitCanvas(){
+    if(!canvas||!overlay||!current)return false;const stage=$('[data-game-stage]',overlay);if(!stage)return false;const rect=stage.getBoundingClientRect();if(rect.width<2||rect.height<2)return false;
+    const p=preferences();let width=rect.width,height=rect.height;
+    if((p.video.display||'fit')!=='stretch'){
+      const ratio=platformAspect(current.platform);width=rect.width;height=width/ratio;if(height>rect.height){height=rect.height;width=height*ratio}
+    }
+    width=Math.max(1,Math.floor(width));height=Math.max(1,Math.floor(height));
+    canvas.style.setProperty('width',`${width}px`,'important');canvas.style.setProperty('height',`${height}px`,'important');canvas.style.setProperty('max-width','100%','important');canvas.style.setProperty('max-height','100%','important');return true;
+  }
+  function queueResize(delay=40){clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{resizeTimer=null;requestAnimationFrame(fitCanvas)},Math.max(0,delay))}
   function installViewportOwner(){resizeObserver?.disconnect();const stage=$('[data-game-stage]',overlay);if(stage&&'ResizeObserver'in window){resizeObserver=new ResizeObserver(()=>queueResize(20));resizeObserver.observe(stage)}if(viewportAbort)viewportAbort.abort();viewportAbort=new AbortController();window.addEventListener('resize',()=>queueResize(30),{signal:viewportAbort.signal});window.addEventListener('orientationchange',()=>queueResize(180),{signal:viewportAbort.signal});document.addEventListener('fullscreenchange',()=>{queueResize(80);setTimeout(focusGame,90)},{signal:viewportAbort.signal});applyPresentation()}
 
   function startTracking(){stopTracking();lastTick=performance.now();tickTimer=setInterval(()=>{const now=performance.now(),delta=Math.min(2,Math.max(0,(now-lastTick)/1000));lastTick=now;if(instance?.getStatus?.()==='running'&&!document.hidden)elapsed+=delta},1000);heartbeatTimer=setInterval(heartbeat,15000);const seconds=Math.max(30,Number(preferences().emulator.autoSaveSeconds)||120);autosaveTimer=setInterval(()=>saveAll(false),seconds*1000);gamepadTimer=setInterval(updateGamepadLabel,900)}
@@ -132,7 +149,7 @@
 
   window.StormFlixGamePlayer={
     open,close:()=>close(true),active:()=>!!instance,pressDown:(b)=>pressDown(b,'virtual'),pressUp:(b)=>pressUp(b,'virtual'),resize:()=>queueResize(0),focus:focusGame,save:()=>saveAll(true),pause:togglePause,fullscreen:toggleFullscreen,
-    preferences,patchPreferences,resetPreferences,defaultPreferences:()=>clone(defaultPrefs),gamepads:()=>[...(navigator.getGamepads?.()||[])].filter(Boolean),
+    preferences,patchPreferences,resetPreferences,defaultPreferences:()=>clone(defaultPrefs),gamepads:()=>[...(navigator.getGamepads?.()||[])].filter(Boolean),runtime:()=>instance,toast,
     current:()=>current?{id:current.id,title:current.title,platform:current.platform,core:current.core}:null,
   };
 })();
