@@ -368,11 +368,13 @@ func (s *Service) run(jobID, libraryID int64, ctx context.Context) {
 func (s *Service) waitForPlayback(ctx context.Context, jobID int64, processed, total, matched, failed int) bool {
 	for {
 		var active int
-		err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM playback_sessions WHERE last_seen_at>=datetime('now','-90 seconds')`).Scan(&active)
+		err := s.db.QueryRowContext(ctx, `SELECT
+ (SELECT COUNT(*) FROM playback_sessions WHERE last_seen_at>=datetime('now','-90 seconds'))+
+ (SELECT COUNT(*) FROM game_play_sessions WHERE last_seen_at>=datetime('now','-90 seconds'))`).Scan(&active)
 		if err != nil || active == 0 {
 			return ctx.Err() == nil
 		}
-		_, _ = s.db.Exec(`UPDATE game_scan_jobs SET message='Pausado para priorizar uma reprodução ativa',processed=?,matched=?,failed=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, processed, matched, failed, jobID)
+		_, _ = s.db.Exec(`UPDATE game_scan_jobs SET message='Pausado para priorizar uma reprodução ou jogo ativo',processed=?,matched=?,failed=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, processed, matched, failed, jobID)
 		select {
 		case <-ctx.Done():
 			return false
@@ -516,7 +518,7 @@ func (s *Service) commitScans(ctx context.Context, libraryID int64, scans []sour
 	defer tx.Rollback()
 	for _, scan := range scans {
 		if scan.Error != nil {
-			continue // offline/unreadable source keeps its previous catalog intact.
+			continue
 		}
 		prefix := filepath.Clean(scan.Root) + string(os.PathSeparator)
 		if _, err := tx.ExecContext(ctx, `UPDATE game_files SET available=0,updated_at=CURRENT_TIMESTAMP WHERE game_id IN (SELECT id FROM games WHERE library_id=?) AND (path=? OR substr(path,1,?)=?)`, libraryID, filepath.Clean(scan.Root), len(prefix), prefix); err != nil {
