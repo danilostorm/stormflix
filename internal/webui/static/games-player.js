@@ -1,4 +1,4 @@
-/* StormFlix Games G4: single-owner Nostalgist/RetroArch browser session. */
+/* StormFlix Games G4.1: single-owner Nostalgist/RetroArch browser session. */
 (function(){
   const RUNTIME_LABEL='Nostalgist 0.21.1 · RetroArch cores v1.22.2';
   const PREF_KEY='stormflix.games.g4.preferences';
@@ -24,7 +24,7 @@
   };
   const defaultPrefs={
     keyboard:defaultKeyboard,gamepads:{},touch:{mode:'auto',haptics:true,mapping:{}},
-    video:{smooth:false,integerScale:false,display:'fit',saturation:100},
+    video:{smooth:false,filter:'pixel',integerScale:false,display:'fit',saturation:100},
     emulator:{rewind:true,autoSaveSeconds:120,fullscreen:false},
   };
   let overlay=null,canvas=null,instance=null,current=null,prepareMode='normal',preparePromise=null;
@@ -62,7 +62,7 @@
 
   function createOverlay(game){
     if(overlay)overlay.remove();overlay=document.createElement('section');overlay.id='game-player-overlay';overlay.className='game-player-overlay sf-game-g4';overlay.setAttribute('role','dialog');overlay.setAttribute('aria-modal','true');overlay.setAttribute('aria-label',`Jogando ${game.title}`);
-    overlay.innerHTML=`<header class="game-player-top"><div><span class="game-player-kicker">STORMFLIX GAME PLAYER G4</span><strong data-game-player-title>${esc(game.title)}</strong></div><div class="game-player-top-actions"><button type="button" data-game-menu aria-label="Configurações do jogo">☰</button><span class="game-runtime-badge">${esc(RUNTIME_LABEL)}</span><button type="button" data-game-fullscreen aria-label="Tela cheia">⛶</button><button type="button" data-game-close aria-label="Sair do jogo">✕</button></div></header><div class="game-player-stage" data-game-stage><canvas id="stormflix-game-canvas" class="game-player-canvas" tabindex="0"></canvas><div class="game-launch-panel" data-game-launch></div><div class="game-player-toast hidden" data-game-toast></div></div><footer class="game-player-controls hidden" data-game-controls><div class="game-player-status"><span class="gamepad-dot" data-gamepad-dot></span><span data-gamepad-label>Teclado pronto</span><span data-game-input-label>Input: —</span><span data-playtime>Tempo deste perfil: ${clock(game.play_seconds)}</span></div><div class="game-player-buttons"><button type="button" data-game-pause>Pausar</button><button type="button" data-game-save>Salvar agora</button><button type="button" data-game-exit>Salvar e sair</button></div></footer>`;
+    overlay.innerHTML=`<header class="game-player-top"><div><span class="game-player-kicker">STORMFLIX GAME PLAYER G4.1</span><strong data-game-player-title>${esc(game.title)}</strong></div><div class="game-player-top-actions"><button type="button" data-game-menu aria-label="Configurações do jogo">☰</button><span class="game-runtime-badge">${esc(RUNTIME_LABEL)}</span><button type="button" data-game-fullscreen aria-label="Tela cheia">⛶</button><button type="button" data-game-close aria-label="Sair do jogo">✕</button></div></header><div class="game-player-stage" data-game-stage><canvas id="stormflix-game-canvas" class="game-player-canvas" tabindex="0"></canvas><div class="game-launch-panel" data-game-launch></div><div class="game-player-toast hidden" data-game-toast></div></div><footer class="game-player-controls hidden" data-game-controls><div class="game-player-status"><span class="gamepad-dot" data-gamepad-dot></span><span data-gamepad-label>Teclado pronto</span><span data-game-input-label>Input: —</span><span data-playtime>Tempo deste perfil: ${clock(game.play_seconds)}</span></div><div class="game-player-buttons"><button type="button" data-game-pause>Pausar</button><button type="button" data-game-save>Salvar agora</button><button type="button" data-game-exit>Salvar e sair</button></div></footer>`;
     document.body.appendChild(overlay);canvas=$('#stormflix-game-canvas',overlay);
     $('[data-game-close]',overlay).onclick=()=>close(true);$('[data-game-exit]',overlay).onclick=()=>close(true);$('[data-game-fullscreen]',overlay).onclick=toggleFullscreen;$('[data-game-pause]',overlay).onclick=togglePause;$('[data-game-save]',overlay).onclick=()=>saveAll(true);$('[data-game-menu]',overlay).onclick=()=>window.dispatchEvent(new CustomEvent('stormflix:game-menu-request'));
     const stage=$('[data-game-stage]',overlay);stage?.addEventListener('pointerdown',e=>{if(e.target===stage||e.target===canvas)focusGame()});updateGamepadLabel();applyPresentation();
@@ -86,10 +86,12 @@
     const [Nostalgist,romBlob,coreJS,coreWASM]=await Promise.all([ensureRuntime(),romPromise||blobFetch(`/api/v1/games/${current.id}/rom`),blobFetch(`/api/v1/games/runtime/cores/${encodeURIComponent(core)}.js`),blobFetch(`/api/v1/games/runtime/cores/${encodeURIComponent(core)}.wasm`)]);
     const rom=typeof File==='function'?new File([romBlob],current.rom_name||`game.${current.platform}`,{type:'application/octet-stream'}):{fileName:current.rom_name||`game.${current.platform}`,fileContent:romBlob};let state=null,sram=null;if(current.saves?.sram?.exists)sram=await blobFetch(`/api/v1/games/${current.id}/saves/sram`,true);if(mode==='continue'&&current.saves?.state?.exists)state=await blobFetch(`/api/v1/games/${current.id}/saves/state`,true);
     const options={element:canvas,core:{name:core,js:{fileName:`${core}_libretro.js`,fileContent:coreJS},wasm:{fileName:`${core}_libretro.wasm`,fileContent:coreWASM}},rom,cache:{core:true,rom:false,bios:false,shader:false},respondToGlobalEvents:false,retroarchConfig:{savestate_thumbnail_enable:false,input_auto_game_focus:true,input_player1_analog_dpad_mode:1,video_force_aspect:p.video.display!=='stretch',video_smooth:!!p.video.smooth,video_scale_integer:!!p.video.integerScale,rewind_enable:!!p.emulator.rewind,...internalKeyboardConfig,...gamepadConfig()}};
-    if(sram)options.sram=sram;if(state)options.state=state;instance=await Nostalgist.prepare(options);
+    if(sram)options.sram=sram;if(state)options.state=state;
+    try{window.StormFlixGameVideo?.decorateOptions?.(options,p.video||{})}catch(error){throw new Error(`Não foi possível preparar o filtro gráfico: ${error?.message||error}`)}
+    instance=await Nostalgist.prepare(options);
   }
   async function startPrepared(){
-    if(!instance||!overlay)throw new Error('Emulador não está preparado.');await instance.start();releaseAllInputs();$('[data-game-launch]',overlay)?.classList.add('hidden');$('[data-game-controls]',overlay)?.classList.remove('hidden');installKeyboardOwner();installViewportOwner();focusGame();startTracking();await heartbeat();window.dispatchEvent(new CustomEvent('stormflix:game-started',{detail:{id:current?.id,platform:current?.platform,core:current?.core}}));queueResize(0);queueResize(160);if(preferences().emulator.fullscreen&&!document.fullscreenElement)void toggleFullscreen();toast('G4 ativo · teclado, gamepad e touch prontos');
+    if(!instance||!overlay)throw new Error('Emulador não está preparado.');await instance.start();releaseAllInputs();$('[data-game-launch]',overlay)?.classList.add('hidden');$('[data-game-controls]',overlay)?.classList.remove('hidden');installKeyboardOwner();installViewportOwner();focusGame();startTracking();await heartbeat();window.dispatchEvent(new CustomEvent('stormflix:game-started',{detail:{id:current?.id,platform:current?.platform,core:current?.core}}));queueResize(0);queueResize(160);if(preferences().emulator.fullscreen&&!document.fullscreenElement)void toggleFullscreen();toast('G4.1 ativo · teclado, gamepad e touch prontos');
   }
 
   function focusGame(){try{canvas?.focus({preventScroll:true})}catch{canvas?.focus()}}
