@@ -110,3 +110,24 @@ func (s *server) adminStartAllGamesMetadata(w http.ResponseWriter, r *http.Reque
 	s.admin.Log(r.Context(), "info", "games", "All Games metadata job queued", &uid, job.Provider)
 	writeJSON(w, http.StatusAccepted, job)
 }
+
+func (s *server) adminGameMetadataLock(w http.ResponseWriter, r *http.Request) {
+	gameID, err := parseID(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	var in struct {
+		Locked bool `json:"locked"`
+	}
+	if decodeJSON(w, r, &in) != nil {
+		return
+	}
+	if err := s.games.SetMetadataLock(r.Context(), gameID, in.Locked); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	uid := currentUser(r).ID
+	s.admin.Log(r.Context(), "info", "games", "Games metadata lock updated", &uid, strconv.FormatInt(gameID, 10))
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "game_id": gameID, "locked": in.Locked})
+}
