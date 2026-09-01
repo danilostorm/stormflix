@@ -3,7 +3,7 @@
   const root=document.querySelector('#gamesadmin');if(!root)return;
   let timer=null,enterTimer=null,busy=false;
   const safe=v=>typeof esc==='function'?esc(v):String(v??'');
-  const implemented=new Set(['igdb','mobygames','steamgriddb']);
+  const implemented=new Set(['igdb','mobygames','steamgriddb','screenscraper','retroachievements','hasheous','thegamesdb','libretro']);
 
   document.addEventListener('click',e=>{
     const tab=e.target.closest('[data-games-admin-tab]');
@@ -40,7 +40,7 @@
       if(badge&&badge.textContent!=='PRÓXIMA INTEGRAÇÃO')badge.textContent='PRÓXIMA INTEGRAÇÃO';
       if(button.textContent!=='Em breve')button.textContent='Em breve';
       if(!button.disabled)button.disabled=true;
-      const title='O cofre/schema já conhece este provedor, mas o scraper específico ainda não está habilitado.';
+      const title='O cofre/schema já conhece este provedor, mas o adapter específico ainda não está habilitado.';
       if(button.title!==title)button.title=title;
     });
   }
@@ -53,7 +53,7 @@
       const gameLibs=(libs||[]).filter(l=>String(l.kind||'').toLowerCase()==='games');
       let panel=root.querySelector('.games-admin-metadata-jobs');
       if(!panel){panel=document.createElement('article');panel.className='games-admin-panel games-admin-metadata-jobs';root.querySelector('.games-admin-content')?.appendChild(panel)}
-      panel.innerHTML=`<div class="games-admin-panel-head"><div><p class="games-admin-kicker">Enriquecimento automático</p><h3>Fila de metadados</h3><p>IGDB → MobyGames como fallback; SteamGridDB pode substituir a capa. O job pausa durante playback/jogo ativo.</p></div><div class="games-admin-meta-actions"><button data-game-meta-all="pending">Buscar pendentes</button><button data-game-meta-all="refresh">Atualizar tudo</button></div></div>
+      panel.innerHTML=`<div class="games-admin-panel-head"><div><p class="games-admin-kicker">Enriquecimento automático</p><h3>Fila de metadados</h3><p>Hash/ScreenScraper → IGDB → MobyGames → TheGamesDB; Hasheous correlaciona IDs, RetroAchievements enriquece IDs verificados e SteamGridDB/Libretro cuidam do artwork. O job pausa durante playback/jogo ativo.</p></div><div class="games-admin-meta-actions"><button data-game-meta-all="pending">Buscar pendentes</button><button data-game-meta-all="refresh">Atualizar tudo</button></div></div>
         <div class="games-admin-library-cards">${gameLibs.map(l=>`<div><b>${safe(l.name)}</b><small>${safe(l.path||'')}</small><span class="${l.online?'ok':'bad'}">${l.online?'ONLINE':'OFFLINE'}</span><em>${Number(l.media_count||0)} jogo(s)</em><div><button data-game-meta-lib="${l.id}">Pendentes</button><button data-game-meta-lib="${l.id}" data-refresh="1">Atualizar tudo</button></div></div>`).join('')||'<p class="games-admin-muted">Nenhuma biblioteca de Games.</p>'}</div>
         <div class="games-admin-scan-list games-admin-meta-job-list">${(jobs||[]).map(j=>`<div><span class="games-admin-job-dot ${safe(j.status)}"></span><b>${safe(j.library||'Games')}</b><small>${safe(j.message||j.provider||j.status)}</small><em>${Number(j.progress||0)}% · ${Number(j.matched||0)} ok · ${Number(j.failed||0)} erro(s)</em></div>`).join('')||'<p class="games-admin-muted">Nenhum job de metadata executado ainda.</p>'}</div>
         <div class="games-admin-meta-lock"><div><b>Metadata lock</b><small>Proteja ajustes manuais para que um refresh automático não os substitua.</small></div><select data-game-lock-select>${(catalog||[]).map(g=>`<option value="${g.id}">${g.metadata_locked?'🔒 ':''}${safe(g.title)} · ${safe(String(g.platform||'').toUpperCase())}</option>`).join('')}</select><button data-game-lock="1">Travar</button><button data-game-lock="0">Destravar</button></div>`;
