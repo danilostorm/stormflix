@@ -90,7 +90,10 @@ LIMIT 1`).Scan(&id, &path, &modified)
 	}
 	probeCtx, cancel := context.WithTimeout(ctx, 40*time.Second)
 	defer cancel()
+	mediaAnalysisBudget.Lock()
 	_, _ = s.probeAndStoreTechnical(probeCtx, id, path, modified, true)
+	mediaAnalysisBudget.Unlock()
+	s.kickMarkerAnalyzer()
 	return true
 }
 
