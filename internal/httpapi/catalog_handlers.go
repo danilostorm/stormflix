@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"net/http"
@@ -10,9 +11,10 @@ import (
 )
 
 func (s *server) homeFeed(w http.ResponseWriter, r *http.Request) {
-	// Collection discovery is lazy-started by the first authenticated Home and
-	// continues in the background. Home itself never waits on TMDB.
+	// Collection discovery and automatic intro analysis are lazy-started by the
+	// first authenticated Home. Both continue in background and Home never waits.
 	s.startMovieCollectionIndexer()
+	s.startMarkerAnalyzer(context.Background())
 
 	u := currentUser(r)
 	var allowed []int64
