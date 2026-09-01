@@ -30,6 +30,7 @@ func TestPlaybackAnywhereDetailActionIsFirstClass(t *testing.T) {
 		[]byte(`document.body.appendChild(panel)`),
 		[]byte(`targetMedia`),
 		[]byte(`closest?.('#detail-anywhere')`),
+		[]byte(`selected._logical_id||selected.id`),
 		[]byte(`window.StormFlixPlaybackAnywhere`),
 	} {
 		if !bytes.Contains(js, required) {
@@ -46,8 +47,13 @@ func TestSourceSelectorNoLongerShowsRedundantServerCopy(t *testing.T) {
 	if bytes.Contains(js, []byte(`Escolha o servidor. O título e os metadados são únicos.`)) {
 		t.Fatal("redundant source-selector helper copy must stay removed")
 	}
-	if !bytes.Contains(js, []byte(`window.sfSelectedDetailMedia`)) {
-		t.Fatal("selected physical source must be exposed to Playback Anywhere")
+	for _, required := range [][]byte{
+		[]byte(`window.sfSelectedDetailMedia`),
+		[]byte(`_logical_id:Number(detail.id)`),
+	} {
+		if !bytes.Contains(js, required) {
+			t.Fatalf("selected physical source integration missing %q", required)
+		}
 	}
 }
 
