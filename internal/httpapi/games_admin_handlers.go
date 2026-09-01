@@ -88,6 +88,10 @@ func (s *server) adminStartGamesMetadata(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	if err := s.games.RequireMetadataPrimary(r.Context()); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	refresh := r.URL.Query().Get("refresh") == "1" || strings.EqualFold(r.URL.Query().Get("refresh"), "true")
 	job, err := s.games.EnqueueMetadata(r.Context(), libraryID, refresh)
 	if err != nil {
@@ -100,6 +104,10 @@ func (s *server) adminStartGamesMetadata(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *server) adminStartAllGamesMetadata(w http.ResponseWriter, r *http.Request) {
+	if err := s.games.RequireMetadataPrimary(r.Context()); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	refresh := r.URL.Query().Get("refresh") == "1" || strings.EqualFold(r.URL.Query().Get("refresh"), "true")
 	job, err := s.games.EnqueueMetadata(r.Context(), 0, refresh)
 	if err != nil {
