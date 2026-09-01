@@ -10,7 +10,13 @@
     await api.open?.(id);
     return true;
   };
-  const lock=()=>document.body.classList.add('sf-game-playing');
+  const lock=()=>{
+    document.body.classList.add('sf-game-playing');
+    // games-player creates the button, while games-g4 owns the actual menu.
+    // Remove the base onclick dispatcher so one click cannot open/pause twice.
+    const menu=document.querySelector('#game-player-overlay [data-game-menu]');
+    if(menu)menu.onclick=null;
+  };
   const unlock=()=>document.body.classList.remove('sf-game-playing');
   window.addEventListener('stormflix:game-started',lock);
   window.addEventListener('stormflix:game-closed',unlock);
