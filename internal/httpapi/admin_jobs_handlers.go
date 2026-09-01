@@ -101,6 +101,40 @@ func (s *server) adminJobs(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = rows.Close()
 
+	markerRows, err := s.db.QueryContext(r.Context(), `
+SELECT j.id,j.library_id,l.name,j.series_title,j.season_number,j.status,j.progress,j.total,j.processed,j.detected,j.failed,j.message,j.created_at,j.started_at,j.finished_at,j.updated_at
+FROM marker_analysis_jobs j JOIN libraries l ON l.id=j.library_id
+ORDER BY j.id DESC LIMIT ?`, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	for markerRows.Next() {
+		var id, libraryID int64
+		var libraryName, seriesTitle, status, message, createdAt, updatedAt string
+		var season, progress, total, processed, detected, failed int
+		var startedAt, finishedAt *string
+		if err := markerRows.Scan(&id, &libraryID, &libraryName, &seriesTitle, &season, &status, &progress, &total, &processed, &detected, &failed, &message, &createdAt, &startedAt, &finishedAt, &updatedAt); err != nil {
+			_ = markerRows.Close()
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		label := "Detecção automática de introduções"
+		if seriesTitle != "" {
+			label += " · " + seriesTitle
+		}
+		if season > 0 {
+			label += " · T" + strconv.Itoa(season)
+		}
+		out = append(out, adminJobView{
+			Key: "intro_detection:" + strconv.FormatInt(id, 10), ID: id, Kind: "intro_detection", Label: label,
+			LibraryID: libraryID, Library: libraryName, Status: status, Progress: progress,
+			Current: processed, Total: total, Success: detected, Failed: failed, Message: message,
+			CreatedAt: createdAt, StartedAt: startedAt, FinishedAt: finishedAt, UpdatedAt: updatedAt,
+		})
+	}
+	_ = markerRows.Close()
+
 	// Most useful operational order: running, queued, then recent history.
 	statusRank := func(status string) int {
 		switch status {
