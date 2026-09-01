@@ -79,5 +79,5 @@ CREATE INDEX IF NOT EXISTS idx_credit_analysis_jobs_season
 	if _, err := db.Exec(schema); err != nil {
 		return fmt.Errorf("migrate phase19 automatic credits: %w", err)
 	}
-	return nil
+	return migratePhase20(db)
 }
