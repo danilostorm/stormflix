@@ -169,6 +169,20 @@ ORDER BY j.id DESC LIMIT ?`, limit)
 	}
 	_ = creditRows.Close()
 
+	gameJobs, err := s.games.Jobs(r.Context(), limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	for _, job := range gameJobs {
+		out = append(out, adminJobView{
+			Key: "game_scan:" + strconv.FormatInt(job.ID, 10), ID: job.ID, Kind: "game_scan", Label: "Scan de jogos · identidade por hash",
+			LibraryID: job.LibraryID, Library: job.Library, Status: job.Status, Progress: job.Progress,
+			Current: job.Processed, Total: job.Total, Success: job.Matched, Failed: job.Failed, Message: job.Message,
+			CreatedAt: job.CreatedAt, StartedAt: job.StartedAt, FinishedAt: job.FinishedAt, UpdatedAt: job.UpdatedAt,
+		})
+	}
+
 	// Most useful operational order: running, queued, then recent history.
 	statusRank := func(status string) int {
 		switch status {
@@ -196,12 +210,18 @@ ORDER BY j.id DESC LIMIT ?`, limit)
 }
 
 func (s *server) scanAllLibraries(w http.ResponseWriter, r *http.Request) {
-	jobs, err := s.libraries.EnqueueAllAdminScans(r.Context())
+	jobs, err := s.libraries.EnqueueAllAdminScansExceptGames(r.Context())
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	gameJobs, err := s.games.EnqueueAll(r.Context())
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	queued := len(jobs) + len(gameJobs)
 	uid := currentUser(r).ID
-	s.admin.Log(r.Context(), "info", "scanner", "Todas as bibliotecas foram colocadas na fila de scan", &uid, strconv.Itoa(len(jobs))+" job(s)")
-	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "queued": len(jobs), "jobs": jobs})
+	s.admin.Log(r.Context(), "info", "scanner", "Todas as bibliotecas foram colocadas na fila de scan", &uid, strconv.Itoa(queued)+" job(s), incluindo jogos")
+	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "queued": queued, "jobs": jobs, "game_jobs": gameJobs})
 }
