@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,6 +19,7 @@ import (
 func (m *Manager) Play(ctx context.Context, device Device, mediaURL, title, mime string, startSeconds float64) error {
 	if strings.TrimSpace(mediaURL) == "" { return errors.New("media URL is required") }
 	if strings.TrimSpace(device.AVTransportControlURL) == "" { return errors.New("renderer does not expose AVTransport") }
+	mediaURL = preferRendererLocalMediaURL(device, mediaURL)
 	metadata := didlMetadata(mediaURL, title, mime)
 	if err := soap(ctx, device.AVTransportControlURL, avTransportType, "SetAVTransportURI", map[string]string{
 		"InstanceID":"0", "CurrentURI":mediaURL, "CurrentURIMetaData":metadata,
@@ -29,25 +32,50 @@ func (m *Manager) Play(ctx context.Context, device Device, mediaURL, title, mime
 	return nil
 }
 
+// DLNA renderers are commonly much more reliable with plain HTTP on the LAN
+// than with a public HTTPS/reverse-proxy hostname. For server-side Web/Jellyfin
+// casting, select the local interface that the kernel would use to reach this
+// renderer and keep the signed StormFlix path/query unchanged.
+func preferRendererLocalMediaURL(device Device, raw string) string {
+	mediaURL, err := url.Parse(strings.TrimSpace(raw)); if err != nil || !mediaURL.IsAbs() { return raw }
+	target := strings.TrimSpace(device.Location); if target == "" { target = strings.TrimSpace(device.AVTransportControlURL) }
+	targetURL, err := url.Parse(target); if err != nil || targetURL.Hostname() == "" { return raw }
+	ips, err := net.LookupIP(targetURL.Hostname()); if err != nil { return raw }
+	var remoteIP net.IP
+	for _, ip := range ips { if ip4 := ip.To4(); ip4 != nil && isPrivateIP(ip4) { remoteIP = ip4; break } }
+	if remoteIP == nil { return raw }
+	conn, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP:remoteIP, Port:SSDPPort()}); if err != nil { return raw }
+	localAddr, _ := conn.LocalAddr().(*net.UDPAddr); _ = conn.Close()
+	if localAddr == nil || localAddr.IP == nil || !isPrivateIP(localAddr.IP) || localAddr.IP.IsLoopback() && !remoteIP.IsLoopback() { return raw }
+	port := stormflixListenPort()
+	mediaURL.Scheme = "http"
+	mediaURL.Host = net.JoinHostPort(localAddr.IP.String(), port)
+	mediaURL.User = nil
+	return mediaURL.String()
+}
+
+func SSDPPort() int { return 1900 }
+
+func stormflixListenPort() string {
+	address := strings.TrimSpace(os.Getenv("STORMFLIX_ADDR")); if address == "" { address = ":8090" }
+	if _, port, err := net.SplitHostPort(address); err == nil && port != "" { return port }
+	if strings.HasPrefix(address, ":") && len(address) > 1 { return strings.TrimPrefix(address, ":") }
+	return "8090"
+}
+
 func (m *Manager) Control(ctx context.Context, device Device, command string, positionSeconds float64) error {
 	command = strings.ToLower(strings.TrimSpace(command))
 	switch command {
-	case "play", "resume", "unpause":
-		return soap(ctx, device.AVTransportControlURL, avTransportType, "Play", map[string]string{"InstanceID":"0", "Speed":"1"})
-	case "pause":
-		return soap(ctx, device.AVTransportControlURL, avTransportType, "Pause", map[string]string{"InstanceID":"0"})
-	case "stop":
-		return soap(ctx, device.AVTransportControlURL, avTransportType, "Stop", map[string]string{"InstanceID":"0"})
-	case "seek":
-		return soap(ctx, device.AVTransportControlURL, avTransportType, "Seek", map[string]string{"InstanceID":"0", "Unit":"REL_TIME", "Target":formatDuration(positionSeconds)})
-	default:
-		return fmt.Errorf("unsupported DLNA command %q", command)
+	case "play", "resume", "unpause": return soap(ctx, device.AVTransportControlURL, avTransportType, "Play", map[string]string{"InstanceID":"0", "Speed":"1"})
+	case "pause": return soap(ctx, device.AVTransportControlURL, avTransportType, "Pause", map[string]string{"InstanceID":"0"})
+	case "stop": return soap(ctx, device.AVTransportControlURL, avTransportType, "Stop", map[string]string{"InstanceID":"0"})
+	case "seek": return soap(ctx, device.AVTransportControlURL, avTransportType, "Seek", map[string]string{"InstanceID":"0", "Unit":"REL_TIME", "Target":formatDuration(positionSeconds)})
+	default: return fmt.Errorf("unsupported DLNA command %q", command)
 	}
 }
 
 func soap(ctx context.Context, controlURL, serviceType, action string, args map[string]string) error {
-	parsed, err := url.Parse(strings.TrimSpace(controlURL))
-	if err != nil || parsed.Scheme != "http" || !urlIsPrivate(parsed) { return errors.New("unsafe DLNA control URL") }
+	parsed, err := url.Parse(strings.TrimSpace(controlURL)); if err != nil || parsed.Scheme != "http" || !urlIsPrivate(parsed) { return errors.New("unsafe DLNA control URL") }
 	var body strings.Builder
 	body.WriteString("<?xml version=\"1.0\" encoding=\"utf-8\"?>")
 	body.WriteString("<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body>")
@@ -56,12 +84,9 @@ func soap(ctx context.Context, controlURL, serviceType, action string, args map[
 	for _, key := range keys { body.WriteString("<"+key+">"+html.EscapeString(args[key])+"</"+key+">") }
 	body.WriteString("</u:"+action+"></s:Body></s:Envelope>")
 	req, _ := http.NewRequestWithContext(ctx,http.MethodPost,parsed.String(),strings.NewReader(body.String()))
-	req.Header.Set("Content-Type", "text/xml; charset=\"utf-8\"")
-	req.Header.Set("SOAPAction", "\""+serviceType+"#"+action+"\"")
-	resp, err := (&http.Client{Timeout:4*time.Second}).Do(req)
-	if err != nil { return fmt.Errorf("DLNA %s failed: %w",action,err) }
-	defer resp.Body.Close()
-	payload,_ := io.ReadAll(io.LimitReader(resp.Body,32*1024))
+	req.Header.Set("Content-Type", "text/xml; charset=\"utf-8\""); req.Header.Set("SOAPAction", "\""+serviceType+"#"+action+"\"")
+	resp, err := (&http.Client{Timeout:4*time.Second}).Do(req); if err != nil { return fmt.Errorf("DLNA %s failed: %w",action,err) }
+	defer resp.Body.Close(); payload,_ := io.ReadAll(io.LimitReader(resp.Body,32*1024))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 { return fmt.Errorf("DLNA %s returned HTTP %d: %s",action,resp.StatusCode,strings.TrimSpace(string(payload))) }
 	return nil
 }
@@ -73,9 +98,6 @@ func didlMetadata(mediaURL,title,mime string) string {
 	return "<?xml version=\"1.0\" encoding=\"UTF-8\"?><DIDL-Lite xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:upnp=\"urn:schemas-upnp-org:metadata-1-0/upnp/\"><item id=\"0\" parentID=\"0\" restricted=\"1\"><dc:title>"+html.EscapeString(strings.TrimSpace(title))+"</dc:title><upnp:class>"+class+"</upnp:class><res protocolInfo=\""+html.EscapeString(protocol)+"\">"+html.EscapeString(mediaURL)+"</res></item></DIDL-Lite>"
 }
 
-func formatDuration(seconds float64) string {
-	if seconds < 0 { seconds=0 }; total:=int64(seconds); return fmt.Sprintf("%02d:%02d:%02d",total/3600,(total%3600)/60,total%60)
-}
-
+func formatDuration(seconds float64) string { if seconds < 0 { seconds=0 }; total:=int64(seconds); return fmt.Sprintf("%02d:%02d:%02d",total/3600,(total%3600)/60,total%60) }
 func ParseDeviceID(raw string) string { value,_:=url.PathUnescape(strings.TrimSpace(raw)); return value }
 func SecondsFromTicks(raw string) float64 { ticks,_:=strconv.ParseInt(strings.TrimSpace(raw),10,64); if ticks<=0{return 0}; return float64(ticks)/10_000_000 }
