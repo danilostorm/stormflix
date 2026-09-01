@@ -12,6 +12,7 @@ type Config struct {
 	Address                    string
 	DataDir                    string
 	MediaRoot                  string
+	BrowseRoots                []string
 	AssetDir                   string
 	AssetPublicBaseURL         string
 	ServerName                 string
@@ -60,6 +61,7 @@ func Load() Config {
 		Address:                    env("STORMFLIX_ADDR", ":8090"),
 		DataDir:                    dataDir,
 		MediaRoot:                  env("STORMFLIX_MEDIA_ROOT", "/media"),
+		BrowseRoots:                envList("STORMFLIX_BROWSE_ROOTS"),
 		AssetDir:                   env("STORMFLIX_ASSET_DIR", filepath.Join(dataDir, "assets")),
 		AssetPublicBaseURL:         os.Getenv("STORMFLIX_ASSET_PUBLIC_BASE_URL"),
 		ServerName:                 env("STORMFLIX_SERVER_NAME", "StormFlix"),
