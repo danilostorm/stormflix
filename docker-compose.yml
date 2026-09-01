@@ -10,6 +10,10 @@ services:
       STORMFLIX_DATA_DIR: "/data"
       STORMFLIX_MANAGED_MOVIE_LIBRARY_NAME: "Filmes"
       STORMFLIX_MANAGED_MOVIE_PATHS: "/mnt/remotes/ALIEN_Filmes,/mnt/user/Filmes"
+      # Raízes extras que o seletor de pastas do Admin pode navegar. Isso é
+      # separado das bibliotecas gerenciadas de Filmes para Games/ROMs não
+      # precisarem fingir que são conteúdo de vídeo.
+      STORMFLIX_BROWSE_ROOTS: "/mnt/user/Games/roms"
       # Opcional: cria automaticamente a primeira biblioteca no primeiro boot.
       # STORMFLIX_BOOTSTRAP_LIBRARY_NAME: "Filmes"
       # STORMFLIX_BOOTSTRAP_LIBRARY_PATH: "/media/Filmes"
@@ -19,8 +23,8 @@ services:
       - /mnt/gdrive:/media:ro
       - /mnt/remotes/ALIEN_Filmes:/mnt/remotes/ALIEN_Filmes:ro
       - /mnt/user/Filmes:/mnt/user/Filmes:ro
-      # Biblioteca de ROMs do Unraid. Mantemos o mesmo caminho dentro do
-      # container para que o Admin possa cadastrar /mnt/user/Games/roms.
+      # Biblioteca de ROMs do Unraid. Mantemos o mesmo caminho dentro e fora do
+      # container e liberamos a navegação pelo STORMFLIX_BROWSE_ROOTS acima.
       - /mnt/user/Games/roms:/mnt/user/Games/roms:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8090/healthz >/dev/null || exit 1"]
