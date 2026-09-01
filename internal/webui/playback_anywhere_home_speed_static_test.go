@@ -13,7 +13,7 @@ func TestPlaybackAnywhereDetailActionIsFirstClass(t *testing.T) {
 	for _, required := range [][]byte{
 		[]byte(`id="detail-anywhere"`),
 		[]byte(`Reproduzir em`),
-		[]byte(`/playback-anywhere.js?v=2`),
+		[]byte(`/playback-anywhere.js?v=3`),
 		[]byte(`/source-selector.js?v=3`),
 		[]byte(`/catalog-performance.js?v=2`),
 	} {
