@@ -16,6 +16,7 @@
   <link rel="stylesheet" href="/ratings-ui.css">
   <link rel="stylesheet" href="/music.css">
   <link rel="stylesheet" href="/music-v2.css">
+  <link rel="stylesheet" href="/games.css">
   <link rel="stylesheet" href="/source-selector.css">
   <link rel="stylesheet" href="/person-ui.css">
   <link rel="stylesheet" href="/continue-watching.css">
@@ -60,6 +61,7 @@
       <button data-nav="movie">Filmes</button>
       <button data-nav="series">Séries</button>
       <button data-nav="anime">Animes</button>
+      <button id="games-nav" type="button">Jogos</button>
       <button id="music-nav" type="button">Música</button>
     </nav>
     <div class="header-actions">
@@ -97,6 +99,7 @@
     </section>
 
     <section id="music-view" class="music-view hidden" aria-label="StormFlix Música"></section>
+    <section id="games-view" class="games-view hidden" aria-label="StormFlix Jogos"></section>
 
     <section id="detail-modal" class="detail-page hidden" aria-hidden="true">
       <article class="detail-card">
@@ -164,6 +167,7 @@
 <script src="/category-nav.js" defer></script>
 <script src="/collections-nav.js" defer></script>
 <script src="/music-ui.js" defer></script>
+<script src="/games-ui.js" defer></script>
 <script src="/ux-v2.js" defer></script>
 <script src="/ux-v3.js" defer></script>
 <script src="/source-selector.js" defer></script>
