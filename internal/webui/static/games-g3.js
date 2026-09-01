@@ -16,7 +16,7 @@
 
   function controlsMode(){return localStorage.getItem(STORAGE_CONTROLS)||'auto'}
   function haptics(){return localStorage.getItem(STORAGE_HAPTICS)!=='off'}
-  function coarsePointer(){return matchMedia?.('(pointer: coarse)').matches||innerWidth<=900}
+  function coarsePointer(){return !!window.matchMedia?.('(pointer: coarse)').matches||innerWidth<=900}
   function shouldShowController(){const mode=controlsMode();return mode==='on'||(mode==='auto'&&coarsePointer())}
 
   function patchFetch(){
@@ -65,7 +65,7 @@
 
   function installPlayerEnhancements(overlay){
     if(!overlay||overlay.dataset.g3Ready==='1')return;
-    cleanupPlayerEnhancements();playerOverlay=overlay;overlay.dataset.g3Ready='1';overlay.classList.add('game-player-g3');
+    const game=activeGame;cleanupPlayerEnhancements();activeGame=game;playerOverlay=overlay;overlay.dataset.g3Ready='1';overlay.classList.add('game-player-g3');
     const kicker=$('.game-player-kicker',overlay);if(kicker)kicker.textContent='STORMFLIX GAME PLAYER G3';
     const actions=$('.game-player-top-actions',overlay);
     if(actions){const menu=document.createElement('button');menu.type='button';menu.dataset.g3Menu='1';menu.className='g3-menu-button';menu.setAttribute('aria-label','Menu rápido');menu.textContent='☰';menu.onclick=openQuickMenu;actions.insertBefore(menu,actions.firstChild)}
@@ -155,7 +155,7 @@
 
   async function loadPreviewInto(img,id){
     if(!img||!id||img.dataset.g3Loaded==='1')return;img.dataset.g3Loaded='1';
-    try{const r=await fetch(`/api/v1/games/${id}/saves/preview`,{credentials:'same-origin',cache:'no-store'});if(!r.ok)return;const blob=await r.blob();if(!blob.size)return;const url=URL.createObjectURL(blob);img.onload=()=>URL.revokeObjectURL(url);img.src=url;img.classList.add('ready')}catch{}
+    try{const r=await fetch(`/api/v1/games/${id}/saves/preview`,{credentials:'same-origin',cache:'no-store'});if(!r.ok)return;const raw=await r.blob();if(!raw.size)return;const blob=new Blob([raw],{type:'image/webp'}),url=URL.createObjectURL(blob);img.onload=()=>URL.revokeObjectURL(url);img.src=url;img.classList.add('ready')}catch{}
   }
   function enhanceSaveGallery(){
     if(!document.body.classList.contains('games-mode'))return;
@@ -181,7 +181,7 @@
     if(!items.includes(current)){items[0].focus();return}
     const cr=current.getBoundingClientRect(),cx=cr.left+cr.width/2,cy=cr.top+cr.height/2;let best=null,bestScore=Infinity;
     for(const el of items){if(el===current)continue;const r=el.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2,dx=x-cx,dy=y-cy;
-      if(direction==='left'&&dx>=-4||direction==='right'&&dx<=4||direction==='up'&&dy>=-4||direction==='down'&&dy<=4)continue;
+      if((direction==='left'&&dx>=-4)||(direction==='right'&&dx<=4)||(direction==='up'&&dy>=-4)||(direction==='down'&&dy<=4))continue;
       const primary=(direction==='left'||direction==='right')?Math.abs(dx):Math.abs(dy),cross=(direction==='left'||direction==='right')?Math.abs(dy):Math.abs(dx),score=primary+cross*2.35;if(score<bestScore){bestScore=score;best=el}}
     (best||current).focus({preventScroll:true});best?.scrollIntoView({block:'nearest',inline:'nearest'});
   }
