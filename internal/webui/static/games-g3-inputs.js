@@ -1,4 +1,4 @@
-/* StormFlix Games G3.2 input layer.
+/* StormFlix Games G3.3 input layer.
  * Virtual buttons call Nostalgist pressDown/pressUp directly. The directional
  * control uses a circular touch stick inspired by EmulatorJS' nipplejs zone:
  * the thumb follows the finger while SNES/NES-era cores still receive a
@@ -9,6 +9,7 @@
   const $$=(s,r=document)=>[...r.querySelectorAll(s)];
   const activePointers=new Map();
   const STICK_DEADZONE=.20;
+  const ALL_DIGITAL_INPUTS=['up','down','left','right','a','b','x','y','l','r','l2','r2','select','start'];
   let pad=null;
   let stickState={pointerId:null,inputs:[],node:null};
 
@@ -30,14 +31,20 @@
   function gameplayVisible(overlay){return !!overlay&&!$('[data-game-controls]',overlay)?.classList.contains('hidden')}
 
   function press(input,down){
+    if(!ALL_DIGITAL_INPUTS.includes(input))return false;
     const api=player();if(!api)return false;
     return down?api.pressDown?.(input)!==false:api.pressUp?.(input)!==false;
   }
 
   function releasePointer(id){
-    const inputs=activePointers.get(id);if(!inputs)return;
-    activePointers.delete(id);for(const input of inputs)press(input,false);
-    pad?.querySelectorAll(`[data-pointer-id="${id}"]`).forEach(node=>{node.classList.remove('pressed');node.removeAttribute('data-pointer-id')});
+    const entry=activePointers.get(id);if(!entry)return;
+    activePointers.delete(id);
+    for(const input of entry.inputs)press(input,false);
+    const node=entry.node;
+    if(node){
+      node.classList.remove('pressed');node.removeAttribute('data-pointer-id');
+      try{if(node.hasPointerCapture?.(id))node.releasePointerCapture(id)}catch{}
+    }
   }
   function setStickInputs(next){
     const previous=stickState.inputs;
@@ -58,18 +65,32 @@
     }
     stickState={pointerId:null,inputs:[],node:null};
   }
-  function releaseAll(){for(const id of [...activePointers.keys()])releasePointer(id);releaseStick()}
-  function inputsFor(button){return String(button?.dataset.inputs||'').split(',').map(x=>x.trim()).filter(Boolean)}
-  function buttonFromPoint(x,y){return document.elementFromPoint(x,y)?.closest?.('[data-sf-inputs]')||null}
-  function setPointerButton(pointerId,button){
-    const next=inputsFor(button),previous=activePointers.get(pointerId)||[];if(previous.join(',')===next.join(','))return;
-    releasePointer(pointerId);if(!next.length)return;
-    activePointers.set(pointerId,next);button.classList.add('pressed');button.dataset.pointerId=String(pointerId);for(const input of next)press(input,true);
+  function resetVirtualInputs(){for(const input of ALL_DIGITAL_INPUTS)press(input,false)}
+  function releaseAll(){for(const id of [...activePointers.keys()])releasePointer(id);releaseStick();resetVirtualInputs()}
+  function inputsFor(button){return String(button?.dataset.inputs||'').split(',').map(x=>x.trim()).filter(input=>ALL_DIGITAL_INPUTS.includes(input))}
+
+  function pressPointerButton(pointerId,button){
+    releasePointer(pointerId);
+    const inputs=inputsFor(button);if(!inputs.length)return;
+    activePointers.set(pointerId,{inputs,node:button});button.classList.add('pressed');button.dataset.pointerId=String(pointerId);
+    try{button.setPointerCapture?.(pointerId)}catch{}
+    for(const input of inputs)press(input,true);
   }
 
   function bindButton(button){
-    button.addEventListener('pointerdown',event=>{event.preventDefault();event.stopPropagation();if(navigator.vibrate&&localStorage.getItem('stormflix.games.haptics')!=='off')navigator.vibrate(8);setPointerButton(event.pointerId,button)},{passive:false});
-    button.addEventListener('pointermove',event=>{if(!activePointers.has(event.pointerId))return;event.preventDefault();setPointerButton(event.pointerId,buttonFromPoint(event.clientX,event.clientY))},{passive:false});
+    button.addEventListener('pointerdown',event=>{
+      event.preventDefault();event.stopPropagation();
+      if(navigator.vibrate&&localStorage.getItem('stormflix.games.haptics')!=='off')navigator.vibrate(8);
+      pressPointerButton(event.pointerId,button);
+    },{passive:false});
+    // Face/shoulder/start/select buttons stay bound to the button that received
+    // pointerdown. The old slide-to-another-button behavior was useful for a
+    // 3x3 D-pad, but with the circular stick it can cause accidental cross-inputs.
+    button.addEventListener('pointermove',event=>{if(activePointers.has(event.pointerId))event.preventDefault()},{passive:false});
+    button.addEventListener('pointerup',event=>{event.preventDefault();releasePointer(event.pointerId)},{passive:false});
+    button.addEventListener('pointercancel',event=>releasePointer(event.pointerId));
+    button.addEventListener('lostpointercapture',event=>releasePointer(event.pointerId));
+    button.addEventListener('click',event=>event.preventDefault());
     button.addEventListener('contextmenu',event=>event.preventDefault());
   }
 
@@ -98,6 +119,7 @@
     },{passive:false});
     node.addEventListener('pointermove',event=>{if(stickState.pointerId!==event.pointerId)return;event.preventDefault();event.stopPropagation();updateStick(node,event)},{passive:false});
     node.addEventListener('pointerup',event=>releaseStick(event.pointerId));node.addEventListener('pointercancel',event=>releaseStick(event.pointerId));
+    node.addEventListener('lostpointercapture',event=>releaseStick(event.pointerId));
     node.addEventListener('contextmenu',event=>event.preventDefault());
   }
 
@@ -113,9 +135,11 @@
     return `<div class="sf-pad-face two">${layout.face.map(([input,label])=>`<button data-sf-inputs data-inputs="${input}" class="${input}">${label}</button>`).join('')}</div>`;
   }
 
+  function removeLegacyController(overlay){$('.g3-virtual-controller',overlay)?.remove()}
+
   function install(){
     const overlay=$('#game-player-overlay');if(!overlay)return;
-    releaseAll();$('.g3-virtual-controller',overlay)?.remove();
+    releaseAll();removeLegacyController(overlay);
     if(!gameplayVisible(overlay)){overlay.classList.remove('sf-virtual-pad-on');return}
     const game=current();if(!game)return;const layout=layouts[game.platform]||layouts.nes;
     overlay.classList.toggle('sf-virtual-pad-on',enabled());overlay.dataset.gamePlatform=game.platform||'';
@@ -127,6 +151,7 @@
 
   function refresh(){
     const overlay=$('#game-player-overlay');if(!overlay)return;
+    removeLegacyController(overlay);
     if(!gameplayVisible(overlay)){releaseAll();$('[data-sf-virtual-pad]',overlay)?.remove();pad=null;overlay.classList.remove('sf-virtual-pad-on');return}
     overlay.classList.toggle('sf-virtual-pad-on',enabled());
     if(enabled()&&!$('[data-sf-virtual-pad]',overlay))install();
@@ -135,10 +160,12 @@
 
   document.addEventListener('pointerup',event=>{releasePointer(event.pointerId);releaseStick(event.pointerId)},true);document.addEventListener('pointercancel',event=>{releasePointer(event.pointerId);releaseStick(event.pointerId)},true);
   addEventListener('blur',releaseAll);document.addEventListener('visibilitychange',()=>{if(document.hidden)releaseAll()});addEventListener('resize',refresh);addEventListener('orientationchange',()=>setTimeout(refresh,120));
+  window.addEventListener('stormflix:virtual-controls-changed',refresh);
   window.addEventListener('stormflix:game-started',()=>setTimeout(install,0));window.addEventListener('stormflix:game-closed',()=>{releaseAll();pad=null});
 
   const observer=new MutationObserver(()=>{
     const overlay=$('#game-player-overlay');if(!overlay)return;
+    removeLegacyController(overlay);
     if(gameplayVisible(overlay)&&!pad&&current())install();
     const quick=$('[data-g3-quick-menu]',overlay);if(quick&&!quick.classList.contains('hidden'))releaseAll();
   });
