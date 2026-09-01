@@ -1,12 +1,16 @@
-/* StormFlix Games G3.1 input layer.
- * Input model follows the robust pattern used by RetroAssembly: virtual buttons
- * call Nostalgist pressDown/pressUp directly instead of synthesizing DOM keys.
+/* StormFlix Games G3.2 input layer.
+ * Virtual buttons call Nostalgist pressDown/pressUp directly. The directional
+ * control uses a circular touch stick inspired by EmulatorJS' nipplejs zone:
+ * the thumb follows the finger while SNES/NES-era cores still receive a
+ * digital 8-way RetroPad D-pad.
  */
 (function(){
   const $=(s,r=document)=>r.querySelector(s);
   const $$=(s,r=document)=>[...r.querySelectorAll(s)];
   const activePointers=new Map();
+  const STICK_DEADZONE=.20;
   let pad=null;
+  let stickState={pointerId:null,inputs:[],node:null};
 
   const layouts={
     nes:{name:'NES',face:[['b','B'],['a','A']]},
@@ -35,7 +39,26 @@
     activePointers.delete(id);for(const input of inputs)press(input,false);
     pad?.querySelectorAll(`[data-pointer-id="${id}"]`).forEach(node=>{node.classList.remove('pressed');node.removeAttribute('data-pointer-id')});
   }
-  function releaseAll(){for(const id of [...activePointers.keys()])releasePointer(id)}
+  function setStickInputs(next){
+    const previous=stickState.inputs;
+    if(previous.join(',')===next.join(','))return;
+    for(const input of previous)if(!next.includes(input))press(input,false);
+    for(const input of next)if(!previous.includes(input))press(input,true);
+    stickState.inputs=next;
+  }
+  function releaseStick(id){
+    if(stickState.pointerId===null)return;
+    if(id!==undefined&&id!==null&&id!==stickState.pointerId)return;
+    setStickInputs([]);
+    const node=stickState.node;
+    if(node){
+      const thumb=$('[data-sf-stick-thumb]',node);if(thumb)thumb.style.transform='translate(0px,0px)';
+      node.classList.remove('active');node.removeAttribute('data-pointer-id');
+      try{if(node.hasPointerCapture?.(stickState.pointerId))node.releasePointerCapture(stickState.pointerId)}catch{}
+    }
+    stickState={pointerId:null,inputs:[],node:null};
+  }
+  function releaseAll(){for(const id of [...activePointers.keys()])releasePointer(id);releaseStick()}
   function inputsFor(button){return String(button?.dataset.inputs||'').split(',').map(x=>x.trim()).filter(Boolean)}
   function buttonFromPoint(x,y){return document.elementFromPoint(x,y)?.closest?.('[data-sf-inputs]')||null}
   function setPointerButton(pointerId,button){
@@ -50,11 +73,37 @@
     button.addEventListener('contextmenu',event=>event.preventDefault());
   }
 
-  function dpad(){
-    return `<div class="sf-pad-dpad" aria-label="Direcional">
-      <button data-sf-inputs data-inputs="up,left" class="diag ul" aria-label="Cima e esquerda">↖</button><button data-sf-inputs data-inputs="up" class="up" aria-label="Cima">▲</button><button data-sf-inputs data-inputs="up,right" class="diag ur" aria-label="Cima e direita">↗</button>
-      <button data-sf-inputs data-inputs="left" class="left" aria-label="Esquerda">◀</button><span class="center"></span><button data-sf-inputs data-inputs="right" class="right" aria-label="Direita">▶</button>
-      <button data-sf-inputs data-inputs="down,left" class="diag dl" aria-label="Baixo e esquerda">↙</button><button data-sf-inputs data-inputs="down" class="down" aria-label="Baixo">▼</button><button data-sf-inputs data-inputs="down,right" class="diag dr" aria-label="Baixo e direita">↘</button>
+  function stickInputs(angle){
+    const tau=Math.PI*2,sector=Math.round((((angle%tau)+tau)%tau)/(Math.PI/4))%8;
+    return [
+      ['right'],['down','right'],['down'],['down','left'],
+      ['left'],['up','left'],['up'],['up','right'],
+    ][sector];
+  }
+  function updateStick(node,event){
+    const rect=node.getBoundingClientRect();
+    const radius=Math.max(1,Math.min(rect.width,rect.height)/2);
+    const dx=event.clientX-(rect.left+rect.width/2),dy=event.clientY-(rect.top+rect.height/2);
+    const distance=Math.hypot(dx,dy),strength=Math.min(1,distance/radius);
+    const travel=Math.max(1,radius*.48),scale=distance>travel?travel/distance:1;
+    const thumb=$('[data-sf-stick-thumb]',node);if(thumb)thumb.style.transform=`translate(${(dx*scale).toFixed(1)}px,${(dy*scale).toFixed(1)}px)`;
+    setStickInputs(strength<STICK_DEADZONE?[]:stickInputs(Math.atan2(dy,dx)));
+  }
+  function bindStick(node){
+    node.addEventListener('pointerdown',event=>{
+      if(stickState.pointerId!==null&&stickState.pointerId!==event.pointerId)return;
+      event.preventDefault();event.stopPropagation();stickState={pointerId:event.pointerId,inputs:[],node};
+      node.classList.add('active');node.dataset.pointerId=String(event.pointerId);try{node.setPointerCapture?.(event.pointerId)}catch{}
+      if(navigator.vibrate&&localStorage.getItem('stormflix.games.haptics')!=='off')navigator.vibrate(8);updateStick(node,event);
+    },{passive:false});
+    node.addEventListener('pointermove',event=>{if(stickState.pointerId!==event.pointerId)return;event.preventDefault();event.stopPropagation();updateStick(node,event)},{passive:false});
+    node.addEventListener('pointerup',event=>releaseStick(event.pointerId));node.addEventListener('pointercancel',event=>releaseStick(event.pointerId));
+    node.addEventListener('contextmenu',event=>event.preventDefault());
+  }
+
+  function touchStick(){
+    return `<div class="sf-pad-stick" data-sf-stick role="application" aria-label="Direcional touch">
+      <span class="sf-pad-stick-orbit" aria-hidden="true"></span><span class="sf-pad-stick-thumb" data-sf-stick-thumb aria-hidden="true"></span><span class="sf-sr-only">Arraste a bolinha para mover em oito direções</span>
     </div>`;
   }
   function shoulders(layout){return layout.shoulders?.length?`<div class="sf-pad-shoulders">${layout.shoulders.map(([input,label])=>`<button data-sf-inputs data-inputs="${input}">${label}</button>`).join('')}</div>`:''}
@@ -66,14 +115,14 @@
 
   function install(){
     const overlay=$('#game-player-overlay');if(!overlay)return;
-    $('.g3-virtual-controller',overlay)?.remove();
+    releaseAll();$('.g3-virtual-controller',overlay)?.remove();
     if(!gameplayVisible(overlay)){overlay.classList.remove('sf-virtual-pad-on');return}
     const game=current();if(!game)return;const layout=layouts[game.platform]||layouts.nes;
     overlay.classList.toggle('sf-virtual-pad-on',enabled());overlay.dataset.gamePlatform=game.platform||'';
     pad?.remove();pad=null;if(!enabled())return;
     pad=document.createElement('div');pad.className='sf-virtual-pad';pad.dataset.sfVirtualPad='1';
-    pad.innerHTML=`${shoulders(layout)}<div class="sf-pad-main">${dpad()}<div class="sf-pad-center"><button data-sf-inputs data-inputs="select">SELECT</button><button data-sf-inputs data-inputs="start">START</button></div>${faces(layout)}</div><small>${layout.name}</small>`;
-    $('.game-player-stage',overlay)?.appendChild(pad);$$('[data-sf-inputs]',pad).forEach(bindButton);
+    pad.innerHTML=`${shoulders(layout)}<div class="sf-pad-main">${touchStick()}<div class="sf-pad-center"><button data-sf-inputs data-inputs="select">SELECT</button><button data-sf-inputs data-inputs="start">START</button></div>${faces(layout)}</div><small>${layout.name}</small>`;
+    $('.game-player-stage',overlay)?.appendChild(pad);$$('[data-sf-inputs]',pad).forEach(bindButton);const stick=$('[data-sf-stick]',pad);if(stick)bindStick(stick);
   }
 
   function refresh(){
@@ -84,7 +133,7 @@
     if(!enabled()&&$('[data-sf-virtual-pad]',overlay)){releaseAll();$('[data-sf-virtual-pad]',overlay)?.remove();pad=null}
   }
 
-  document.addEventListener('pointerup',event=>releasePointer(event.pointerId),true);document.addEventListener('pointercancel',event=>releasePointer(event.pointerId),true);
+  document.addEventListener('pointerup',event=>{releasePointer(event.pointerId);releaseStick(event.pointerId)},true);document.addEventListener('pointercancel',event=>{releasePointer(event.pointerId);releaseStick(event.pointerId)},true);
   addEventListener('blur',releaseAll);document.addEventListener('visibilitychange',()=>{if(document.hidden)releaseAll()});addEventListener('resize',refresh);addEventListener('orientationchange',()=>setTimeout(refresh,120));
   window.addEventListener('stormflix:game-started',()=>setTimeout(install,0));window.addEventListener('stormflix:game-closed',()=>{releaseAll();pad=null});
 
