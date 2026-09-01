@@ -1,0 +1,91 @@
+/* StormFlix Games G4.4: native StormFlix alignment + fast mobile joystick player. */
+
+/* Games uses the same visual gutters as the main StormFlix catalog instead of
+ * becoming a narrow app nested inside the app. */
+body.games-mode .gx-topbar{padding-inline:0!important}
+body.games-mode .gx-mainnav,body.games-mode .gx-content{width:calc(100% - 9vw)!important;max-width:none!important;margin-inline:auto!important}
+body.games-mode .gx-content{padding-top:22px!important}
+body.games-mode .gx-game-page{width:100%!important;max-width:none!important}
+body.games-mode .gx-g43-hero-body{grid-template-columns:minmax(220px,260px) minmax(0,1fr)!important}
+body.games-mode .gx-g43-copy{max-width:1050px}
+body.games-mode .gx-g43-summary{max-width:88ch}
+
+/* Metadata media added by G4.4. */
+.gx-g44-trailer{display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:10px 15px;border:1px solid #303a47;border-radius:10px;background:#151c25;color:#edf2f7;text-decoration:none;font-weight:750;cursor:pointer}
+.gx-g44-trailer:hover,.gx-g44-trailer:focus-visible{outline:0;border-color:#59ccfa;box-shadow:0 0 0 2px rgba(89,204,250,.13)}
+.gx-g44-media{display:grid;gap:14px;margin-top:18px;padding:22px 0 4px;border-top:1px solid #242d38}
+.gx-g44-media-head{display:flex;align-items:end;justify-content:space-between;gap:18px}
+.gx-g44-media-head p{margin:0 0 4px;color:#60d0fb;font-size:9px;font-weight:900;letter-spacing:.13em}
+.gx-g44-media-head h2{margin:0;font-size:21px}.gx-g44-media-head>span{max-width:55%;color:#6f7d90;font-size:11px;text-align:right}
+.gx-g44-shot-track{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(300px,36%);gap:12px;overflow-x:auto;padding:2px 2px 12px;scroll-snap-type:x proximity;scrollbar-width:thin;scrollbar-color:#2c3b4a transparent}
+.gx-g44-shot-track button{position:relative;aspect-ratio:16/9;overflow:hidden;padding:0;border:1px solid #27333f;border-radius:12px;background:#090d12;scroll-snap-align:start;cursor:zoom-in}
+.gx-g44-shot-track button:hover,.gx-g44-shot-track button:focus-visible{outline:0;border-color:#5bcef9;box-shadow:0 0 0 2px rgba(91,206,249,.13)}
+.gx-g44-shot-track img{display:block;width:100%;height:100%;object-fit:cover}
+.sf-g44-lightbox{position:fixed;inset:0;z-index:2600;display:grid;place-items:center;padding:clamp(14px,4vw,54px);background:rgba(0,0,0,.91);backdrop-filter:blur(10px)}
+.sf-g44-lightbox>img{display:block;max-width:100%;max-height:88dvh;object-fit:contain;border-radius:12px;box-shadow:0 24px 90px #000}
+.sf-g44-lightbox>button{position:absolute;top:max(14px,env(safe-area-inset-top));right:max(14px,env(safe-area-inset-right));width:44px;height:44px;border:1px solid rgba(255,255,255,.16);border-radius:12px;background:rgba(20,24,31,.9);color:#fff;font-size:20px;cursor:pointer}
+
+/* Native StormFlix home game rails. */
+.sf-home-games-row{min-width:0}.sf-home-games-track{display:flex;gap:14px;overflow-x:auto;overflow-y:visible;padding:7px 1px 13px;scrollbar-width:none}.sf-home-games-track::-webkit-scrollbar{display:none}
+.sf-home-game-card{flex:0 0 clamp(126px,9.4vw,172px);min-width:0}.sf-home-game-card>button{display:block;width:100%;padding:0;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer}
+.sf-home-game-cover{position:relative;display:block;width:100%;aspect-ratio:3/4;overflow:hidden;border-radius:9px;background:linear-gradient(145deg,#141b25,#0b1017);box-shadow:0 10px 28px rgba(0,0,0,.34);transition:transform .14s ease,box-shadow .14s ease}
+.sf-home-game-cover img{display:block;width:100%;height:100%;object-fit:cover}.sf-home-game-cover>i{display:grid;place-items:center;width:100%;height:100%;font-size:20px;font-style:normal;font-weight:900;color:#75d4fb}
+.sf-home-game-cover>em{position:absolute;left:7px;bottom:7px;padding:4px 6px;border:1px solid rgba(78,220,164,.28);border-radius:999px;background:rgba(8,26,20,.86);color:#65e0aa;font-size:8px;font-style:normal;font-weight:800;text-transform:uppercase;letter-spacing:.05em}
+.sf-home-game-card>button:hover .sf-home-game-cover,.sf-home-game-card>button:focus-visible .sf-home-game-cover{transform:translateY(-2px) scale(1.012);box-shadow:0 0 0 2px #5dccf8,0 15px 34px rgba(0,0,0,.45)}
+.sf-home-game-card>button:focus-visible{outline:0}.sf-home-game-card strong{display:block;margin-top:7px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}.sf-home-game-card small{display:block;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#767f8e;font-size:9px}
+
+/* X exit choice. */
+.sf-g44-exit-dialog{position:absolute;inset:0;z-index:180;display:grid;place-items:center;padding:20px;background:rgba(0,0,0,.72);backdrop-filter:blur(9px)}
+.sf-g44-exit-dialog>section{width:min(470px,calc(100vw - 28px));padding:24px;border:1px solid rgba(255,255,255,.13);border-radius:16px;background:#10151c;color:#eef3f8;box-shadow:0 28px 90px rgba(0,0,0,.62)}
+.sf-g44-exit-dialog h2{margin:0 0 7px;font-size:24px}.sf-g44-exit-dialog p{margin:0;color:#9aa6b5;line-height:1.55}.sf-g44-exit-dialog>section>div{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:20px}.sf-g44-exit-dialog button{min-height:44px;border:1px solid #303a47;border-radius:10px;background:#171e27;color:#e9eff5;font-weight:760;cursor:pointer}.sf-g44-exit-dialog button.primary{grid-column:1/-1;background:#f5f7f9;border-color:#f5f7f9;color:#0b0e12}.sf-g44-exit-dialog button.danger{border-color:#553039;background:#2a171d;color:#ff9aaa}
+
+/* G4 arrow pad is replaced by the G3.2/G3.4 circular stick, but inputs still go
+ * through the single G4 player owner. */
+.sf-game-g41 .sf-g4-touch{display:none!important}
+.sf-g44-pad{position:absolute;left:0;right:0;bottom:74px;z-index:60;display:grid;gap:7px;padding:0 max(12px,env(safe-area-inset-left)) 0 max(12px,env(safe-area-inset-right));pointer-events:none;user-select:none;-webkit-user-select:none;touch-action:none;contain:layout paint}
+.sf-g44-pad button{pointer-events:auto;touch-action:none;border:1px solid rgba(255,255,255,.18);background:rgba(10,14,20,.78);color:#fff;box-shadow:0 7px 20px rgba(0,0,0,.32);font:850 12px/1 system-ui,sans-serif;transition:transform .05s ease,background .05s ease,border-color .05s ease}
+.sf-g44-pad button.pressed{transform:scale(.92)!important;background:rgba(77,190,244,.48)!important;border-color:rgba(105,218,255,.9)!important}
+.sf-g44-shoulders{display:flex;justify-content:space-between;gap:10px;padding:0 3px}.sf-g44-shoulders button{min-width:88px;height:35px;border-radius:11px}
+.sf-g44-main{display:grid;grid-template-columns:minmax(144px,1fr) auto minmax(150px,1fr);align-items:end;gap:12px}
+.sf-g44-stick{position:relative;justify-self:start;width:150px;height:150px;border-radius:50%;pointer-events:auto;touch-action:none;overflow:hidden;border:1px solid rgba(255,255,255,.17);background:radial-gradient(circle at 50% 48%,rgba(31,42,58,.84) 0 29%,rgba(15,21,31,.9) 30% 63%,rgba(6,9,14,.94) 64% 100%);box-shadow:inset 0 0 0 7px rgba(255,255,255,.022),inset 0 0 32px rgba(0,0,0,.48),0 10px 26px rgba(0,0,0,.38)}
+.sf-g44-stick:before,.sf-g44-stick:after{content:"";position:absolute;pointer-events:none;border-radius:50%}.sf-g44-stick:before{inset:17px;border:1px solid rgba(255,255,255,.08)}.sf-g44-stick:after{inset:44px;border:1px solid rgba(115,206,255,.1);background:rgba(255,255,255,.015)}
+.sf-g44-stick-orbit{position:absolute;inset:8px;border-radius:50%;pointer-events:none;background:radial-gradient(circle,transparent 0 61%,rgba(129,210,255,.07) 62% 63%,transparent 64%)}
+.sf-g44-stick-thumb{position:absolute;z-index:2;left:50%;top:50%;width:60px;height:60px;margin:-30px 0 0 -30px;border-radius:50%;pointer-events:none;background:radial-gradient(circle at 34% 28%,rgba(255,255,255,.38),rgba(81,174,224,.72) 42%,rgba(28,67,96,.95) 76%);border:1px solid rgba(170,226,255,.68);box-shadow:inset 0 -7px 14px rgba(0,0,0,.25),0 6px 16px rgba(0,0,0,.44),0 0 0 5px rgba(77,190,244,.055);transform:translate(0,0);will-change:transform}
+.sf-g44-stick.active{border-color:rgba(105,218,255,.5)}.sf-g44-stick.active .sf-g44-stick-thumb{border-color:rgba(180,235,255,.95);box-shadow:inset 0 -7px 14px rgba(0,0,0,.25),0 6px 16px rgba(0,0,0,.44),0 0 0 7px rgba(77,190,244,.12)}
+.sf-g44-center{display:flex;gap:7px;align-items:center;padding-bottom:8px}.sf-g44-center button{min-width:70px;padding:10px 11px;border-radius:999px;font-size:9px;letter-spacing:.07em}
+.sf-g44-face{justify-self:end}.sf-g44-face button{border-radius:50%}.sf-g44-face.two{display:flex;gap:11px;align-items:end;padding:0 4px 15px}.sf-g44-face.two button{width:64px;height:64px;font-size:19px}.sf-g44-face.two .b{transform:translateY(12px)}
+.sf-g44-face.diamond{display:grid;grid-template-columns:56px 56px 56px;grid-template-rows:56px 56px 56px;gap:2px}.sf-g44-face.diamond button{width:56px;height:56px;font-size:17px}.sf-g44-face.diamond .x{grid-column:2;grid-row:1}.sf-g44-face.diamond .y{grid-column:1;grid-row:2}.sf-g44-face.diamond .a{grid-column:3;grid-row:2;background:rgba(36,135,187,.45)}.sf-g44-face.diamond .b{grid-column:2;grid-row:3}
+.sf-g44-face.genesis{display:grid;gap:6px;padding:0 4px 9px}.sf-g44-face.genesis>div{display:flex;gap:6px}.sf-g44-face.genesis button{width:46px;height:46px;font-size:13px}.sf-g44-face.genesis>div:last-child button{width:52px;height:52px;background:rgba(36,135,187,.28)}
+
+@media(max-width:980px){
+  body.games-mode .gx-mainnav,body.games-mode .gx-content{width:calc(100% - 28px)!important}
+  .gx-g44-shot-track{grid-auto-columns:minmax(260px,58%)}
+}
+@media(max-width:720px){
+  body.games-mode .gx-mainnav{width:100%!important;margin:0!important}
+  body.games-mode .gx-content{width:calc(100% - 24px)!important}
+  body.games-mode .gx-g43-hero-body{grid-template-columns:1fr!important}
+  .gx-g44-media-head{align-items:start;flex-direction:column}.gx-g44-media-head>span{max-width:100%;text-align:left}.gx-g44-shot-track{grid-auto-columns:82%}
+  .sf-home-game-card{flex-basis:126px}
+  .sf-g44-exit-dialog{backdrop-filter:none}.sf-g44-lightbox{backdrop-filter:none}
+  .sf-g44-exit-dialog>section>div{grid-template-columns:1fr}.sf-g44-exit-dialog button.primary{grid-column:auto}
+}
+
+/* Portrait phone: game sits in the upper half and the circular controller has
+ * a dedicated lower zone, matching the earlier G3.2 layout the project used. */
+@media(max-width:720px) and (orientation:portrait){
+  .sf-game-g41.sf-virtual-pad-on .game-player-stage{align-items:flex-start!important;justify-content:center!important;padding:clamp(72px,9dvh,92px) 7px 292px!important;overflow:hidden!important}
+  .sf-game-g41.sf-virtual-pad-on .game-player-canvas{display:block!important;width:min(calc(100vw - 14px),calc(43dvh * 4 / 3))!important;height:auto!important;max-width:calc(100vw - 14px)!important;max-height:43dvh!important;margin:0 auto!important;object-fit:contain!important}
+  .sf-g44-pad{bottom:68px;padding-left:10px;padding-right:10px;gap:5px}
+  .sf-g44-main{grid-template-columns:126px 1fr 136px;gap:5px}.sf-g44-stick{width:126px;height:126px}.sf-g44-stick:before{inset:15px}.sf-g44-stick:after{inset:38px}.sf-g44-stick-thumb{width:52px;height:52px;margin:-26px 0 0 -26px}
+  .sf-g44-center{flex-direction:column;gap:5px;padding-bottom:0}.sf-g44-center button{min-width:58px;padding:8px 5px;font-size:8px}
+  .sf-g44-face.diamond{grid-template-columns:45px 45px 45px;grid-template-rows:45px 45px 45px}.sf-g44-face.diamond button{width:45px;height:45px;font-size:15px}.sf-g44-face.two{gap:8px}.sf-g44-face.two button{width:52px;height:52px}.sf-g44-face.genesis{gap:4px}.sf-g44-face.genesis>div{gap:4px}.sf-g44-face.genesis button{width:37px;height:37px;font-size:10px}.sf-g44-face.genesis>div:last-child button{width:42px;height:42px}.sf-g44-shoulders button{min-width:68px;height:31px;font-size:10px}
+  .sf-game-g41 .game-player-controls{backdrop-filter:none!important;background:rgba(8,11,16,.93)!important}.sf-g44-pad button{backdrop-filter:none!important}
+}
+@media(max-width:390px) and (orientation:portrait){
+  .sf-game-g41.sf-virtual-pad-on .game-player-stage{padding-bottom:270px!important}.sf-g44-pad{bottom:64px;padding-inline:6px}.sf-g44-main{grid-template-columns:112px 1fr 122px}.sf-g44-stick{width:112px;height:112px}.sf-g44-stick-thumb{width:46px;height:46px;margin:-23px 0 0 -23px}.sf-g44-face.diamond{grid-template-columns:40px 40px 40px;grid-template-rows:40px 40px 40px}.sf-g44-face.diamond button{width:40px;height:40px}.sf-g44-center button{min-width:51px}.sf-g44-shoulders button{min-width:60px}
+}
+@media(orientation:landscape) and (max-height:620px){
+  .sf-game-g41.sf-virtual-pad-on .game-player-stage{align-items:center!important;justify-content:center!important;padding:5px 164px 5px 164px!important}.sf-game-g41.sf-virtual-pad-on .game-player-canvas{width:min(calc(100vw - 328px),calc(100dvh * 4 / 3))!important;height:auto!important;max-height:100dvh!important}
+  .sf-g44-pad{inset:6px 8px 6px;display:block;padding:0}.sf-g44-shoulders{position:absolute;left:2px;right:2px;top:0}.sf-g44-main{position:absolute;inset:35px 0 0;display:block}.sf-g44-stick{position:absolute;left:0;bottom:0;width:132px;height:132px}.sf-g44-stick-thumb{width:54px;height:54px;margin:-27px 0 0 -27px}.sf-g44-center{position:absolute;left:50%;bottom:3px;transform:translateX(-50%);flex-direction:row}.sf-g44-face{position:absolute;right:0;bottom:0}.sf-game-g41 .game-player-controls{backdrop-filter:none!important}
+}
