@@ -18,16 +18,30 @@ import (
 
 func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		c, err := r.Cookie(sessionCookie)
-		if err != nil {
-			writeError(w, 401, errors.New("authentication required"))
-			return
+		var u auth.User
+		var sessionErr error
+		if c, err := r.Cookie(sessionCookie); err == nil {
+			u, sessionErr = s.auth.CurrentUser(r.Context(), c.Value)
+		} else {
+			sessionErr = err
 		}
-		u, err := s.auth.CurrentUser(r.Context(), c.Value)
-		if err != nil {
-			writeError(w, 401, errors.New("session expired or invalid"))
-			return
+
+		if sessionErr != nil {
+			grantUser, profileID, grantErr := s.playbackGrantUser(r)
+			if grantErr != nil {
+				writeError(w, 401, errors.New("authentication required"))
+				return
+			}
+			u = grantUser
+			if profileID > 0 {
+				r.AddCookie(&http.Cookie{Name: profileCookie, Value: strconv.FormatInt(profileID, 10), Path: "/"})
+			}
+			// A temporary playback grant is intentionally usable by a Chromecast,
+			// Smart TV or external player that does not share browser cookies.
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Expose-Headers", "Accept-Ranges, Content-Length, Content-Range, Content-Type")
 		}
+
 		// The current StormFlix model is full-catalog by default. Older users may
 		// have no user_libraries rows because library selection used to be manual;
 		// treat that legacy empty set as access to every enabled library.

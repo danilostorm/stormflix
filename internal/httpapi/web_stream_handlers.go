@@ -68,6 +68,7 @@ func (s *server) webStreamPlaylist(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, err)
 		return
 	}
+	playlist = rewritePlaylistWithPlaybackGrant(playlist, r.URL.Query().Get("st"))
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	w.Header().Set("Cache-Control", "private, no-store")
 	w.Header().Set("X-StormFlix-Playback", "web-v53-continuous-session")
