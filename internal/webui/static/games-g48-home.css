@@ -1,3 +1,4 @@
+@import url('/games-g49-collections.css?v=g49');
 /* StormFlix Games G4.8 Home dashboard */
 .g48-dashboard{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(360px,.85fr);gap:18px;align-items:stretch}
 .g48-dashboard>.gx-hero{min-height:330px;height:100%;grid-template-columns:minmax(170px,210px) minmax(0,1fr);margin:0}
