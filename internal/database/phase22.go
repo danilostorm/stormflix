@@ -89,5 +89,5 @@ CREATE INDEX IF NOT EXISTS idx_game_metadata_jobs_library
 	if _, err := db.Exec(schema); err != nil {
 		return fmt.Errorf("migrate phase22 games admin/metadata: %w", err)
 	}
-	return nil
+	return migratePhase23(db)
 }
