@@ -1,6 +1,7 @@
 package cloud.stormflix.app;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.graphics.Color;
 import android.os.Bundle;
@@ -31,12 +32,14 @@ public class DetailActivity extends Activity {
     private ApiClient api;
     private ImageLoader images;
     private LinearLayout content;
+    private PlaybackAnywhereNative anywhereBridge;
     private long mediaId;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         mediaId = getIntent().getLongExtra("media_id", 0);
         api = new ApiClient(this); images = new ImageLoader(this);
+        anywhereBridge = new PlaybackAnywhereNative(this, null);
         if (mediaId <= 0) { finish(); return; }
         ScrollView scroll = new ScrollView(this); scroll.setBackgroundColor(Ui.BG);
         content = Ui.vertical(this, 18); scroll.addView(content, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -67,6 +70,8 @@ public class DetailActivity extends Activity {
         LinearLayout actions = Ui.horizontal(this, 0);
         Button play = Ui.button(this, "▶ Assistir", true); play.setOnClickListener(v -> play(media));
         actions.addView(play, Ui.margin(this, ViewGroup.LayoutParams.WRAP_CONTENT, Ui.dp(this,48),0,0,10,0));
+        Button anywhere = Ui.button(this, "▣ Reproduzir em", false); anywhere.setOnClickListener(v -> showPlaybackAnywhere(media));
+        actions.addView(anywhere, Ui.margin(this, ViewGroup.LayoutParams.WRAP_CONTENT, Ui.dp(this,48),0,0,10,0));
         body.addView(actions, Ui.margin(this, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,0,12,0,0));
         if (!media.overview.isEmpty()) { TextView overview = Ui.muted(this, media.overview, 15); overview.setLineSpacing(0,1.15f); body.addView(overview, Ui.margin(this, Ui.dp(this,900), ViewGroup.LayoutParams.WRAP_CONTENT,0,16,0,0)); }
 
@@ -91,6 +96,76 @@ public class DetailActivity extends Activity {
             hs.addView(rail); body.addView(hs);
         }
         content.addView(body);
+    }
+
+    private void showPlaybackAnywhere(Models.Media media) {
+        String[] options = {
+            "Chromecast / Google TV",
+            "Web Video Cast / Roku / DLNA",
+            "Abrir com outro player"
+        };
+        new AlertDialog.Builder(this)
+            .setTitle("Reproduzir em…")
+            .setItems(options, (dialog, which) -> preparePlaybackAnywhere(media, which))
+            .setNegativeButton("Cancelar", null)
+            .show();
+    }
+
+    private void preparePlaybackAnywhere(Models.Media media, int target) {
+        Toast.makeText(this, "Preparando reprodução…", Toast.LENGTH_SHORT).show();
+        io.submit(() -> {
+            try {
+                JSONObject caps = new JSONObject();
+                caps.put("containers", new JSONArray().put("mp4"));
+                caps.put("video_codecs", new JSONArray().put("h264"));
+                caps.put("audio_codecs", new JSONArray().put("aac").put("mp3"));
+                caps.put("subtitle_formats", new JSONArray().put("vtt"));
+                caps.put("allow_remux", true);
+                caps.put("allow_audio_compatibility", true);
+                caps.put("allow_video_transcode", true);
+                caps.put("max_transcode_bitrate_kbps", 18000);
+                caps.put("native_audio_track_selection", false);
+                caps.put("server_selects_audio", true);
+
+                JSONObject request = new JSONObject();
+                request.put("client_kind", "tv");
+                request.put("client_name", "StormFlix Android Playback Anywhere");
+                request.put("client_version", "0.6.4");
+                request.put("quality", "auto");
+                request.put("start_position_seconds", 0);
+                request.put("capabilities", caps);
+
+                JSONObject plan = new JSONObject(api.post("/media/" + media.id + "/playback/plan", request));
+                if (!plan.optBoolean("available", false) || plan.optString("url", "").trim().isEmpty()) {
+                    throw new IllegalStateException(plan.optString("reason", "Nenhuma rota compatível ficou disponível."));
+                }
+                JSONObject grantRequest = new JSONObject();
+                grantRequest.put("url", plan.getString("url"));
+                JSONObject grant = new JSONObject(api.post("/media/" + media.id + "/playback/grant", grantRequest));
+                String url = grant.optString("url", "").trim();
+                if (url.isEmpty()) throw new IllegalStateException("StormFlix não retornou o link temporário de reprodução.");
+                String mime = remoteMime(plan, url);
+
+                main.post(() -> {
+                    if (target == 0) anywhereBridge.openNativeCast(url, media.title, mime, 0);
+                    else if (target == 1) anywhereBridge.openWebVideoCast(url, media.title, mime);
+                    else anywhereBridge.openExternalPlayer(url, media.title, mime);
+                });
+            } catch (Exception error) {
+                main.post(() -> Toast.makeText(this, error.getMessage(), Toast.LENGTH_LONG).show());
+            }
+        });
+    }
+
+    private String remoteMime(JSONObject plan, String url) {
+        String lower = url == null ? "" : url.toLowerCase(Locale.ROOT);
+        String mode = plan.optString("mode", "");
+        String transport = plan.optString("transport", "");
+        if (lower.contains(".m3u8") || "hls".equalsIgnoreCase(transport)
+            || "video_transcode".equals(mode) || "audio_compatibility".equals(mode) || "remux".equals(mode)) {
+            return "application/x-mpegURL";
+        }
+        return "video/mp4";
     }
 
     private LinearLayout personCard(JSONObject p) {
