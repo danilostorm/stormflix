@@ -21,8 +21,9 @@ Server HTTP port: **8090**, normally behind an HTTPS reverse proxy.
 
 ## Current clients
 
-- Server code line: **`0.22.0-web-playback-v53`**.
+- Server code line: **`0.23.0-games-g2`**.
 - Web Player: v5 line, based on the v5.3 continuous Web playback-session architecture plus v5.4 presentation/TV controls.
+- Games Web Player: G2 browser/WASM line with pinned Nostalgist/RetroArch runtime, profile-owned saves and playtime.
 - Android package: `cloud.stormflix.app`, **0.6.3 / versionCode 21**, minSdk 23, targetSdk 36, Java 17.
 - Android phone/tablet, Android TV and Fire TV keep native StormFlix catalog/navigation but delegate video playback to the hosted StormFlix Web Player inside `PlayerActivity` WebView.
 - Samsung Tizen: `apps/tizen` 0.1.0 thin shell; final WGT requires the developer's Samsung/Tizen signing profile.
@@ -38,9 +39,9 @@ Server HTTP port: **8090**, normally behind an HTTPS reverse proxy.
 4. Video transcode is chosen only by PlaybackPlan when device/codec/quality actually requires it.
 5. Scanner-owned series identity (library root → show → season → episode) precedes metadata-provider guesses.
 6. Manual episodic matches are stored at principal-series level whenever possible.
-7. Profile/kids/library authorization must survive browse, caches, collections, integrations, downloads and future games.
+7. Profile/kids/library authorization must survive browse, caches, collections, integrations, downloads and games.
 8. Progress is profile/session/sequence aware; source/version/quality/audio changes preserve intended position.
-9. External providers enrich the system but must not be required for login, Home, local progress or playback.
+9. External providers enrich the system but must not be required for login, Home, local progress or normal playback. Games already cached locally must not require the runtime CDN again.
 10. Temporary/offline FUSE/rclone sources must not cause destructive catalog disappearance.
 
 ## Playback architecture
@@ -76,6 +77,21 @@ The browser is the reference video implementation. Compatible files use HTTP Ran
 Android/Fire/Android TV and the Tizen/webOS shells converge on the hosted Web Player. `tv-remote.js` normalizes remote/media keys while hardware volume stays OS-owned.
 
 Real-device behavior is authoritative for startup/stall/remote QA; CI validates code/build logic, not remote-mount latency.
+
+### Intro and credits markers
+
+Automatic episodic marker analysis is local-first and budgeted. Intro detection compares recurring audio fingerprints near the beginning of episodes. Credits detection analyzes recurring segments in the latter half/tail and may store **multiple independent credit intervals**.
+
+Important invariants:
+- automatic detection finds the interval; the selected profile's `manual` / `automatic` / `disabled` preference decides player behavior;
+- manual and chapter-derived markers take precedence over automatic analysis;
+- intro analysis state is independent from credits analysis state;
+- credits are not represented as one unconditional “start → file end” interval when several recurring blocks are detected;
+- a unique scene between two recurring credit blocks remains outside both automatic intervals, preserving post-credit scenes;
+- heavy technical/marker work yields to active playback;
+- intro/credits jobs and progress are visible in Admin → **Fila & atividades**.
+
+CI validates algorithms/migrations/build safety. Real-world marker accuracy still requires representative media QA across codecs, dubs and rclone/FUSE latency.
 
 ## Libraries, sources and scanner safety
 
@@ -166,23 +182,75 @@ Profile avatar assets are now included in the cleanup reference set.
 
 ## Scan queues, safety and backups
 
-`scan_jobs` is persistent FIFO and scans are serialized. Preview/dry-run follows the same source ownership rules without mutating catalog availability. Catalog-changing scan/path/category operations use SQLite safety backups; restore is staged and verified before activation.
+`scan_jobs` is persistent FIFO and media scans are serialized. Game libraries use their own persistent `game_scan_jobs` queue so ROM files never enter the movie/series scanner. Both queues remain visible through the unified Admin → **Fila & atividades** view.
 
-## Games and entertainment roadmap
+Game scans hash supported cartridges with SHA-256, pause while video playback is active and preserve the previous game catalog for unavailable sources. Preview/dry-run for media follows the source ownership rules without mutating catalog availability. Catalog-changing scan/path/category operations use SQLite safety backups; restore is staged and verified before activation.
 
-`ENTERTAINMENT_ROADMAP.md` is the executable product roadmap. Major planned work includes:
-- Skip Intro / Skip Credits with profile and per-show behavior;
-- rewind-on-resume and still-watching protection;
-- configurable autoplay countdown;
-- Smart Downloads on mobile;
-- smart playlists;
-- Watch Party / synchronized playback;
-- improved editions/versions/extras;
-- OIDC/optional stronger authentication;
-- reuse of expensive media analysis;
-- native **Jogos** module with scanner/platform/hash identity, browser/WASM emulation, per-profile saves, gamepad/TV/mobile support, metadata adapters and Continue Jogando.
+## Games — current G1/G2 architecture
 
-RetroAssembly (MIT) is an architectural reference for browser retro emulation. RomM is a product/reference source for metadata breadth and game-management concepts but is AGPL-3.0; do not copy RomM source into StormFlix without an intentional compatible licensing decision.
+Games are a first-class StormFlix media domain, not an iframe and not rows in the video `media` table.
+
+### G1 catalog
+
+Current cartridge matrix:
+- NES: `.nes`
+- SNES: `.sfc`, `.smc`
+- Mega Drive / Genesis: `.md`, `.gen`, `.smd`
+- Game Boy: `.gb`
+- Game Boy Color: `.gbc`
+- Game Boy Advance: `.gba`
+
+The scanner identifies a game by platform + SHA-256, keeps physical ROM paths private, supports optional local sidecar cover files and exposes favorites/playtime/last-played per selected profile. Disc/archive formats remain intentionally outside this first matrix.
+
+### G2 browser player
+
+The Web client launches supported games using **Nostalgist 0.21.1** with explicitly mapped RetroArch cores from Emscripten build **v1.22.2**:
+
+```text
+NES       → fceumm
+SNES      → snes9x
+Mega Drive→ genesis_plus_gx
+GB/GBC/GBA→ mgba
+```
+
+Runtime policy:
+- browser never loads arbitrary emulator URLs;
+- server accepts only the fixed Nostalgist version and allowlisted core names/extensions;
+- first use of Nostalgist/a core may require outbound Internet to populate `DataDir/game-runtime`;
+- after the exact asset is cached, it is served same-origin with immutable caching;
+- ROM and save payloads are never uploaded to the runtime CDN.
+
+ROM access:
+- `/api/v1/games/{id}/rom` is authenticated and library-permission-aware;
+- actual filesystem paths are never returned to Web clients;
+- the initial cartridge limit remains 512 MiB.
+
+Profile saves:
+- save state and battery SRAM are stored under `DataDir/game-saves/profile-<id>/<platform>/<sha256>/`;
+- SQLite stores only bounded metadata/version rows in `game_saves`;
+- save files use atomic temp-file replacement and retain three recovery generations;
+- state limit is 32 MiB, SRAM limit is 8 MiB;
+- two profiles playing the same ROM use independent directories and state.
+
+Playtime:
+- opaque browser sessions report monotonic elapsed seconds;
+- the server credits only positive deltas and bounds a single jump to 120 seconds;
+- hidden browser time does not advance the client counter;
+- `game_profile_state.play_seconds` and `last_played_at` feed **Continuar jogando**.
+
+Player UX:
+- ROM/runtime/save preparation occurs before the final `Iniciar agora` user gesture to preserve browser audio activation;
+- existing state offers Continue from save-state vs normal boot with SRAM;
+- fullscreen, pause/resume, gamepad status, keyboard focus, autosave, manual save and Save-and-exit are built in;
+- Save-and-exit waits for an in-flight autosave and performs a final save before terminating the emulator.
+
+G2 CI can validate schema, service behavior, JS syntax and server build. Actual emulation/audio/gamepad behavior must still be validated with user-provided legal ROMs and real browsers/controllers. G3 remains responsible for virtual mobile controls, broader TV/gamepad QA, save-state thumbnails and richer living-room polish.
+
+RetroAssembly (MIT) remains an architectural reference for browser retro emulation. RomM is a product/reference source for metadata breadth and game-management concepts but is AGPL-3.0; do not copy RomM source into StormFlix without an intentional compatible licensing decision.
+
+## Entertainment roadmap
+
+`ENTERTAINMENT_ROADMAP.md` is the executable product roadmap. Games G1/G2 and automatic intro/credit foundations are now implemented. Remaining major roadmap work includes Smart Downloads, smart playlists, Watch Party, improved editions/versions/extras, OIDC/optional stronger authentication, reuse of expensive media analysis, game metadata/achievements and G3 living-room/mobile game polish.
 
 ## Jellyfin compatibility
 
@@ -206,7 +274,7 @@ For relevant changes validate the exact PR head with:
 - platform-specific Android/Tizen/webOS workflow when those clients change;
 - post-merge `main` workflow green before presenting the package as production-ready.
 
-Real-device QA remains mandatory for browser playback, Fire/Android TV remotes, Tizen/webOS key behavior and remote/rclone throughput.
+Real-device QA remains mandatory for browser playback, gamepad/emulator behavior, Fire/Android TV remotes, Tizen/webOS key behavior and remote/rclone throughput.
 
 ## Documentation rule
 
