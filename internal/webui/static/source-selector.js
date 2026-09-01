@@ -7,7 +7,7 @@
   openDetail=async function(id){
     await baseOpenDetail(id);
     if(!currentDetail)return;
-    window.sfSelectedDetailMedia={...currentDetail,id:Number(currentDetail.id)};
+    window.sfSelectedDetailMedia={...currentDetail,_logical_id:Number(currentDetail.id),id:Number(currentDetail.id)};
     await renderDetailSources(currentDetail).catch(()=>{});
   };
 
@@ -16,7 +16,7 @@
     selectedVersionID=Number(detail.id);
     let root=document.querySelector('#detail-sources');
     if(root)root.remove();
-    if(!detailVersions.length){window.sfSelectedDetailMedia={...detail,id:Number(detail.id)};return}
+    if(!detailVersions.length){window.sfSelectedDetailMedia={...detail,_logical_id:Number(detail.id),id:Number(detail.id)};return}
 
     const servers=[];
     const seen=new Set();
@@ -57,8 +57,8 @@
 
   function applySelectedSource(detail){
     const version=detailVersions.find(v=>Number(v.id)===selectedVersionID)||detailVersions[0];
-    if(!version){window.sfSelectedDetailMedia={...detail,id:Number(detail.id)};return}
-    const selected={...detail,id:Number(version.id),extension:version.extension,size_bytes:version.size_bytes,server_label:version.server_label,source_index:version.source_index};
+    if(!version){window.sfSelectedDetailMedia={...detail,_logical_id:Number(detail.id),id:Number(detail.id)};return}
+    const selected={...detail,_logical_id:Number(detail.id),id:Number(version.id),extension:version.extension,size_bytes:version.size_bytes,server_label:version.server_label,source_index:version.source_index};
     window.sfSelectedDetailMedia=selected;
     const play=document.querySelector('#detail-play');
     if(play){
