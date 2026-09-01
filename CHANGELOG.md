@@ -4,6 +4,17 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 
 ## 2026-09-01
 
+### Playback Anywhere v3 — native Android Cast, app chooser and Web Video Cast handoff
+
+- Android advances to **0.6.4 / versionCode 22** and adds Google Cast Application Framework 22.3.1. Chromecast/Google TV discovery in the APK now uses the native Android Cast route chooser instead of depending on the Web Sender SDK inside Android System WebView.
+- Added `NativePlaybackAnywhere`, which receives only the already-authorized, short-lived Playback Anywhere URL produced by the server. Receiver applications never receive StormFlix cookies or passwords.
+- Native Android media details now expose **Reproduzir em…** beside Assistir, so a user can cast/open externally without first starting local playback.
+- **Abrir com outro player** uses Android `ACTION_VIEW` + `Intent.createChooser`, allowing the operating system to present compatible installed apps such as VLC, MX Player and Web Video Cast rather than opening the stream in a browser tab.
+- Added a dedicated **Web Video Cast / Roku / DLNA** handoff. When Web Video Cast (`com.instantbits.cast.webvideo`) is installed, StormFlix sends it the temporary PlaybackPlan/grant URL so its own receiver discovery can target Roku, Fire TV, DLNA, webOS and other devices it supports.
+- The normal Web client keeps Google Cast Web Sender as a fallback and now explains the HTTPS/network requirement when Cast discovery is unavailable.
+- Playback Anywhere UI remains anchored next to its `Reproduzir em` trigger and the Web asset is cache-busted as v3.
+- No proprietary Web Video Cast code is bundled or copied. The integration is Android intent interoperability only. Native DLNA discovery inside StormFlix itself remains separate future work.
+
 ### Games Metadata Stack v2 — hash identity and multi-provider enrichment
 
 - Expanded the automatic Games metadata worker from the initial IGDB/MobyGames/SteamGridDB trio to a real **8-provider runtime stack**: ScreenScraper, IGDB, MobyGames, TheGamesDB, Hasheous, RetroAchievements, SteamGridDB and Libretro.
@@ -85,9 +96,9 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 
 - Added automatic movie-franchise grouping using TMDB `belongs_to_collection` instead of title heuristics.
 - Phase 14 persists collection identity and invalidates it when the movie TMDB match changes.
-- Existing matched movies are backfilled by a single low-rate background worker.
+- Existing matched movies are backfilled by a single low-rate worker.
 - Added permission-aware `/api/v1/media?group=collections&minimum_size=2` and automatic Web **Coleções** navigation.
-- Fixed Admin → Limpeza so only one renderer owns the page; stale async responses no longer replace the optimization view.
+- Fixed Admin → Limpeza so only one page-loader owner; stale async responses no longer replace the optimization view.
 
 ### 4K device policy, cheaper live transcode and lossless assets
 

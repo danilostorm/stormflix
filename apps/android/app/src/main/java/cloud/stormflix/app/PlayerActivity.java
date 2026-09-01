@@ -35,7 +35,7 @@ import java.util.Locale;
  * mature TV clients such as Jellyfin.
  */
 public final class PlayerActivity extends Activity {
-    private static final String APP_UA = "StormFlixAndroidPlayer/0.6.2";
+    private static final String APP_UA = "StormFlixAndroidPlayer/0.6.4";
 
     private SessionStore store;
     private FrameLayout root;
@@ -107,6 +107,9 @@ public final class PlayerActivity extends Activity {
         cookies.setAcceptThirdPartyCookies(webView, false);
 
         webView.addJavascriptInterface(new NativePlayerShell(), "StormFlixShell");
+        // Playback Anywhere keeps PlaybackPlan/grant creation in Web code, then
+        // delegates only the short-lived authorized URL to native Android APIs.
+        webView.addJavascriptInterface(new PlaybackAnywhereNative(this, webView), "NativePlaybackAnywhere");
         webView.setWebViewClient(new PlayerWebViewClient());
         webView.setWebChromeClient(new PlayerWebChromeClient());
         webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
@@ -423,6 +426,7 @@ public final class PlayerActivity extends Activity {
         if (webView != null) {
             webView.stopLoading();
             webView.loadUrl("about:blank");
+            webView.removeJavascriptInterface("NativePlaybackAnywhere");
             webView.removeJavascriptInterface("StormFlixShell");
             webView.clearHistory();
             webView.removeAllViews();

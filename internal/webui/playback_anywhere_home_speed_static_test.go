@@ -13,7 +13,7 @@ func TestPlaybackAnywhereDetailActionIsFirstClass(t *testing.T) {
 	for _, required := range [][]byte{
 		[]byte(`id="detail-anywhere"`),
 		[]byte(`Reproduzir em`),
-		[]byte(`/playback-anywhere.js?v=2`),
+		[]byte(`/playback-anywhere.js?v=3`),
 		[]byte(`/source-selector.js?v=3`),
 		[]byte(`/catalog-performance.js?v=2`),
 	} {
@@ -27,15 +27,23 @@ func TestPlaybackAnywhereDetailActionIsFirstClass(t *testing.T) {
 		t.Fatalf("read playback-anywhere.js: %v", err)
 	}
 	for _, required := range [][]byte{
-		[]byte(`openForMedia(media)`),
+		[]byte(`Playback Anywhere v3`),
+		[]byte(`openForMedia(media,anchor)`),
 		[]byte(`document.body.appendChild(panel)`),
 		[]byte(`targetMedia`),
 		[]byte(`closest?.('#detail-anywhere')`),
 		[]byte(`selected._logical_id||selected.id`),
 		[]byte(`window.StormFlixPlaybackAnywhere`),
+		[]byte(`NativePlaybackAnywhere`),
+		[]byte(`openNativeCast`),
+		[]byte(`openExternalPlayer`),
+		[]byte(`openWebVideoCast`),
+		[]byte(`Web Video Cast / Roku / DLNA`),
+		[]byte(`Google Cast exige abrir o StormFlix por HTTPS`),
+		[]byte(`placePanel(anchor)`),
 	} {
 		if !bytes.Contains(js, required) {
-			t.Fatalf("detail Playback Anywhere implementation missing %q", required)
+			t.Fatalf("Playback Anywhere v3 implementation missing %q", required)
 		}
 	}
 }

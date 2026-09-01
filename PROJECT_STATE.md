@@ -22,10 +22,10 @@ Server HTTP port: **8090**, normally behind an HTTPS reverse proxy.
 ## Current clients
 
 - Server code line: **`0.25.0-playback-anywhere`**.
-- Web Player: v5 line, based on the v5.3 continuous Web playback-session architecture plus v5.4 presentation/TV controls and Playback Anywhere v1.
+- Web Player: v5 line, based on the v5.3 continuous Web playback-session architecture plus v5.4 presentation/TV controls and Playback Anywhere v3.
 - Games Web Player: G2 browser/WASM runtime plus G2.5 dedicated Admin/metadata and RomMix-inspired browsing; G3 adds virtual mobile controls, TV/gamepad focus/menu behavior and profile-owned save-state previews. Games metadata now uses the Metadata Stack v2 multi-provider pipeline.
-- Android package: `cloud.stormflix.app`, **0.6.3 / versionCode 21**, minSdk 23, targetSdk 36, Java 17.
-- Android phone/tablet, Android TV and Fire TV keep native StormFlix catalog/navigation but delegate video playback to the hosted StormFlix Web Player inside `PlayerActivity` WebView.
+- Android package: `cloud.stormflix.app`, **0.6.4 / versionCode 22**, minSdk 23, targetSdk 36, Java 17.
+- Android phone/tablet, Android TV and Fire TV keep native StormFlix catalog/navigation but delegate normal video playback to the hosted StormFlix Web Player inside `PlayerActivity` WebView. Playback Anywhere routing uses native Android APIs where available.
 - Samsung Tizen: `apps/tizen` 0.1.0 thin shell; final WGT requires the developer's Samsung/Tizen signing profile.
 - LG webOS: `apps/webos` 0.1.0 thin shell; CI can package the Developer Mode IPK.
 - Jellyfin compatibility facade remains isolated from native `/api/v1` state.
@@ -76,9 +76,9 @@ The browser is the reference video implementation. Compatible files use HTTP Ran
 
 Android/Fire/Android TV and the Tizen/webOS shells converge on the hosted Web Player. `tv-remote.js` normalizes remote/media keys while hardware volume stays OS-owned.
 
-Playback Anywhere v1 adds **Reproduzir em…** to the Web Player. Google Cast uses the Default Media Receiver with a route already selected by PlaybackPlan; external-player handoff supports temporary URLs suitable for VLC/mpv or native bridges. Handoff grants are HMAC-signed, short-lived and scoped to the authenticated user/profile/media instead of exposing browser cookies or passwords. HLS/webstream manifests propagate the grant only to their subordinate playback resources, and Cast progress is written back through the normal profile progress path.
+Playback Anywhere v3 keeps the server-owned PlaybackPlan + short-lived HMAC playback-grant model and expands the sender layer. In normal Chrome, Google Cast still uses the Web Sender/Default Media Receiver and requires a secure browser context for reliable discovery. In the Android 0.6.4 APK, Chromecast/Google TV discovery and session setup move to the native Google Cast Application Framework instead of relying on WebView. The native Android detail screen exposes **Reproduzir em…** without first starting local playback. **Abrir com outro player** uses Android `ACTION_VIEW` + `Intent.createChooser`, and a dedicated Web Video Cast handoff targets package `com.instantbits.cast.webvideo`, allowing that installed app to discover Roku, Fire TV, DLNA, webOS and other receivers it supports. Only the temporary authorized media URL is handed to Cast/other apps; StormFlix session cookies and passwords are never shared. DLNA discovery implemented directly inside StormFlix remains future work rather than being falsely represented as native support.
 
-Real-device behavior is authoritative for startup/stall/remote/Cast QA; CI validates code/build logic, not remote-mount latency or receiver-network behavior.
+Real-device behavior is authoritative for startup/stall/remote/Cast/app-routing QA; CI validates code/build logic, not receiver-network behavior, installed third-party app behavior or remote-mount latency.
 
 ### Intro and credits markers
 
@@ -314,7 +314,7 @@ RetroAssembly (MIT) remains an architectural reference for browser retro emulati
 
 ## Entertainment roadmap
 
-`ENTERTAINMENT_ROADMAP.md` is the executable product roadmap. Games G1/G2/G2.5/G3, Metadata Stack v2, Playback Anywhere v1 and automatic intro/credit foundations are implemented. Remaining major roadmap work includes Smart Downloads, smart playlists, Watch Party, improved editions/versions/extras, OIDC/optional stronger authentication, reuse of expensive media analysis, specialized long-tail Games providers, no-rehash scanning, BIOS/ROMset diagnostics and the G4 rich Games ecosystem.
+`ENTERTAINMENT_ROADMAP.md` is the executable product roadmap. Games G1/G2/G2.5/G3, Metadata Stack v2, Playback Anywhere v3 and automatic intro/credit foundations are implemented. Remaining major roadmap work includes Smart Downloads, smart playlists, Watch Party, improved editions/versions/extras, OIDC/optional stronger authentication, reuse of expensive media analysis, specialized long-tail Games providers, no-rehash scanning, BIOS/ROMset diagnostics, native DLNA discovery and the G4 rich Games ecosystem.
 
 ## Jellyfin compatibility
 
@@ -338,7 +338,7 @@ For relevant changes validate the exact PR head with:
 - platform-specific Android/Tizen/webOS workflow when those clients change;
 - post-merge `main` workflow green before presenting the package as production-ready.
 
-Real-device QA remains mandatory for browser playback, gamepad/emulator behavior, Fire/Android TV remotes, Tizen/webOS key behavior and remote/rclone throughput.
+Real-device QA remains mandatory for browser playback, gamepad/emulator behavior, Fire/Android TV remotes, Tizen/webOS key behavior, Cast/app routing and remote/rclone throughput.
 
 ## Documentation rule
 
