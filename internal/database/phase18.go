@@ -38,5 +38,5 @@ CREATE INDEX IF NOT EXISTS idx_marker_analysis_jobs_season
 	if _, err := db.Exec(schema); err != nil {
 		return fmt.Errorf("migrate phase18 observable marker jobs: %w", err)
 	}
-	return nil
+	return migratePhase19(db)
 }
