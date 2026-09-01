@@ -9,14 +9,12 @@ import android.os.Handler;
 import android.os.Looper;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
-import android.widget.FrameLayout;
 
-import androidx.mediarouter.app.MediaRouteButton;
+import androidx.mediarouter.app.MediaRouteChooserDialog;
 
 import com.google.android.gms.cast.MediaInfo;
 import com.google.android.gms.cast.MediaLoadRequestData;
 import com.google.android.gms.cast.MediaMetadata;
-import com.google.android.gms.cast.framework.CastButtonFactory;
 import com.google.android.gms.cast.framework.CastContext;
 import com.google.android.gms.cast.framework.CastSession;
 import com.google.android.gms.cast.framework.SessionManagerListener;
@@ -40,7 +38,6 @@ public final class PlaybackAnywhereNative {
     private final Activity activity;
     private final WebView webView;
     private final Handler main = new Handler(Looper.getMainLooper());
-    private MediaRouteButton castButton;
     private SessionManagerListener<CastSession> pendingListener;
     private PendingCast pendingCast;
 
@@ -160,9 +157,11 @@ public final class PlaybackAnywhereNative {
                 @Override public void onSessionSuspended(CastSession session, int reason) {}
             };
             context.getSessionManager().addSessionManagerListener(pendingListener, CastSession.class);
-            ensureCastButton();
+
             emit("cast_searching", "Abrindo o seletor nativo do Google Cast…");
-            castButton.performClick();
+            MediaRouteChooserDialog dialog = new MediaRouteChooserDialog(activity);
+            dialog.setRouteSelector(context.getMergedSelector());
+            dialog.show();
 
             // Avoid retaining the Activity indefinitely if the user simply leaves
             // the chooser open or dismisses it without creating a session.
@@ -175,18 +174,6 @@ public final class PlaybackAnywhereNative {
         } catch (Exception error) {
             emit("error", safeMessage(error, "Google Cast não está disponível neste aparelho."));
         }
-    }
-
-    private void ensureCastButton() {
-        if (castButton != null) return;
-        castButton = new MediaRouteButton(activity);
-        CastButtonFactory.setUpMediaRouteButton(activity.getApplicationContext(), castButton);
-        castButton.setAlpha(0.01f);
-        castButton.setContentDescription("Selecionar Chromecast");
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(2, 2);
-        params.leftMargin = 1;
-        params.topMargin = 1;
-        activity.addContentView(castButton, params);
     }
 
     private void loadPendingCast(CastSession session) {
