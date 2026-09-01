@@ -53,6 +53,6 @@
 
   async function toggleLock(locked){
     const select=root.querySelector('[data-game-lock-select]');const id=Number(select?.value||0);if(!id)return;
-    try{await req(`/admin/games/${id}/metadata-lock`,{method:'PUT',body:JSON.stringify({locked})});if(typeof notice==='function')notice(locked?'Metadata travada.':'Metadata destravada.',true);await enhance()}catch(err){if(typeof notice==='function')notice(err.message)}
+    try{await req(`/admin/games/catalog/${id}/metadata-lock`,{method:'PUT',body:JSON.stringify({locked})});if(typeof notice==='function')notice(locked?'Metadata travada.':'Metadata destravada.',true);await enhance()}catch(err){if(typeof notice==='function')notice(err.message)}
   }
 })();
