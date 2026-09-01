@@ -82,6 +82,7 @@ jobs:
           node --check internal/webui/static/player-v3.js
           node --check internal/webui/static/player-v4.js
           node --check internal/webui/static/player-v5.js
+          node --check internal/webui/static/playback-anywhere.js
           node --check internal/webui/static/player-audio-v53.js
           node --check internal/webui/static/player-screen-v54.js
           node --check internal/webui/static/player-monitor.js
