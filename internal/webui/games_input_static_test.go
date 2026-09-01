@@ -5,100 +5,133 @@ import (
 	"testing"
 )
 
-func TestGamesPlayerUsesDirectRetroPadInputs(t *testing.T) {
+func TestGamesG4PlayerOwnsKeyboardAndRetroPadInput(t *testing.T) {
 	player, err := Static.ReadFile("static/games-player.js")
 	if err != nil {
 		t.Fatalf("read games-player.js: %v", err)
 	}
 	for _, required := range [][]byte{
+		[]byte(`STORMFLIX GAME PLAYER G4`),
+		[]byte(`respondToGlobalEvents:false`),
+		[]byte(`input_auto_game_focus:true`),
 		[]byte(`input_player1_a:'x'`),
 		[]byte(`input_player1_b:'z'`),
-		[]byte(`input_player1_x:'s'`),
-		[]byte(`input_player1_y:'a'`),
 		[]byte(`input_player1_select:'rshift'`),
-		[]byte(`INPUT_ASSET_VERSION='g34'`),
-		[]byte(`/games-g3-inputs.js?v=${INPUT_ASSET_VERSION}`),
-		[]byte(`/games-g3-inputs.css?v=${INPUT_ASSET_VERSION}`),
+		[]byte(`window.addEventListener('keydown',e=>handleKeyboard(e,true),{capture:true`),
+		[]byte(`event.preventDefault();event.stopImmediatePropagation()`),
 		[]byte(`instance.pressDown({button,player:1})`),
 		[]byte(`instance.pressUp({button,player:1})`),
-		[]byte(`pressedInputs=new Set()`),
+		[]byte(`keyboardPressed=new Map()`),
 		[]byte(`releaseAllInputs()`),
-		[]byte(`instance.resize({width,height})`),
-		[]byte(`aspectByPlatform`),
-		[]byte(`stormflix:game-started`),
+		[]byte(`input_player1_a_btn:'1'`),
+		[]byte(`input_player1_b_btn:'0'`),
+		[]byte(`input_player1_select_btn:'8'`),
+		[]byte(`input_player1_start_btn:'9'`),
+		[]byte(`input_player1_up_btn:'12'`),
+		[]byte(`input_player1_right_btn:'15'`),
 	} {
 		if !bytes.Contains(player, required) {
-			t.Fatalf("Games player missing direct input/resize contract %q", required)
+			t.Fatalf("Games G4 player missing input contract %q", required)
 		}
-	}
-	if bytes.Contains(player, []byte(`overlay.addEventListener('keydown',captureGameKeys,true)`)) {
-		t.Fatal("Games player must not intercept gameplay keyboard events before RetroArch")
 	}
 }
 
-func TestGamesVirtualPadCoversPlatformControls(t *testing.T) {
-	input, err := Static.ReadFile("static/games-g3-inputs.js")
+func TestGamesG4ViewportUsesAvailableStageNotForcedConsoleAspect(t *testing.T) {
+	player, err := Static.ReadFile("static/games-player.js")
 	if err != nil {
-		t.Fatalf("read games-g3-inputs.js: %v", err)
+		t.Fatalf("read games-player.js: %v", err)
 	}
 	for _, required := range [][]byte{
-		[]byte(`snes:{name:'Super Nintendo',shoulders:[['l','L'],['r','R']],face:[['y','Y'],['x','X'],['b','B'],['a','A']]}`),
-		[]byte(`gba:{name:'Game Boy Advance',shoulders:[['l','L'],['r','R']]`),
-		[]byte(`genesis:{name:'Mega Drive / Genesis'`),
-		[]byte(`api.pressDown?.(input)`),
-		[]byte(`api.pressUp?.(input)`),
-		[]byte(`data-sf-stick`),
-		[]byte(`STICK_DEADZONE=.20`),
-		[]byte(`Math.atan2(dy,dx)`),
-		[]byte(`['down','right']`),
-		[]byte(`['up','left']`),
-		[]byte(`button.hasPointerCapture?.(event.pointerId)`),
-		[]byte(`button.releasePointerCapture(event.pointerId)`),
-		[]byte(`event.buttons===0`),
-		[]byte(`resetVirtualInputs()`),
-		[]byte(`removeLegacyController(overlay)`),
-		[]byte(`type="button"`),
-		[]byte(`player()?.resize?.()`),
+		[]byte(`ResizeObserver`),
+		[]byte(`stage.getBoundingClientRect()`),
+		[]byte(`instance.resize({width,height})`),
+		[]byte(`video_force_aspect:p.video.display!=='stretch'`),
+		[]byte(`video_smooth:!!p.video.smooth`),
+		[]byte(`video_scale_integer:!!p.video.integerScale`),
 	} {
-		if !bytes.Contains(input, required) {
-			t.Fatalf("Games virtual pad missing control/layout %q", required)
+		if !bytes.Contains(player, required) {
+			t.Fatalf("Games G4 viewport missing %q", required)
 		}
 	}
 	for _, forbidden := range [][]byte{
-		[]byte(`class="sf-pad-dpad"`),
-		[]byte(`class="diag ul"`),
-		[]byte(`buttonFromPoint(`),
-		[]byte(`button.setPointerCapture?.(pointerId)`),
+		[]byte(`aspectByPlatform`),
+		[]byte(`canvasAspect()`),
+		[]byte(`calc((100vh - 176px) * 4 / 3)`),
 	} {
-		if bytes.Contains(input, forbidden) {
-			t.Fatalf("Games virtual pad contains obsolete/cross-input behavior %q", forbidden)
+		if bytes.Contains(player, forbidden) {
+			t.Fatalf("Games G4 player still contains forced-aspect behavior %q", forbidden)
 		}
 	}
+}
 
-	css, err := Static.ReadFile("static/games-g3-inputs.css")
+func TestGamesG4SettingsAndTouchUseSinglePlayerAPI(t *testing.T) {
+	g4, err := Static.ReadFile("static/games-g4.js")
 	if err != nil {
-		t.Fatalf("read games-g3-inputs.css: %v", err)
+		t.Fatalf("read games-g4.js: %v", err)
 	}
 	for _, required := range [][]byte{
-		[]byte(`calc((100vh - 176px) * 4 / 3)`),
-		[]byte(`.sf-pad-stick{`),
-		[]byte(`.sf-pad-stick-thumb{`),
-		[]byte(`border-radius:50%`),
-		[]byte(`.sf-pad-face.diamond`),
-		[]byte(`.sf-pad-shoulders`),
+		[]byte(`['quick','Jogo']`),
+		[]byte(`['controls','Controles']`),
+		[]byte(`['video','Vídeo']`),
+		[]byte(`['emulator','Emulador']`),
+		[]byte(`captureKeyboard`),
+		[]byte(`captureGamepad`),
+		[]byte(`navigator.getGamepads`),
+		[]byte(`gamepadKeys`),
+		[]byte(`standardButtons`),
+		[]byte(`elementFromPoint`),
+		[]byte(`releasePointer`),
+		[]byte(`player()?.pressDown?.(input)`),
+		[]byte(`player()?.pressUp?.(input)`),
+		[]byte(`data-g4-touch-input`),
+		[]byte(`data-video-smooth`),
+		[]byte(`data-video-integer`),
+		[]byte(`data-emu-rewind`),
+		[]byte(`data-g4-apply`),
+	} {
+		if !bytes.Contains(g4, required) {
+			t.Fatalf("Games G4 shell missing %q", required)
+		}
+	}
+}
+
+func TestGamesG4CSSKeepsCanvasContainedAndTouchOverlayNonCropping(t *testing.T) {
+	css, err := Static.ReadFile("static/games-g4.css")
+	if err != nil {
+		t.Fatalf("read games-g4.css: %v", err)
+	}
+	for _, required := range [][]byte{
+		[]byte(`object-fit:contain!important`),
+		[]byte(`width:100%!important`),
+		[]byte(`height:100%!important`),
+		[]byte(`overflow:hidden!important`),
+		[]byte(`.sf-g4-touch{position:absolute;inset:0`),
+		[]byte(`pointer-events:none`),
+		[]byte(`button.pressed`),
 		[]byte(`orientation:landscape`),
-		[]byte(`button.pressed{`),
 	} {
 		if !bytes.Contains(css, required) {
-			t.Fatalf("Games responsive input CSS missing %q", required)
+			t.Fatalf("Games G4 CSS missing %q", required)
 		}
 	}
-	for _, forbidden := range [][]byte{
-		[]byte(`.sf-pad-dpad`),
-		[]byte(`.sf-pad-face.diamond .a{grid-column:3;grid-row:2;background:`),
+}
+
+func TestGamesG4ReplacesLegacyG3RuntimeInIndex(t *testing.T) {
+	index, err := Static.ReadFile("static/index.html")
+	if err != nil {
+		t.Fatalf("read index.html: %v", err)
+	}
+	for _, required := range [][]byte{
+		[]byte(`/games-player.js?v=g4`),
+		[]byte(`/games-g4-session.js?v=g4`),
+		[]byte(`/games-g4.js?v=g4`),
+		[]byte(`/games-g4.css?v=g4`),
 	} {
-		if bytes.Contains(css, forbidden) {
-			t.Fatalf("Games responsive input CSS contains stale/false pressed styling %q", forbidden)
+		if !bytes.Contains(index, required) {
+			t.Fatalf("Games G4 index missing %q", required)
 		}
+	}
+	if bytes.Contains(index, []byte(`/games-g3.js`)) {
+		t.Fatal("legacy games-g3.js must not run alongside the G4 input owner")
 	}
 }
