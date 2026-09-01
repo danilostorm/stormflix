@@ -16,7 +16,7 @@ func TestVideoHomeUsesPerProfileSnapshotBeforeRefresh(t *testing.T) {
 		[]byte(`window.sfProfiles?.current?.()`),
 		[]byte(`if(cached)paintSnapshot(cached)`),
 		[]byte(`return await baseLoadHome()`),
-		[]byte(`fetchpriority=\"high\"`),
+		[]byte(`fetchpriority="high"`),
 	} {
 		if !bytes.Contains(js, required) {
 			t.Fatalf("instant video Home contract missing %q", required)
