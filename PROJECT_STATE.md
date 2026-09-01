@@ -2,7 +2,7 @@
 
 > **Authoritative continuation note.** Any coding agent/session continuing StormFlix must read this file, `AGENTS.md` and `ENTERTAINMENT_ROADMAP.md` before changing code. Update this document after meaningful architecture, compatibility, schema, playback or deployment changes.
 
-Last architecture update: **2026-08-31**.
+Last architecture update: **2026-09-01**.
 
 ## Deployment
 
@@ -23,7 +23,7 @@ Server HTTP port: **8090**, normally behind an HTTPS reverse proxy.
 
 - Server code line: **`0.24.0-games-admin`**.
 - Web Player: v5 line, based on the v5.3 continuous Web playback-session architecture plus v5.4 presentation/TV controls.
-- Games Web Player: G2 browser/WASM line with pinned Nostalgist/RetroArch runtime, profile-owned saves and playtime; the G2.5 Games shell adds the dedicated Admin/metadata layer and RomMix-inspired browsing presentation.
+- Games Web Player: G2 browser/WASM runtime plus G2.5 dedicated Admin/metadata and RomMix-inspired browsing; G3 adds virtual mobile controls, TV/gamepad focus/menu behavior and profile-owned save-state previews.
 - Android package: `cloud.stormflix.app`, **0.6.3 / versionCode 21**, minSdk 23, targetSdk 36, Java 17.
 - Android phone/tablet, Android TV and Fire TV keep native StormFlix catalog/navigation but delegate video playback to the hosted StormFlix Web Player inside `PlayerActivity` WebView.
 - Samsung Tizen: `apps/tizen` 0.1.0 thin shell; final WGT requires the developer's Samsung/Tizen signing profile.
@@ -186,7 +186,7 @@ Profile avatar assets are now included in the cleanup reference set.
 
 Game scans hash supported cartridges with SHA-256, pause while video playback or a browser game session is active and preserve the previous game catalog for unavailable sources. Preview/dry-run for media follows the source ownership rules without mutating catalog availability. Catalog-changing scan/path/category operations use SQLite safety backups; restore is staged and verified before activation.
 
-## Games — current G1/G2/G2.5 architecture
+## Games — current G1/G2/G2.5/G3 architecture
 
 Games are a first-class StormFlix media domain, not an iframe and not rows in the video `media` table.
 
@@ -226,11 +226,11 @@ ROM access:
 - the initial cartridge limit remains 512 MiB.
 
 Profile saves:
-- save state and battery SRAM are stored under `DataDir/game-saves/profile-<id>/<platform>/<sha256>/`;
+- save state, battery SRAM and G3 save preview are stored under `DataDir/game-saves/profile-<id>/<platform>/<sha256>/`;
 - SQLite stores only bounded metadata/version rows in `game_saves`;
 - save files use atomic temp-file replacement and retain three recovery generations;
-- state limit is 32 MiB, SRAM limit is 8 MiB;
-- two profiles playing the same ROM use independent directories and state.
+- state limit is 32 MiB, SRAM limit is 8 MiB and preview limit is 2 MiB;
+- two profiles playing the same ROM use independent directories and state/previews.
 
 Playtime:
 - opaque browser sessions report monotonic elapsed seconds;
@@ -272,15 +272,38 @@ A metadata job requires IGDB or MobyGames to be configured; SteamGridDB alone ca
 
 The provider registry also models ScreenScraper, RetroAchievements, Hasheous, PlayMatch, LaunchBox, TheGamesDB, Flashpoint, HLTB, Demozoo, Pouët, CSDb and Libretro, but these are **not considered implemented** until their provider-specific adapters are wired. Admin deliberately labels non-wired providers as future integrations rather than presenting them as functional.
 
-Community-driven next work before/beside G3 includes smarter no-rehash scans for unchanged ROMs, explicit BIOS/ROMset diagnostics (especially arcade/Neo Geo), multidisc/DLC structure, broader metadata providers and RetroAchievements.
+### G3 living-room/mobile controls and save previews
 
-G2/G2.5 CI can validate schema, service behavior, JS syntax and server build. Actual emulation/audio/gamepad behavior and real provider results must still be validated with user-provided legal ROMs, provider credentials and real browsers/controllers. G3 remains responsible for virtual mobile controls, broader TV/gamepad QA, save-state thumbnails and richer living-room polish.
+G3 is a presentation/control layer over the same authenticated G2 player rather than a second emulator implementation.
+
+Mobile/touch:
+- optional virtual controller with D-pad, A/B, SELECT and START;
+- `Auto` shows controls on coarse-pointer/mobile screens, with explicit On/Off overrides;
+- pointer-based multi-touch allows direction + action combinations and optional short vibration feedback;
+- controller placement adapts to portrait/landscape and safe areas and stays hidden while the ROM/runtime preparation screen is visible.
+
+Living room/gamepad:
+- the Games shell supports spatial focus movement from standard gamepad D-pad/axes;
+- A activates focused UI; B backs out while outside active gameplay;
+- during gameplay Back/Escape opens a quick menu instead of immediately terminating the game;
+- holding SELECT + START opens the same quick menu on a standard gamepad;
+- the quick menu offers resume, save, fullscreen, virtual-controller mode and Save-and-exit.
+
+Save previews:
+- Phase 23 extends the versioned `game_saves` family with `preview` and is guarded so reopening an already-upgraded database is a no-op;
+- the browser captures a bounded WebP representation of the emulator canvas and stores it beside the same profile/game save identity;
+- previews use the same authenticated/library-permission-aware save endpoint, atomic replacement and recovery generations as state/SRAM;
+- the profile Saves gallery overlays the preview when present without exposing another profile's data.
+
+G3 CI validates migration idempotence, preview version/recovery, profile isolation, JavaScript syntax and server build. Actual multi-touch event behavior, controller mapping, audio activation and TV/browser key delivery still require real-device QA.
+
+Community-driven next work after G3 includes smarter no-rehash scans for unchanged ROMs, explicit BIOS/ROMset diagnostics (especially arcade/Neo Geo), multidisc/DLC structure, broader metadata providers and RetroAchievements.
 
 RetroAssembly (MIT) remains an architectural reference for browser retro emulation. RomM is a product/reference source for metadata breadth and game-management concepts but is AGPL-3.0; do not copy RomM source into StormFlix without an intentional compatible licensing decision.
 
 ## Entertainment roadmap
 
-`ENTERTAINMENT_ROADMAP.md` is the executable product roadmap. Games G1/G2/G2.5 and automatic intro/credit foundations are implemented. Remaining major roadmap work includes Smart Downloads, smart playlists, Watch Party, improved editions/versions/extras, OIDC/optional stronger authentication, reuse of expensive media analysis, the remaining Games metadata/achievement adapters and G3 living-room/mobile game polish.
+`ENTERTAINMENT_ROADMAP.md` is the executable product roadmap. Games G1/G2/G2.5/G3 and automatic intro/credit foundations are implemented. Remaining major roadmap work includes Smart Downloads, smart playlists, Watch Party, improved editions/versions/extras, OIDC/optional stronger authentication, reuse of expensive media analysis, remaining Games metadata/achievement adapters, no-rehash scanning, BIOS/ROMset diagnostics and the G4 rich Games ecosystem.
 
 ## Jellyfin compatibility
 
