@@ -31,7 +31,7 @@ func (s *server) adminGamesOverview(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) adminGamesCatalog(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	items, err := s.games.AdminCatalog(r.Context(), r.URL.Query().Get("q"), r.URL.Query().Get("platform"), limit)
+	items, err := s.games.AdminCatalogExact(r.Context(), r.URL.Query().Get("q"), r.URL.Query().Get("platform"), limit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
