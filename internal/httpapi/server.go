@@ -23,7 +23,7 @@ import (
 )
 
 const sessionCookie = "stormflix_session"
-const version = "0.24.0-games-admin"
+const version = "0.25.0-playback-anywhere"
 
 type contextKey string
 
@@ -136,6 +136,7 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("GET /api/v1/media/{id}/subtitles/{subtitle_id}/vtt", s.requireAuth(s.subtitleVTT))
 	mux.HandleFunc("GET /api/v1/media/{id}/playback/streams", s.requireAuth(s.playbackStreams))
 	mux.HandleFunc("POST /api/v1/media/{id}/playback/plan", s.requireAuth(s.playbackPlan))
+	mux.HandleFunc("POST /api/v1/media/{id}/playback/grant", s.requireAuth(s.createPlaybackGrant))
 	mux.HandleFunc("GET /api/v1/media/{id}/webstream/{session}/index.m3u8", s.requireAuth(s.webStreamPlaylist))
 	mux.HandleFunc("GET /api/v1/media/{id}/webstream/{session}/{file}", s.requireAuth(s.webStreamFragment))
 	mux.HandleFunc("POST /api/v1/media/{id}/playback", s.requireAuth(s.playbackHeartbeat))
@@ -204,7 +205,7 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("GET /api/v1/admin/category-rules", s.requireRole("manager", s.adminCategoryRules))
 	mux.HandleFunc("POST /api/v1/admin/categories", s.requireRole("manager", s.createCategory))
 	mux.HandleFunc("POST /api/v1/admin/categories/organize", s.requireRole("manager", s.organizeRecommendedCategoriesWithBackup))
-	mux.HandleFunc("POST /api/v1/admin/categories/preview", s.requireRole("manager", s.previewSmartCategory))
+	mux.HandleFunc("POST /api/v1/admin/categories/preview", s.requireRole("operator", s.previewSmartCategory))
 	mux.HandleFunc("PUT /api/v1/admin/categories/order", s.requireRole("manager", s.reorderCategories))
 	mux.HandleFunc("PUT /api/v1/admin/categories/{id}", s.requireRole("manager", s.updateCategory))
 	mux.HandleFunc("PUT /api/v1/admin/categories/{id}/rules", s.requireRole("manager", s.updateCategoryRules))
