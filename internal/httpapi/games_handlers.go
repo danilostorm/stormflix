@@ -114,6 +114,15 @@ func (s *server) gameCover(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, path)
 }
 
+func (s *server) scanLibraryDispatchWithBackup(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAutomaticBackup(w, r, "antes do scan da biblioteca", false) {
+		return
+	}
+	uid := currentUser(r).ID
+	s.recordCatalogChange(r.Context(), "library", r.PathValue("id"), "scan", "Scan de biblioteca solicitado", "", "", &uid)
+	s.scanLibraryDispatch(w, r)
+}
+
 func (s *server) scanLibraryDispatch(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r.PathValue("id"))
 	if err != nil {
