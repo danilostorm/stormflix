@@ -1,4 +1,4 @@
-/* StormFlix Admin unified operational queue: scans + metadata + intro detection. */
+/* StormFlix Admin unified operational queue: scans + metadata + marker detection. */
 (function(){
   let timer=null;
   const activeStatus=s=>['queued','running','cancelling'].includes(String(s||''));
@@ -41,7 +41,7 @@
     const running=jobs.filter(j=>j.status==='running'||j.status==='cancelling').length;
     const queued=jobs.filter(j=>j.status==='queued').length;
     const errors=jobs.filter(j=>['failed','error','completed_with_errors','timeout'].includes(j.status)).length;
-    root.innerHTML=`<div class="job-queue-head"><div><p class="kicker">TRABALHOS EM SEGUNDO PLANO</p><h2>Fila & atividades</h2><p>Acompanhe scans, metadados, reorganização de episódios e a detecção automática de introduções.</p></div><div class="job-queue-summary"><span>${running} executando</span><span>${queued} na fila</span><span>${errors} com alerta</span></div></div><div class="panel"><div class="panel-head"><div><h2>Fila operacional</h2><small>Trabalhos pesados são serializados e a detecção de intros pausa para priorizar reproduções ativas.</small></div><button class="primary" data-scan-all>Escanear todas</button></div><div class="job-list">${jobs.length?jobs.map(jobCard).join(''):'<div class="job-empty">Nenhum trabalho registrado ainda.</div>'}</div></div>`;
+    root.innerHTML=`<div class="job-queue-head"><div><p class="kicker">TRABALHOS EM SEGUNDO PLANO</p><h2>Fila & atividades</h2><p>Acompanhe scans, metadados, reorganização de episódios e detecção automática de introduções e créditos.</p></div><div class="job-queue-summary"><span>${running} executando</span><span>${queued} na fila</span><span>${errors} com alerta</span></div></div><div class="panel"><div class="panel-head"><div><h2>Fila operacional</h2><small>Análises pesadas cedem prioridade à reprodução ativa; créditos aguardam lotes de intro em andamento.</small></div><button class="primary" data-scan-all>Escanear todas</button></div><div class="job-list">${jobs.length?jobs.map(jobCard).join(''):'<div class="job-empty">Nenhum trabalho registrado ainda.</div>'}</div></div>`;
     root.querySelector('[data-scan-all]')?.addEventListener('click',scanAll);
     root.querySelectorAll('[data-cancel-scan]').forEach(b=>b.onclick=()=>cancelScan(Number(b.dataset.cancelScan)));
   }

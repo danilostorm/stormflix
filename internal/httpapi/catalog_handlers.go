@@ -11,10 +11,11 @@ import (
 )
 
 func (s *server) homeFeed(w http.ResponseWriter, r *http.Request) {
-	// Collection discovery and automatic intro analysis are lazy-started by the
-	// first authenticated Home. Both continue in background and Home never waits.
+	// Collection discovery and automatic marker analysis are lazy-started by the
+	// first authenticated Home. They continue in background and Home never waits.
 	s.startMovieCollectionIndexer()
 	s.startMarkerAnalyzer(context.Background())
+	s.startCreditAnalyzer(context.Background())
 
 	u := currentUser(r)
 	var allowed []int64
