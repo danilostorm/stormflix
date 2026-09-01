@@ -496,25 +496,13 @@ ON CONFLICT(profile_id,game_id) DO UPDATE SET
 
 func (s *Service) RuntimeAsset(ctx context.Context, asset string) (string, string, error) {
 	asset = strings.TrimSpace(asset)
-	var remoteURL, relative, contentType string
-	if asset == "nostalgist.js" {
-		remoteURL = "https://cdn.jsdelivr.net/npm/nostalgist@" + NostalgistVersion + "/dist/nostalgist.umd.js"
-		relative = "nostalgist-" + NostalgistVersion + ".umd.js"
-		contentType = "text/javascript; charset=utf-8"
-	} else {
-		ext := filepath.Ext(asset)
-		core := strings.TrimSuffix(asset, ext)
-		if !allowedRuntimeCores[core] || (ext != ".js" && ext != ".wasm") {
-			return "", "", errors.New("unsupported game runtime asset")
-		}
-		remoteURL = fmt.Sprintf("https://cdn.jsdelivr.net/gh/arianrhodsandlot/retroarch-emscripten-build@%s/retroarch/%s_libretro%s", RetroArchBuild, core, ext)
-		relative = filepath.Join("retroarch-"+RetroArchBuild, core+"_libretro"+ext)
-		if ext == ".wasm" {
-			contentType = "application/wasm"
-		} else {
-			contentType = "text/javascript; charset=utf-8"
-		}
+	if asset != "nostalgist.js" {
+		return s.runtimeCoreAsset(ctx, asset)
 	}
+
+	remoteURL := "https://cdn.jsdelivr.net/npm/nostalgist@" + NostalgistVersion + "/dist/nostalgist.umd.js"
+	relative := "nostalgist-" + NostalgistVersion + ".umd.js"
+	contentType := "text/javascript; charset=utf-8"
 	dataDir, err := s.dataDir(ctx)
 	if err != nil {
 		return "", "", err
