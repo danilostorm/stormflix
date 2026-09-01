@@ -33,6 +33,8 @@ dependencies {
     // Android so discovery/session management is native instead of relying on
     // the Web Sender SDK inside Android System WebView.
     implementation 'com.google.android.gms:play-services-cast-framework:22.3.1'
+    // MediaRouteChooserDialog is an AppCompat dialog in current MediaRouter.
+    implementation 'androidx.appcompat:appcompat:1.7.1'
 
     // Video playback itself remains the StormFlix Web Playback Engine. Keep
     // ExoPlayer because the native MusicActivity still uses Media3 for audio.
