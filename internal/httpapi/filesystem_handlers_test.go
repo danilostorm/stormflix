@@ -25,15 +25,16 @@ func TestPathWithinRoot(t *testing.T) {
 	}
 }
 
-func TestNormalizedFilesystemRootsIncludesManagedRootsAndDeduplicates(t *testing.T) {
+func TestNormalizedFilesystemRootsIncludesManagedAndExplicitRoots(t *testing.T) {
 	media := filepath.Clean("/media")
 	alien := filepath.Clean("/mnt/remotes/ALIEN_Filmes")
 	local := filepath.Clean("/mnt/user/Filmes")
-	roots := normalizedFilesystemRoots(media, []string{alien, local, alien, " "})
-	if len(roots) != 3 {
-		t.Fatalf("len(roots) = %d, want 3: %#v", len(roots), roots)
+	roms := filepath.Clean("/mnt/user/Games/roms")
+	roots := normalizedFilesystemRoots(media, []string{alien, local, alien, " "}, []string{roms, local})
+	if len(roots) != 4 {
+		t.Fatalf("len(roots) = %d, want 4: %#v", len(roots), roots)
 	}
-	want := []string{media, alien, local}
+	want := []string{media, alien, local, roms}
 	for i, path := range want {
 		if roots[i].Path != path {
 			t.Fatalf("roots[%d].Path = %q, want %q", i, roots[i].Path, path)
@@ -42,7 +43,11 @@ func TestNormalizedFilesystemRootsIncludesManagedRootsAndDeduplicates(t *testing
 }
 
 func TestFilesystemRootForPathAllowsOnlyAuthorizedRoots(t *testing.T) {
-	roots := normalizedFilesystemRoots("/media", []string{"/mnt/remotes/ALIEN_Filmes", "/mnt/user/Filmes"})
+	roots := normalizedFilesystemRoots(
+		"/media",
+		[]string{"/mnt/remotes/ALIEN_Filmes", "/mnt/user/Filmes"},
+		[]string{"/mnt/user/Games/roms"},
+	)
 	cases := []struct {
 		path string
 		root string
@@ -51,6 +56,9 @@ func TestFilesystemRootForPathAllowsOnlyAuthorizedRoots(t *testing.T) {
 		{"/media/akumanimes", "/media", true},
 		{"/mnt/remotes/ALIEN_Filmes/Filme", "/mnt/remotes/ALIEN_Filmes", true},
 		{"/mnt/user/Filmes/Filme", "/mnt/user/Filmes", true},
+		{"/mnt/user/Games/roms", "/mnt/user/Games/roms", true},
+		{"/mnt/user/Games/roms/gba", "/mnt/user/Games/roms", true},
+		{"/mnt/user/Games", "", false},
 		{"/etc", "", false},
 		{"/mnt/user", "", false},
 	}
@@ -66,7 +74,7 @@ func TestFilesystemRootForPathAllowsOnlyAuthorizedRoots(t *testing.T) {
 }
 
 func TestFilesystemRootForPathPrefersMostSpecificNestedRoot(t *testing.T) {
-	roots := normalizedFilesystemRoots("/media", []string{"/media/Filmes"})
+	roots := normalizedFilesystemRoots("/media", []string{"/media/Filmes"}, nil)
 	root, ok := filesystemRootForPath(roots, "/media/Filmes/Classicos")
 	if !ok {
 		t.Fatal("expected path to be authorized")
