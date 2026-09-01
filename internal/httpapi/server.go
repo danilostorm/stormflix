@@ -77,6 +77,7 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	s := &server{db: db, libraries: libraries, media: media.NewService(db), music: music.NewService(db), games: games.NewService(db), auth: auth.NewService(db), admin: admin.NewService(db), assets: assetStore, settings: settingsService, compatCache: compatCache, hlsCache: hlsCache, baseConfig: cfg, config: effective, startedAt: time.Now()}
 	s.metadata = metadata.NewService(db, effective, assetStore)
 	s.metadata.ResumeQueuedJobs()
+	s.games.ResumeMetadataJobs()
 	s.subtitles = subtitles.NewService(db, effective, assetStore)
 	s.auth.Cleanup(context.Background())
 	s.compatCache.Start(context.Background())
@@ -177,6 +178,7 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("GET /api/v1/admin/games/metadata/jobs", s.requireRole("operator", s.adminGamesMetadataJobs))
 	mux.HandleFunc("POST /api/v1/admin/games/metadata", s.requireRole("operator", s.adminStartAllGamesMetadata))
 	mux.HandleFunc("POST /api/v1/admin/games/libraries/{id}/metadata", s.requireRole("operator", s.adminStartGamesMetadata))
+	mux.HandleFunc("PUT /api/v1/admin/games/{id}/metadata-lock", s.requireRole("manager", s.adminGameMetadataLock))
 	mux.HandleFunc("GET /api/v1/admin/users", s.requireRole("admin", s.listUsers))
 	mux.HandleFunc("POST /api/v1/admin/users", s.requireRole("admin", s.createUser))
 	mux.HandleFunc("PUT /api/v1/admin/users/{id}", s.requireRole("admin", s.updateUser))
