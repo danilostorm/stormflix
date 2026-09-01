@@ -1,0 +1,63 @@
+/* StormFlix Games G4.8 Home dashboard */
+.g48-dashboard{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(360px,.85fr);gap:18px;align-items:stretch}
+.g48-dashboard>.gx-hero{min-height:330px;height:100%;grid-template-columns:minmax(170px,210px) minmax(0,1fr);margin:0}
+.g48-dashboard>.gx-hero .gx-hero-copy{max-width:760px}
+.g48-dashboard>.gx-hero .g48-hero-action{display:inline-flex;align-items:center;width:max-content;margin-top:18px;padding:9px 13px;border:1px solid rgba(91,205,250,.32);border-radius:10px;background:rgba(28,74,96,.38);color:#bcecff;font-size:12px;font-weight:800;letter-spacing:.01em}
+.g48-activity{min-width:0;padding:17px;border:1px solid #202a35;border-radius:18px;background:linear-gradient(180deg,rgba(18,24,32,.98),rgba(11,15,21,.98));box-shadow:0 12px 34px rgba(0,0,0,.2)}
+.g48-activity-head{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;margin-bottom:13px}
+.g48-activity-head p{margin:0 0 4px;color:#58cef9;font-size:10px;font-weight:900;letter-spacing:.12em}
+.g48-activity-head h2{margin:0;font-size:17px;letter-spacing:-.02em}
+.g48-activity-head>small{max-width:190px;color:#758195;font-size:10px;line-height:1.4;text-align:right}
+.g48-activity-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}
+.g48-continue-card{min-width:0;padding:9px;border:1px solid #202a34;border-radius:13px;background:#0e141b}
+.g48-continue-card>button:first-child{display:grid!important;grid-template-columns:72px minmax(0,1fr);grid-template-rows:auto auto;gap:2px 10px;align-items:center;width:100%}
+.g48-continue-card .gx-cover{grid-row:1/3;width:72px;aspect-ratio:3/4;border-radius:9px}
+.g48-continue-card strong{align-self:end;margin:0!important;font-size:11px!important;white-space:normal!important;display:-webkit-box!important;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.g48-continue-card small{align-self:start;margin:2px 0 0!important;font-size:9px!important}
+.g48-continue-card .gx-heart{display:none!important}
+.g48-quick-card{min-height:108px;display:grid;grid-template-columns:38px minmax(0,1fr);grid-template-rows:auto auto;gap:2px 10px;align-content:center;padding:11px;border:1px dashed #2a3947;border-radius:13px;background:linear-gradient(145deg,#101822,#0d131b);color:#dce6ef;text-align:left;cursor:pointer}
+.g48-quick-card:hover,.g48-quick-card:focus-visible{outline:0;border-color:#55ccfb;background:#132432;box-shadow:0 0 0 2px rgba(85,204,251,.1)}
+.g48-quick-card>span{grid-row:1/3;display:grid;place-items:center;width:38px;height:38px;border:1px solid #2d5266;border-radius:10px;background:#102532;color:#62d4ff;font-size:17px;font-weight:900}
+.g48-quick-card strong{align-self:end;font-size:11px}
+.g48-quick-card small{align-self:start;color:#758195;font-size:9px;line-height:1.3}
+.gx-home>.gx-section{margin-top:2px}
+.gx-home>.gx-section h2{font-size:20px;margin-bottom:10px}
+@media(min-width:1700px){
+  .gx-content{width:min(1710px,calc(100% - 72px))}
+  .g48-dashboard{grid-template-columns:minmax(0,1.72fr) minmax(440px,.78fr);gap:22px}
+  .g48-dashboard>.gx-hero{min-height:350px}
+  .g48-activity{padding:19px}
+  .g48-continue-card>button:first-child{grid-template-columns:82px minmax(0,1fr)}
+  .g48-continue-card .gx-cover{width:82px}
+}
+@media(max-width:1180px){
+  .g48-dashboard{grid-template-columns:1fr}
+  .g48-dashboard>.gx-hero{min-height:300px}
+  .g48-activity-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .g48-continue-card>button:first-child{display:block!important}
+  .g48-continue-card .gx-cover{width:100%;grid-row:auto}
+  .g48-continue-card strong{margin-top:7px!important}
+}
+@media(max-width:760px){
+  .g48-dashboard{gap:12px}
+  .g48-dashboard>.gx-hero{min-height:0;grid-template-columns:108px minmax(0,1fr);gap:15px;padding:15px;border-radius:14px;align-items:center}
+  .g48-dashboard>.gx-hero h1{font-size:clamp(25px,8vw,34px)}
+  .g48-dashboard>.gx-hero .gx-hero-summary{display:none}
+  .g48-dashboard>.gx-hero .g48-hero-action{margin-top:11px;padding:7px 10px;font-size:10px}
+  .g48-activity{padding:13px;border-radius:14px}
+  .g48-activity-head{align-items:flex-start}
+  .g48-activity-head>small{display:none}
+  .g48-activity-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+  .g48-continue-card>button:first-child{display:grid!important;grid-template-columns:58px minmax(0,1fr)}
+  .g48-continue-card .gx-cover{width:58px}
+  .g48-quick-card{min-height:88px;grid-template-columns:32px minmax(0,1fr);padding:9px}
+  .g48-quick-card>span{width:32px;height:32px;font-size:14px}
+}
+@media(max-width:440px){
+  .g48-dashboard>.gx-hero{grid-template-columns:88px minmax(0,1fr);padding:12px}
+  .g48-dashboard>.gx-hero .gx-hero-meta span:nth-child(n+3){display:none}
+  .g48-activity-grid{grid-template-columns:1fr 1fr}
+  .g48-continue-card{padding:7px}
+  .g48-continue-card>button:first-child{grid-template-columns:48px minmax(0,1fr);gap:2px 7px}
+  .g48-continue-card .gx-cover{width:48px}
+}
