@@ -1,13 +1,12 @@
 /* StormFlix Games G2: pinned Nostalgist/RetroArch browser player + profile saves. */
 (function(){
   const RUNTIME_LABEL='Nostalgist 0.21.1 · RetroArch cores v1.22.2';
-  const CORE_BUNDLE_BASE='https://cdn.jsdelivr.net/gh/arianrhodsandlot/retroarch-emscripten-build@v1.22.2/retroarch';
   const coreByPlatform={nes:'fceumm',snes:'snes9x',genesis:'genesis_plus_gx',gb:'mgba',gbc:'mgba',gba:'mgba'};
   let overlay=null,canvas=null,instance=null,current=null,prepareMode='normal',preparePromise=null;
   let sessionID='',elapsed=0,lastTick=0,tickTimer=null,heartbeatTimer=null,autosaveTimer=null;
   let savePromise=null,closing=false,scriptPromise=null,romPromise=null;
   const $=(sel,root=document)=>root.querySelector(sel);
-  const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[c]));
+  const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const platformLabel=p=>({nes:'Nintendo Entertainment System',snes:'Super Nintendo',genesis:'Mega Drive / Genesis',gb:'Game Boy',gbc:'Game Boy Color',gba:'Game Boy Advance'}[p]||String(p||'').toUpperCase());
   const fmtBytes=n=>{n=Number(n||0);if(n<1024)return `${n} B`;if(n<1048576)return `${(n/1024).toFixed(1)} KB`;return `${(n/1048576).toFixed(1)} MB`};
   const clock=s=>{s=Math.max(0,Math.floor(Number(s)||0));const h=Math.floor(s/3600),m=Math.floor((s%3600)/60);return h?`${h}h ${String(m).padStart(2,'0')}m`:`${m} min`};
@@ -45,17 +44,6 @@
     return scriptPromise;
   }
 
-  async function ensureCoreBundle(core){
-    const url=`${CORE_BUNDLE_BASE}/${encodeURIComponent(core)}_libretro.zip`;
-    let response;
-    try{response=await fetch(url,{cache:'force-cache',mode:'cors'})}
-    catch(err){throw new Error(`Não foi possível acessar o pacote do core ${core}: ${err.message||'falha de rede'}`)}
-    if(!response.ok)throw new Error(`Core ${core} indisponível no pacote RetroArch ${RUNTIME_LABEL.split('·').pop().trim()} · HTTP ${response.status}`);
-    // Consume the response so the browser can reuse the verified bundle from its HTTP cache
-    // when Nostalgist resolves the same pinned core immediately afterwards.
-    await response.blob();
-  }
-
   function createOverlay(game){
     if(overlay)overlay.remove();
     overlay=document.createElement('section');overlay.id='game-player-overlay';overlay.className='game-player-overlay';overlay.setAttribute('role','dialog');overlay.setAttribute('aria-modal','true');overlay.setAttribute('aria-label',`Jogando ${game.title}`);
@@ -80,7 +68,7 @@
 
   function loadingHTML(game,mode){
     const resume=mode==='continue';
-    return `<div class="game-launch-card loading"><span class="game-loader"></span><p>${esc(platformLabel(game.platform))}</p><h2>Abrindo ${esc(game.title)}…</h2><div class="game-launch-facts"><span>${esc(game.rom_name||'ROM')}</span><span>${fmtBytes(game.rom_size_bytes)}</span><span>${esc(game.core||coreByPlatform[game.platform]||'core')}</span></div><p>${resume?'Restaurando seu save state e carregando o emulador.':'Carregando ROM e emulador.'}</p><small>No primeiro uso deste core o pacote oficial pode levar alguns segundos; depois o navegador reutiliza o cache.</small></div>`;
+    return `<div class="game-launch-card loading"><span class="game-loader"></span><p>${esc(platformLabel(game.platform))}</p><h2>Abrindo ${esc(game.title)}…</h2><div class="game-launch-facts"><span>${esc(game.rom_name||'ROM')}</span><span>${fmtBytes(game.rom_size_bytes)}</span><span>${esc(game.core||coreByPlatform[game.platform]||'core')}</span></div><p>${resume?'Restaurando seu save state e carregando o emulador.':'Carregando ROM e emulador.'}</p><small>No primeiro uso deste core o servidor baixa o bundle oficial e mantém JS/WASM no cache local; depois o início é mais rápido.</small></div>`;
   }
 
   function showLaunchError(message,mode){
@@ -135,18 +123,24 @@
   }
 
   async function prepareEmulator(mode){
-    const [Nostalgist,romBlob]=await Promise.all([ensureRuntime(),romPromise||blobFetch(`/api/v1/games/${current.id}/rom`)]);
     const core=current.core||coreByPlatform[current.platform];if(!core)throw new Error('Core não configurado para esta plataforma.');
-    await ensureCoreBundle(core);
+    const [Nostalgist,romBlob,coreJS,coreWASM]=await Promise.all([
+      ensureRuntime(),
+      romPromise||blobFetch(`/api/v1/games/${current.id}/rom`),
+      blobFetch(`/api/v1/games/runtime/cores/${encodeURIComponent(core)}.js`),
+      blobFetch(`/api/v1/games/runtime/cores/${encodeURIComponent(core)}.wasm`),
+    ]);
     const rom=typeof File==='function'?new File([romBlob],current.rom_name||`game.${current.platform}`,{type:'application/octet-stream'}):{fileName:current.rom_name||`game.${current.platform}`,fileContent:romBlob};
     let state=null,sram=null;
     if(current.saves?.sram?.exists)sram=await blobFetch(`/api/v1/games/${current.id}/saves/sram`,true);
     if(mode==='continue'&&current.saves?.state?.exists)state=await blobFetch(`/api/v1/games/${current.id}/saves/state`,true);
     const options={
       element:canvas,
-      // Pass the pinned core name to Nostalgist 0.21.1. v1.22.2 ships each
-      // core as <core>_libretro.zip; Nostalgist extracts its JS/WASM pair.
-      core,
+      core:{
+        name:core,
+        js:{fileName:`${core}_libretro.js`,fileContent:coreJS},
+        wasm:{fileName:`${core}_libretro.wasm`,fileContent:coreWASM},
+      },
       rom,
       cache:{core:true,rom:false,bios:false,shader:false},
       respondToGlobalEvents:false,
