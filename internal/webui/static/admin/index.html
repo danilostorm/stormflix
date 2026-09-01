@@ -17,6 +17,8 @@
   <link rel="stylesheet" href="/admin/admin-jobs.css">
   <link rel="stylesheet" href="/admin/admin-home-menus.css">
   <link rel="stylesheet" href="/admin/admin-automation.css">
+  <link rel="stylesheet" href="/admin/admin-games-hub.css">
+  <link rel="stylesheet" href="/admin/admin-games-metadata.css">
 </head>
 <body>
 <div id="gate" class="gate">
@@ -49,6 +51,9 @@
       <button data-page="subtitles">Legendas</button>
       <button data-page="cdn">CDN / Assets</button>
 
+      <span class="nav-group">Games</span>
+      <button data-page="gamesadmin">Games</button>
+
       <span class="nav-group">Pessoas</span>
       <button data-page="users" data-admin>Contas & Perfis</button>
       <button data-page="sessions" data-admin>Sessões</button>
@@ -76,6 +81,7 @@
     <section id="metadata" class="page hidden"></section>
     <section id="subtitles" class="page hidden"></section>
     <section id="cdn" class="page hidden"></section>
+    <section id="gamesadmin" class="page hidden"></section>
     <section id="sessions" class="page hidden"></section>
     <section id="playbacks" class="page hidden"></section>
     <section id="storage" class="page hidden"></section>
@@ -102,6 +108,8 @@
 <script src="/admin/admin-transcode.js" defer></script>
 <script src="/admin/admin-music.js" defer></script>
 <script src="/admin/admin-games.js" defer></script>
+<script src="/admin/admin-games-hub.js" defer></script>
+<script src="/admin/admin-games-metadata.js" defer></script>
 <script src="/admin/admin-library-metadata.js" defer></script>
 <script src="/admin/admin-jobs.js" defer></script>
 <script src="/admin/admin-time.js" defer></script>

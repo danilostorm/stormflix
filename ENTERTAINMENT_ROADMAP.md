@@ -174,29 +174,55 @@ New first-class entities should remain separate from video `media` where game-sp
 
 The scanner uses platform rules plus hashes where possible. Filename heuristics are fallback, never the only permanent identity.
 
+Large-library follow-up:
+- cache hash identity by path/size/mtime so a normal rescan does not reread unchanged ROM bytes;
+- continue to verify changed files before identity mutation;
+- preserve offline-source catalog rows exactly as G1 does today.
+
 ### Metadata and artwork
 
-Provider adapters should be replaceable. Desired support, in phases:
-- IGDB;
-- ScreenScraper;
-- MobyGames;
-- SteamGridDB artwork;
-- RetroAchievements account/achievement enrichment later.
+G2.5 establishes replaceable provider adapters and an encrypted Admin provider vault.
 
-Provider calls run in background queues and are cached. A game with no metadata is still playable from its local identity.
+Implemented first wave:
+- **IGDB** primary metadata;
+- **MobyGames** primary fallback;
+- **SteamGridDB** artwork enrichment.
 
-### Browser player
+Next provider waves:
+- ScreenScraper hash/media integration;
+- RetroAchievements game identity/account/achievement enrichment;
+- Hasheous / PlayMatch hash correlation;
+- LaunchBox/TheGamesDB/Libretro local/cached artwork and metadata options;
+- specialist Flashpoint, HLTB, Demozoo, Pouët and CSDb adapters where they materially improve a platform.
+
+Provider calls run in persistent background queues, resume after server restart, are observable in Admin and yield to active video/game playback. A game with no metadata remains playable from its local platform + SHA-256 identity. Administrator **metadata lock** protects manual fixes from automatic refresh.
+
+### Browser/player interface
 
 RetroAssembly is an MIT-licensed architectural reference for browser retro emulation, save states, gamepad navigation, rewind, shaders and virtual controls. Prefer a narrow StormFlix-owned integration around suitable WASM/RetroArch-compatible cores rather than embedding the entire application.
 
-RomM is an excellent product/reference source for metadata breadth, multi-disc/DLC/mod/manual concepts, RetroAchievements and client integrations, but its code is AGPL-3.0. StormFlix should reimplement concepts behind its own interfaces rather than copy RomM source unless the project deliberately adopts a compatible licensing strategy.
+The G2.5 browsing shell adapts the controller-oriented visual language of **RomMix** under its MIT license. Attribution is retained in `THIRD_PARTY_NOTICES.md`; StormFlix keeps its own catalog, authorization, ROM endpoints, browser player and saves.
+
+RomM is an excellent product/reference source for metadata breadth, multi-disc/DLC/mod/manual concepts, RetroAchievements and client integrations, but its code is AGPL-3.0. StormFlix reimplements those concepts behind its own interfaces rather than copying RomM source.
 
 ### Saves and profiles
 
 - Battery saves and save states are profile-owned.
 - Cloud/server sync is atomic and versioned; retain a small recovery history.
 - A profile can play the same ROM independently from another profile.
+- G2.5 exposes a profile-scoped Saves gallery without leaking another profile's state.
 - Future handheld/desktop clients may sync saves without exposing arbitrary server filesystem paths.
+
+### BIOS, arcade and ROMsets
+
+Before expanding browser cores to arcade/Neo Geo, add a first-class diagnostics model:
+- administrator-visible BIOS inventory/status by platform/core;
+- ROMset/core compatibility profile rather than assuming every ZIP belongs to every arcade core;
+- explicit missing-BIOS / wrong-ROMset / unsupported-core messages;
+- never fix compatibility by silently duplicating BIOS files into every user game archive;
+- keep BIOS files administrator-provided and never distribute them from StormFlix.
+
+This work is prioritized from real community pain around Neo Geo/FBNeo sets where a generic launch failure hides an actual BIOS/ROMset mismatch.
 
 ### TV/mobile controls
 
@@ -211,13 +237,15 @@ StormFlix indexes and plays user-provided game files. It does not ship or downlo
 
 ## Games delivery phases
 
-**G1 — Catalog:** `games` library kind, scanner, platform/hash identity, covers, game details, favorites.
+**G1 — Catalog — implemented:** `games` library kind, scanner, platform/hash identity, covers, game details, favorites.
 
-**G2 — Browser play:** a deliberately small initial platform matrix (for example NES/SNES/Mega Drive/Game Boy/GBA) with gamepad + per-profile saves.
+**G2 — Browser play — implemented:** NES/SNES/Mega Drive/Game Boy/GBC/GBA browser WASM player with gamepad + per-profile state/SRAM and playtime.
 
-**G3 — Living room/mobile:** TV focus/gamepad QA, virtual mobile controls, save-state thumbnails, playtime and Continue Jogando.
+**G2.5 — Admin / library UX / metadata — implemented:** dedicated Admin Games hub; RomMix-inspired full-screen Games library; profile Saves gallery; encrypted provider vault; persistent metadata queue; IGDB + MobyGames + SteamGridDB; metadata lock.
 
-**G4 — Rich ecosystem:** RetroAchievements, manuals, multi-disc, patches/mods and optional sync clients.
+**G3 — Living room/mobile — next:** TV focus/gamepad QA, virtual mobile controls, save-state thumbnails, controller mapping polish, explicit BIOS/ROMset diagnostics and initial arcade/Neo Geo expansion after diagnostics exist.
+
+**G4 — Rich ecosystem:** RetroAchievements, manuals, multi-disc, DLC/base-game grouping, patches/mods, specialist providers and optional sync clients.
 
 ## Home experience target
 

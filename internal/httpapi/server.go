@@ -23,7 +23,7 @@ import (
 )
 
 const sessionCookie = "stormflix_session"
-const version = "0.23.0-games-g2"
+const version = "0.24.0-games-admin"
 
 type contextKey string
 
@@ -77,6 +77,7 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	s := &server{db: db, libraries: libraries, media: media.NewService(db), music: music.NewService(db), games: games.NewService(db), auth: auth.NewService(db), admin: admin.NewService(db), assets: assetStore, settings: settingsService, compatCache: compatCache, hlsCache: hlsCache, baseConfig: cfg, config: effective, startedAt: time.Now()}
 	s.metadata = metadata.NewService(db, effective, assetStore)
 	s.metadata.ResumeQueuedJobs()
+	s.games.ResumeMetadataJobs()
 	s.subtitles = subtitles.NewService(db, effective, assetStore)
 	s.auth.Cleanup(context.Background())
 	s.compatCache.Start(context.Background())
@@ -154,6 +155,7 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("GET /api/v1/games/runtime/cores/{asset}", s.requireAuth(s.gameRuntimeCore))
 	mux.HandleFunc("GET /api/v1/games/home", s.requireAuth(s.gamesHome))
 	mux.HandleFunc("GET /api/v1/games", s.requireAuth(s.gamesList))
+	mux.HandleFunc("GET /api/v1/games/saves", s.requireAuth(s.gameSavesGallery))
 	mux.HandleFunc("GET /api/v1/games/{id}", s.requireAuth(s.gameDetail))
 	mux.HandleFunc("GET /api/v1/games/{id}/cover", s.requireAuth(s.gameCover))
 	mux.HandleFunc("GET /api/v1/games/{id}/rom", s.requireAuth(s.gameROM))
@@ -169,6 +171,14 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	s.registerJellyfinRoutes(mux, "")
 
 	mux.HandleFunc("GET /api/v1/admin/dashboard", s.requireRole("operator", s.adminDashboard))
+	mux.HandleFunc("GET /api/v1/admin/games/overview", s.requireRole("operator", s.adminGamesOverview))
+	mux.HandleFunc("GET /api/v1/admin/games/catalog", s.requireRole("operator", s.adminGamesCatalog))
+	mux.HandleFunc("GET /api/v1/admin/games/providers", s.requireRole("operator", s.adminGamesProviders))
+	mux.HandleFunc("PUT /api/v1/admin/games/providers/{provider}", s.requireRole("admin", s.adminUpdateGameProvider))
+	mux.HandleFunc("GET /api/v1/admin/games/metadata/jobs", s.requireRole("operator", s.adminGamesMetadataJobs))
+	mux.HandleFunc("POST /api/v1/admin/games/metadata", s.requireRole("operator", s.adminStartAllGamesMetadata))
+	mux.HandleFunc("POST /api/v1/admin/games/libraries/{id}/metadata", s.requireRole("operator", s.adminStartGamesMetadata))
+	mux.HandleFunc("PUT /api/v1/admin/games/{id}/metadata-lock", s.requireRole("manager", s.adminGameMetadataLock))
 	mux.HandleFunc("GET /api/v1/admin/users", s.requireRole("admin", s.listUsers))
 	mux.HandleFunc("POST /api/v1/admin/users", s.requireRole("admin", s.createUser))
 	mux.HandleFunc("PUT /api/v1/admin/users/{id}", s.requireRole("admin", s.updateUser))

@@ -183,6 +183,24 @@ ORDER BY j.id DESC LIMIT ?`, limit)
 		})
 	}
 
+	gameMetadataJobs, err := s.games.MetadataJobs(r.Context(), limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	for _, job := range gameMetadataJobs {
+		libraryID := int64(0)
+		if job.LibraryID != nil {
+			libraryID = *job.LibraryID
+		}
+		out = append(out, adminJobView{
+			Key: "game_metadata:" + strconv.FormatInt(job.ID, 10), ID: job.ID, Kind: "game_metadata", Label: "Metadados de Games",
+			LibraryID: libraryID, Library: job.Library, Status: job.Status, Progress: job.Progress,
+			Current: job.Processed, Total: job.Total, Success: job.Matched, Failed: job.Failed, Message: job.Message,
+			CreatedAt: job.CreatedAt, StartedAt: job.StartedAt, FinishedAt: job.FinishedAt, UpdatedAt: job.UpdatedAt,
+		})
+	}
+
 	// Most useful operational order: running, queued, then recent history.
 	statusRank := func(status string) int {
 		switch status {
