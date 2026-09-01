@@ -36,7 +36,7 @@ func TestGamesG4PlayerOwnsKeyboardAndRetroPadInput(t *testing.T) {
 	}
 }
 
-func TestGamesG4ViewportUsesAvailableStageNotForcedConsoleAspect(t *testing.T) {
+func TestGamesG42ViewportKeepsStableBackingSurfaceAndCSSFitsStage(t *testing.T) {
 	player, err := Static.ReadFile("static/games-player.js")
 	if err != nil {
 		t.Fatalf("read games-player.js: %v", err)
@@ -44,22 +44,52 @@ func TestGamesG4ViewportUsesAvailableStageNotForcedConsoleAspect(t *testing.T) {
 	for _, required := range [][]byte{
 		[]byte(`ResizeObserver`),
 		[]byte(`stage.getBoundingClientRect()`),
-		[]byte(`instance.resize({width,height})`),
-		[]byte(`video_force_aspect:p.video.display!=='stretch'`),
-		[]byte(`video_smooth:!!p.video.smooth`),
+		[]byte(`size:emulatorSurfaceSize(current.platform)`),
+		[]byte(`platformAspect(current.platform)`),
+		[]byte(`canvas.style.setProperty('width'`),
+		[]byte(`canvas.style.setProperty('height'`),
+		[]byte(`video_force_aspect:true`),
 		[]byte(`video_scale_integer:!!p.video.integerScale`),
 	} {
 		if !bytes.Contains(player, required) {
-			t.Fatalf("Games G4 viewport missing %q", required)
+			t.Fatalf("Games G4.2 stable viewport missing %q", required)
 		}
 	}
 	for _, forbidden := range [][]byte{
-		[]byte(`aspectByPlatform`),
-		[]byte(`canvasAspect()`),
-		[]byte(`calc((100vh - 176px) * 4 / 3)`),
+		[]byte(`instance.resize({width,height})`),
+		[]byte(`video_force_aspect:p.video.display!=='stretch'`),
 	} {
 		if bytes.Contains(player, forbidden) {
-			t.Fatalf("Games G4 player still contains forced-aspect behavior %q", forbidden)
+			t.Fatalf("Games G4.2 must not mutate the RetroArch backing viewport after launch: %q", forbidden)
+		}
+	}
+}
+
+func TestGamesG42ShadersSwitchInsideRunningRetroArch(t *testing.T) {
+	video, err := Static.ReadFile("static/games-g4-video.js")
+	if err != nil {
+		t.Fatalf("read games-g4-video.js: %v", err)
+	}
+	for _, required := range [][]byte{
+		[]byte(`_cmd_set_shader`),
+		[]byte(`stringToNewUTF8`),
+		[]byte(`FS.writeFile`),
+		[]byte(`/stormflix-shaders/`),
+		[]byte(`applyLive(id)`),
+		[]byte(`stormflix:game-filter-applied`),
+		[]byte(`stormflix:game-started`),
+		[]byte(`aplicado em tempo real`),
+	} {
+		if !bytes.Contains(video, required) {
+			t.Fatalf("Games G4.2 live shader pipeline missing %q", required)
+		}
+	}
+	for _, forbidden := range [][]byte{
+		[]byte(`options.shader=id`),
+		[]byte(`options.resolveShader=()=>buildBundle(id)`),
+	} {
+		if bytes.Contains(video, forbidden) {
+			t.Fatalf("Games G4.2 should not require launch-time shader injection %q", forbidden)
 		}
 	}
 }
@@ -114,6 +144,21 @@ func TestGamesG4CSSKeepsCanvasContainedAndTouchOverlayNonCropping(t *testing.T) 
 			t.Fatalf("Games G4 CSS missing %q", required)
 		}
 	}
+
+	g42, err := Static.ReadFile("static/games-g42.css")
+	if err != nil {
+		t.Fatalf("read games-g42.css: %v", err)
+	}
+	for _, required := range [][]byte{
+		[]byte(`align-items:center!important`),
+		[]byte(`justify-content:center!important`),
+		[]byte(`width:auto!important`),
+		[]byte(`height:auto!important`),
+	} {
+		if !bytes.Contains(g42, required) {
+			t.Fatalf("Games G4.2 CSS override missing %q", required)
+		}
+	}
 }
 
 func TestGamesG4ReplacesLegacyG3RuntimeInIndex(t *testing.T) {
@@ -126,6 +171,7 @@ func TestGamesG4ReplacesLegacyG3RuntimeInIndex(t *testing.T) {
 		[]byte(`/games-g4-session.js?v=g4`),
 		[]byte(`/games-g4.js?v=g4`),
 		[]byte(`/games-g4.css?v=g4`),
+		[]byte(`/games-g42.css?v=g42`),
 	} {
 		if !bytes.Contains(index, required) {
 			t.Fatalf("Games G4 index missing %q", required)
