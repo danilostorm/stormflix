@@ -15,8 +15,7 @@ func TestParseSSDPAndRendererDescription(t *testing.T) {
 	headers := parseSSDP([]byte("HTTP/1.1 200 OK\r\nLOCATION: http://192.168.1.20:1400/xml/device.xml\r\nST: urn:schemas-upnp-org:device:MediaRenderer:1\r\n\r\n"))
 	if got := headers["location"]; got != "http://192.168.1.20:1400/xml/device.xml" { t.Fatalf("location=%q", got) }
 
-	xmlDoc := `<?xml version="1.0"?><root><device><deviceType>urn:schemas-upnp-org:device:MediaRenderer:1</deviceType><friendlyName>Sala TV</friendlyName><manufacturer>Storm Test</manufacturer><modelName>Renderer</modelName><UDN>uuid:abc-123</UDN><serviceList><service><serviceType>urn:schemas-upnp-org:service:AVTransport:1</serviceType><controlURL>/upnp/control/avtransport</controlURL></service></serviceList></device></root>`
-	xmlDoc = strings.ReplaceAll(xmlDoc, `\"`, `"`)
+	xmlDoc := "<?xml version=\"1.0\"?><root><device><deviceType>urn:schemas-upnp-org:device:MediaRenderer:1</deviceType><friendlyName>Sala TV</friendlyName><manufacturer>Storm Test</manufacturer><modelName>Renderer</modelName><UDN>uuid:abc-123</UDN><serviceList><service><serviceType>urn:schemas-upnp-org:service:AVTransport:1</serviceType><controlURL>/upnp/control/avtransport</controlURL></service></serviceList></device></root>"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, xmlDoc) }))
 	defer server.Close()
 	device, err := fetchDevice(context.Background(), server.URL, net.ParseIP("127.0.0.1"))
@@ -30,7 +29,7 @@ func TestAVTransportPlayBuildsValidSOAP(t *testing.T) {
 	actions := []string{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		if strings.Contains(string(body), `\"`) { t.Errorf("SOAP contains escaped quote bytes: %s", body) }
+		if strings.Contains(string(body), "\\\"") { t.Errorf("SOAP contains escaped quote bytes: %s", body) }
 		if !strings.HasPrefix(string(body), "<?xml version=\"1.0\"") { t.Errorf("invalid XML prolog: %s", body) }
 		mu.Lock(); actions = append(actions, r.Header.Get("SOAPAction")); mu.Unlock()
 		w.Header().Set("Content-Type", "text/xml")
