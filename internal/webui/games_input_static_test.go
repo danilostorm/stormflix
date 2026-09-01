@@ -39,11 +39,18 @@ func TestGamesVirtualPadCoversPlatformControls(t *testing.T) {
 		[]byte(`genesis:{name:'Mega Drive / Genesis'`),
 		[]byte(`api.pressDown?.(input)`),
 		[]byte(`api.pressUp?.(input)`),
-		[]byte(`data-inputs="up,left"`),
+		[]byte(`data-sf-stick`),
+		[]byte(`STICK_DEADZONE=.20`),
+		[]byte(`Math.atan2(dy,dx)`),
+		[]byte(`['down','right']`),
+		[]byte(`['up','left']`),
 	} {
 		if !bytes.Contains(input, required) {
 			t.Fatalf("Games virtual pad missing control/layout %q", required)
 		}
+	}
+	if bytes.Contains(input, []byte(`class="sf-pad-dpad"`)) || bytes.Contains(input, []byte(`class="diag ul"`)) {
+		t.Fatal("Games virtual pad must use the circular touch stick instead of the old nine-button arrow grid")
 	}
 
 	css, err := Static.ReadFile("static/games-g3-inputs.css")
@@ -52,6 +59,9 @@ func TestGamesVirtualPadCoversPlatformControls(t *testing.T) {
 	}
 	for _, required := range [][]byte{
 		[]byte(`calc((100vh - 176px) * 4 / 3)`),
+		[]byte(`.sf-pad-stick{`),
+		[]byte(`.sf-pad-stick-thumb{`),
+		[]byte(`border-radius:50%`),
 		[]byte(`.sf-pad-face.diamond`),
 		[]byte(`.sf-pad-shoulders`),
 		[]byte(`orientation:landscape`),
@@ -59,5 +69,8 @@ func TestGamesVirtualPadCoversPlatformControls(t *testing.T) {
 		if !bytes.Contains(css, required) {
 			t.Fatalf("Games responsive input CSS missing %q", required)
 		}
+	}
+	if bytes.Contains(css, []byte(`.sf-pad-dpad`)) {
+		t.Fatal("Games responsive input CSS must not ship the old nine-button D-pad grid")
 	}
 }
