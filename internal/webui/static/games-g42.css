@@ -1,0 +1,30 @@
+/* StormFlix Games G4.2: stable WebGL viewport + live-filter presentation fixes. */
+.sf-game-g41 .game-player-stage{
+  display:flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+}
+.sf-game-g41 .game-player-canvas{
+  width:auto!important;
+  height:auto!important;
+  max-width:100%!important;
+  max-height:100%!important;
+  flex:0 0 auto!important;
+  object-fit:fill!important;
+  transform:none!important;
+  translate:none!important;
+}
+.sf-game-g41[data-g4-display="stretch"] .game-player-canvas{
+  object-fit:fill!important;
+}
+.sf-game-g41 .sf-g41-filter-card[data-live="1"] .sf-g41-filter-head b::after{
+  content:" · AO VIVO";
+  color:#6fe2b0;
+  font-size:8px;
+  letter-spacing:.05em;
+}
+.sf-game-g41 .sf-g41-live-note{
+  border-color:#245845!important;
+  background:#0e211b!important;
+  color:#8ed9ba!important;
+}
