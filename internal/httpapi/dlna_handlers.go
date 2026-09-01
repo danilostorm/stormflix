@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -278,11 +279,7 @@ func (s *server) jellyfinDLNAResource(r *http.Request, mediaID int64, audioStrea
 	if !plan.Available || plan.Mode == playback.ModeVideoTranscode {
 		return "", "", "", errors.New("este renderer DLNA precisa de um formato de vídeo que o modo Play To progressivo ainda não pode gerar")
 	}
-	path, prepare := playbackExecutionURLs(mediaID, plan)
-	if prepare != "" {
-		// Progressive remux is prepared lazily by its normal HTTP endpoint.
-		_ = prepare
-	}
+	path, _ := playbackExecutionURLs(mediaID, plan)
 	profileID := s.selectedProfileID(r, u.ID)
 	if profileID <= 0 {
 		profileID = s.jellyfinDefaultProfileID(r.Context(), u)
