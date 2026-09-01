@@ -78,6 +78,7 @@ func (s *server) hlsPlaylist(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, err)
 		return
 	}
+	playlist = rewritePlaylistWithPlaybackGrant(playlist, r.URL.Query().Get("st"))
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	w.Header().Set("Cache-Control", "private, no-store")
 	_, _ = w.Write([]byte(playlist))
