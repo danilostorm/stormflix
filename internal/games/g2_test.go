@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/danilostorm/stormflix/internal/database"
 )
@@ -69,6 +70,40 @@ func TestWriteSaveIsAtomicVersionedAndRecoverable(t *testing.T) {
 	}
 }
 
+func TestGameSavesAreIsolatedByProfile(t *testing.T) {
+	svc, profileID, gameID, _ := seedGameG2(t)
+	ctx := context.Background()
+	if _, err := svc.db.Exec(`INSERT INTO users(username,display_name,password_hash) VALUES('player2','Player 2','test')`); err != nil {
+		t.Fatalf("insert second user: %v", err)
+	}
+	var secondProfile int64
+	if err := svc.db.QueryRow(`SELECT p.id FROM profiles p JOIN users u ON u.id=p.user_id WHERE u.username='player2'`).Scan(&secondProfile); err != nil {
+		t.Fatalf("second profile: %v", err)
+	}
+	if _, err := svc.WriteSave(ctx, profileID, gameID, "sram", 0, []byte("profile-one")); err != nil {
+		t.Fatalf("profile one save: %v", err)
+	}
+	if _, err := svc.WriteSave(ctx, secondProfile, gameID, "sram", 0, []byte("profile-two")); err != nil {
+		t.Fatalf("profile two save: %v", err)
+	}
+	one, err := svc.SaveFile(ctx, profileID, gameID, "sram", 0)
+	if err != nil {
+		t.Fatalf("profile one file: %v", err)
+	}
+	two, err := svc.SaveFile(ctx, secondProfile, gameID, "sram", 0)
+	if err != nil {
+		t.Fatalf("profile two file: %v", err)
+	}
+	if one.Path == two.Path {
+		t.Fatal("profiles unexpectedly share the same save path")
+	}
+	oneBody, _ := os.ReadFile(one.Path)
+	twoBody, _ := os.ReadFile(two.Path)
+	if string(oneBody) != "profile-one" || string(twoBody) != "profile-two" {
+		t.Fatalf("isolated saves changed: one=%q two=%q", oneBody, twoBody)
+	}
+}
+
 func TestGamePlayHeartbeatCreditsOnlyMonotonicDelta(t *testing.T) {
 	svc, profileID, gameID, _ := seedGameG2(t)
 	ctx := context.Background()
@@ -85,5 +120,17 @@ func TestGamePlayHeartbeatCreditsOnlyMonotonicDelta(t *testing.T) {
 	// A suspended/forged large jump is bounded to 120 seconds for one update.
 	if total, err := svc.Heartbeat(ctx, profileID, gameID, session, 1000); err != nil || total != 160 {
 		t.Fatalf("bounded jump total=%d err=%v", total, err)
+	}
+}
+
+func TestGameScanYieldsToActiveGameSession(t *testing.T) {
+	svc, profileID, gameID, _ := seedGameG2(t)
+	if _, err := svc.Heartbeat(context.Background(), profileID, gameID, "stormflix-active-game-123456789", 0); err != nil {
+		t.Fatalf("seed active game session: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
+	defer cancel()
+	if svc.waitForPlayback(ctx, 0, 0, 1, 0, 0) {
+		t.Fatal("game scan must yield while a game session is active")
 	}
 }
