@@ -40,7 +40,7 @@
     const shortcuts=[
       ['library','▦','Biblioteca','Ver todos os jogos'],
       ['saves','▤','Saves','Continuar de outro save'],
-      ['collections','▣','Coleções','Explorar por plataforma']
+      ['collections','▣','Coleções','Explorar séries e franquias']
     ];
     let i=0;
     while(grid.children.length<4&&i<shortcuts.length){const q=shortcuts[i++];grid.appendChild(quickTile(...q))}
@@ -98,4 +98,13 @@
     schedule();
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
+})();
+
+/* G4.9 is loaded from G4.8 so older cached shells keep receiving the new
+ * Collections behavior after the normal hard refresh used for deployments. */
+(function(){
+  if(document.querySelector('script[data-games-g49]'))return;
+  const script=document.createElement('script');
+  script.src='/games-g49-collections.js?v=g49';script.defer=true;script.dataset.gamesG49='1';
+  document.head.appendChild(script);
 })();
