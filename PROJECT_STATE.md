@@ -21,9 +21,9 @@ Server HTTP port: **8090**, normally behind an HTTPS reverse proxy.
 
 ## Current clients
 
-- Server code line: **`0.24.0-games-admin`**.
-- Web Player: v5 line, based on the v5.3 continuous Web playback-session architecture plus v5.4 presentation/TV controls.
-- Games Web Player: G2 browser/WASM runtime plus G2.5 dedicated Admin/metadata and RomMix-inspired browsing; G3 adds virtual mobile controls, TV/gamepad focus/menu behavior and profile-owned save-state previews.
+- Server code line: **`0.25.0-playback-anywhere`**.
+- Web Player: v5 line, based on the v5.3 continuous Web playback-session architecture plus v5.4 presentation/TV controls and Playback Anywhere v1.
+- Games Web Player: G2 browser/WASM runtime plus G2.5 dedicated Admin/metadata and RomMix-inspired browsing; G3 adds virtual mobile controls, TV/gamepad focus/menu behavior and profile-owned save-state previews. Games metadata now uses the Metadata Stack v2 multi-provider pipeline.
 - Android package: `cloud.stormflix.app`, **0.6.3 / versionCode 21**, minSdk 23, targetSdk 36, Java 17.
 - Android phone/tablet, Android TV and Fire TV keep native StormFlix catalog/navigation but delegate video playback to the hosted StormFlix Web Player inside `PlayerActivity` WebView.
 - Samsung Tizen: `apps/tizen` 0.1.0 thin shell; final WGT requires the developer's Samsung/Tizen signing profile.
@@ -76,7 +76,9 @@ The browser is the reference video implementation. Compatible files use HTTP Ran
 
 Android/Fire/Android TV and the Tizen/webOS shells converge on the hosted Web Player. `tv-remote.js` normalizes remote/media keys while hardware volume stays OS-owned.
 
-Real-device behavior is authoritative for startup/stall/remote QA; CI validates code/build logic, not remote-mount latency.
+Playback Anywhere v1 adds **Reproduzir em…** to the Web Player. Google Cast uses the Default Media Receiver with a route already selected by PlaybackPlan; external-player handoff supports temporary URLs suitable for VLC/mpv or native bridges. Handoff grants are HMAC-signed, short-lived and scoped to the authenticated user/profile/media instead of exposing browser cookies or passwords. HLS/webstream manifests propagate the grant only to their subordinate playback resources, and Cast progress is written back through the normal profile progress path.
+
+Real-device behavior is authoritative for startup/stall/remote/Cast QA; CI validates code/build logic, not remote-mount latency or receiver-network behavior.
 
 ### Intro and credits markers
 
@@ -259,7 +261,7 @@ Phase 22 adds:
 - `game_provider_settings` for enabled/provider configuration;
 - `game_metadata_jobs` for persistent enrichment work.
 
-The canonical game identity remains **platform + SHA-256**. External metadata can rename/enrich a card but cannot replace that local identity. Administrator metadata lock removes a game from automatic refresh candidates.
+The canonical game identity remains **platform + SHA-256**. External metadata can rename/enrich a card but cannot replace that local identity. Administrator metadata lock removes a game from automatic refresh candidates. Metadata Stack v2 additionally calculates bounded MD5/SHA-1/CRC32 only for provider lookup/correlation. For a supported single-ROM ZIP, these lookup hashes come from the native inner ROM bytes, not the ZIP container.
 
 Provider security:
 - Games provider secrets are AES-GCM encrypted before SQLite persistence;
@@ -267,14 +269,19 @@ Provider security:
 - API responses expose only public fields plus boolean “secret configured” state;
 - provider secrets are never committed to Git and should be entered/rotated in Admin after deployment.
 
-Implemented automatic metadata path:
-1. **IGDB** — primary title/summary/date/genres/companies/rating/cover/screenshots match;
-2. **MobyGames** — primary fallback when IGDB has no acceptable match;
-3. **SteamGridDB** — optional portrait artwork enrichment after a primary match.
+Implemented automatic metadata path (Metadata Stack v2):
+1. **Hasheous** — optional MD5/SHA-1/CRC32 identity bridge that can correlate IGDB, RetroAchievements and TheGamesDB IDs without replacing local identity;
+2. **ScreenScraper** — hash-aware retro title/summary/date/genre/company/media lookup when its developer and account credentials are configured;
+3. **IGDB** — conservative primary fallback for title/summary/date/genres/companies/rating/cover/screenshots;
+4. **MobyGames** — primary fallback when the prior sources have no acceptable match;
+5. **TheGamesDB** — complementary primary fallback and boxart source;
+6. **RetroAchievements** — enrichment only from a verified RA game ID (for example Hasheous or an explicit `(ra-ID)` tag); ordinary file MD5/SHA-1 is never assumed to be an RA hash;
+7. **SteamGridDB** — preferred polished portrait artwork enrichment;
+8. **Libretro Thumbnails** — public/no-key artwork fallback aligned with the RetroArch ecosystem.
 
-A metadata job requires IGDB or MobyGames to be configured; SteamGridDB alone cannot identify a game. Work is persistent, resumes queued/running jobs after server restart, rate-limits provider calls and pauses while video playback or gameplay is active.
+A metadata job requires at least one configured identification source among ScreenScraper, IGDB, MobyGames, TheGamesDB or Hasheous. SteamGridDB, RetroAchievements and Libretro are enrichment-only and cannot by themselves identify the whole catalog. Work is persistent, resumes queued/running jobs after server restart, rate-limits provider calls and pauses while video playback or gameplay is active. Cross-provider IDs are stored independently in the existing `game_metadata` columns so metadata, community identity and artwork can come from different providers for the same local ROM.
 
-The provider registry also models ScreenScraper, RetroAchievements, Hasheous, PlayMatch, LaunchBox, TheGamesDB, Flashpoint, HLTB, Demozoo, Pouët, CSDb and Libretro, but these are **not considered implemented** until their provider-specific adapters are wired. Admin deliberately labels non-wired providers as future integrations rather than presenting them as functional.
+The provider registry still models PlayMatch, LaunchBox, Flashpoint, HLTB, Demozoo, Pouët and CSDb, but these remain **planned** until provider-specific runtime adapters are wired. Admin deliberately labels non-wired providers as future integrations rather than presenting them as functional.
 
 ### G3 living-room/mobile controls and save previews
 
@@ -301,13 +308,13 @@ Save previews:
 
 G3 CI validates migration idempotence, preview version/recovery, profile isolation, JavaScript syntax and server build. Actual multi-touch event behavior, controller mapping, audio activation and TV/browser key delivery still require real-device QA.
 
-Community-driven next work after G3 includes smarter no-rehash scans for unchanged ROMs, explicit BIOS/ROMset diagnostics (especially arcade/Neo Geo), multidisc/DLC structure, broader metadata providers and RetroAchievements.
+Community-driven next work after G3 includes smarter no-rehash scans for unchanged ROMs, explicit BIOS/ROMset diagnostics (especially arcade/Neo Geo), multidisc/DLC structure, specialized long-tail metadata providers, richer achievement presentation and the G4 Games ecosystem.
 
 RetroAssembly (MIT) remains an architectural reference for browser retro emulation. RomM is a product/reference source for metadata breadth and game-management concepts but is AGPL-3.0; do not copy RomM source into StormFlix without an intentional compatible licensing decision.
 
 ## Entertainment roadmap
 
-`ENTERTAINMENT_ROADMAP.md` is the executable product roadmap. Games G1/G2/G2.5/G3 and automatic intro/credit foundations are implemented. Remaining major roadmap work includes Smart Downloads, smart playlists, Watch Party, improved editions/versions/extras, OIDC/optional stronger authentication, reuse of expensive media analysis, remaining Games metadata/achievement adapters, no-rehash scanning, BIOS/ROMset diagnostics and the G4 rich Games ecosystem.
+`ENTERTAINMENT_ROADMAP.md` is the executable product roadmap. Games G1/G2/G2.5/G3, Metadata Stack v2, Playback Anywhere v1 and automatic intro/credit foundations are implemented. Remaining major roadmap work includes Smart Downloads, smart playlists, Watch Party, improved editions/versions/extras, OIDC/optional stronger authentication, reuse of expensive media analysis, specialized long-tail Games providers, no-rehash scanning, BIOS/ROMset diagnostics and the G4 rich Games ecosystem.
 
 ## Jellyfin compatibility
 
