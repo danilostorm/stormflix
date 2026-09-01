@@ -53,7 +53,8 @@ func (s *server) gameDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u := currentUser(r)
-	game, err := s.games.PlayDetail(r.Context(), id, s.selectedProfileID(r, u.ID), s.gameAllowedLibraries(r))
+	profileID := s.selectedProfileID(r, u.ID)
+	game, err := s.games.PlayDetail(r.Context(), id, profileID, s.gameAllowedLibraries(r))
 	if errors.Is(err, sql.ErrNoRows) {
 		writeError(w, http.StatusNotFound, errors.New("game not found"))
 		return
@@ -62,7 +63,11 @@ func (s *server) gameDetail(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, game)
+	media, _ := s.games.Media(r.Context(), id)
+	writeJSON(w, http.StatusOK, struct {
+		games.PlayableGame
+		games.GameMedia
+	}{PlayableGame: game, GameMedia: media})
 }
 
 func (s *server) gameFavorite(w http.ResponseWriter, r *http.Request) {
