@@ -1,6 +1,7 @@
 package games
 
 import (
+	"archive/zip"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -112,10 +113,11 @@ var platformLabels = map[string]string{
 }
 
 func SupportedExtensions() []string {
-	out := make([]string, 0, len(platformByExtension))
+	out := make([]string, 0, len(platformByExtension)+1)
 	for ext := range platformByExtension {
 		out = append(out, ext)
 	}
+	out = append(out, ".zip")
 	sort.Strings(out)
 	return out
 }
@@ -403,6 +405,40 @@ func (s *Service) sourceRoots(ctx context.Context, libraryID int64) ([]string, e
 	return out, rows.Err()
 }
 
+func singleZIPROM(path string) (*zip.ReadCloser, *zip.File, string, error) {
+	archive, err := zip.OpenReader(path)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	var selected *zip.File
+	platform := ""
+	for _, file := range archive.File {
+		if file.FileInfo().IsDir() {
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(file.Name))
+		candidatePlatform := platformByExtension[ext]
+		if candidatePlatform == "" {
+			continue
+		}
+		if file.UncompressedSize64 == 0 || file.UncompressedSize64 > uint64(maxROMBytes) {
+			_ = archive.Close()
+			return nil, nil, "", errors.New("ZIP ROM size is outside the safe cartridge limit")
+		}
+		if selected != nil {
+			_ = archive.Close()
+			return nil, nil, "", errors.New("ZIP contains more than one supported ROM")
+		}
+		selected = file
+		platform = candidatePlatform
+	}
+	if selected == nil {
+		_ = archive.Close()
+		return nil, nil, "", errors.New("ZIP contains no supported cartridge ROM")
+	}
+	return archive, selected, platform, nil
+}
+
 func discoverROMs(ctx context.Context, root string) ([]discoveredROM, error) {
 	info, err := os.Stat(root)
 	if err != nil || !info.IsDir() {
@@ -430,9 +466,6 @@ func discoverROMs(ctx context.Context, root string) ([]discoveredROM, error) {
 		}
 		ext := strings.ToLower(filepath.Ext(path))
 		platform := platformByExtension[ext]
-		if platform == "" {
-			return nil
-		}
 		fileInfo, err := entry.Info()
 		if err != nil {
 			return nil
@@ -440,21 +473,26 @@ func discoverROMs(ctx context.Context, root string) ([]discoveredROM, error) {
 		if fileInfo.Size() <= 0 || fileInfo.Size() > maxROMBytes {
 			return nil
 		}
-		out = append(out, discoveredROM{Path: filepath.Clean(path), Platform: platform, Title: cleanROMTitle(path), Extension: ext, SizeBytes: fileInfo.Size(), ModifiedUnix: fileInfo.ModTime().Unix(), CoverPath: sidecarCover(path)})
+		romSize := fileInfo.Size()
+		if ext == ".zip" {
+			archive, romFile, zipPlatform, zipErr := singleZIPROM(path)
+			if zipErr != nil {
+				return nil
+			}
+			romSize = int64(romFile.UncompressedSize64)
+			platform = zipPlatform
+			_ = archive.Close()
+		}
+		if platform == "" {
+			return nil
+		}
+		out = append(out, discoveredROM{Path: filepath.Clean(path), Platform: platform, Title: cleanROMTitle(path), Extension: ext, SizeBytes: romSize, ModifiedUnix: fileInfo.ModTime().Unix(), CoverPath: sidecarCover(path)})
 		return nil
 	})
 	return out, err
 }
 
-func hashROM(ctx context.Context, path string, size int64) (string, error) {
-	if size <= 0 || size > maxROMBytes {
-		return "", errors.New("ROM size is outside the safe G1 limit")
-	}
-	file, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
+func hashReader(ctx context.Context, reader io.Reader) (string, error) {
 	h := sha256.New()
 	buf := make([]byte, 1<<20)
 	var read int64
@@ -462,11 +500,11 @@ func hashROM(ctx context.Context, path string, size int64) (string, error) {
 		if err := ctx.Err(); err != nil {
 			return "", err
 		}
-		n, err := file.Read(buf)
+		n, err := reader.Read(buf)
 		if n > 0 {
 			read += int64(n)
 			if read > maxROMBytes {
-				return "", errors.New("ROM exceeded safe G1 size limit while hashing")
+				return "", errors.New("ROM exceeded safe cartridge size limit while hashing")
 			}
 			_, _ = h.Write(buf[:n])
 		}
@@ -477,7 +515,35 @@ func hashROM(ctx context.Context, path string, size int64) (string, error) {
 			return "", err
 		}
 	}
+	if read <= 0 {
+		return "", errors.New("ROM is empty")
+	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func hashROM(ctx context.Context, path string, size int64) (string, error) {
+	if size <= 0 || size > maxROMBytes {
+		return "", errors.New("ROM size is outside the safe G1 limit")
+	}
+	if strings.EqualFold(filepath.Ext(path), ".zip") {
+		archive, romFile, _, err := singleZIPROM(path)
+		if err != nil {
+			return "", err
+		}
+		defer archive.Close()
+		reader, err := romFile.Open()
+		if err != nil {
+			return "", err
+		}
+		defer reader.Close()
+		return hashReader(ctx, reader)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	return hashReader(ctx, file)
 }
 
 var trailingTagRE = regexp.MustCompile(`(?i)\s*(\([^)]*\)|\[[^]]*\])\s*$`)
