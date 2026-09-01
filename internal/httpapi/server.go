@@ -23,7 +23,7 @@ import (
 )
 
 const sessionCookie = "stormflix_session"
-const version = "0.23.0-games-g2"
+const version = "0.24.0-games-admin"
 
 type contextKey string
 
@@ -154,6 +154,7 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("GET /api/v1/games/runtime/cores/{asset}", s.requireAuth(s.gameRuntimeCore))
 	mux.HandleFunc("GET /api/v1/games/home", s.requireAuth(s.gamesHome))
 	mux.HandleFunc("GET /api/v1/games", s.requireAuth(s.gamesList))
+	mux.HandleFunc("GET /api/v1/games/saves", s.requireAuth(s.gameSavesGallery))
 	mux.HandleFunc("GET /api/v1/games/{id}", s.requireAuth(s.gameDetail))
 	mux.HandleFunc("GET /api/v1/games/{id}/cover", s.requireAuth(s.gameCover))
 	mux.HandleFunc("GET /api/v1/games/{id}/rom", s.requireAuth(s.gameROM))
@@ -169,6 +170,10 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	s.registerJellyfinRoutes(mux, "")
 
 	mux.HandleFunc("GET /api/v1/admin/dashboard", s.requireRole("operator", s.adminDashboard))
+	mux.HandleFunc("GET /api/v1/admin/games/overview", s.requireRole("operator", s.adminGamesOverview))
+	mux.HandleFunc("GET /api/v1/admin/games/catalog", s.requireRole("operator", s.adminGamesCatalog))
+	mux.HandleFunc("GET /api/v1/admin/games/providers", s.requireRole("operator", s.adminGamesProviders))
+	mux.HandleFunc("PUT /api/v1/admin/games/providers/{provider}", s.requireRole("admin", s.adminUpdateGameProvider))
 	mux.HandleFunc("GET /api/v1/admin/users", s.requireRole("admin", s.listUsers))
 	mux.HandleFunc("POST /api/v1/admin/users", s.requireRole("admin", s.createUser))
 	mux.HandleFunc("PUT /api/v1/admin/users/{id}", s.requireRole("admin", s.updateUser))
