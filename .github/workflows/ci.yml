@@ -65,6 +65,7 @@ jobs:
           node --check internal/webui/static/category-nav.js
           node --check internal/webui/static/collections-nav.js
           node --check internal/webui/static/music-ui.js
+          node --check internal/webui/static/games-instant-cache.js
           node --check internal/webui/static/games-ui.js
           node --check internal/webui/static/games-player.js
           node --check internal/webui/static/games-g4-session.js
