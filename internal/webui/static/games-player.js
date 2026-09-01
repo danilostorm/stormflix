@@ -4,7 +4,7 @@
   const coreByPlatform={nes:'fceumm',snes:'snes9x',genesis:'genesis_plus_gx',gb:'mgba',gbc:'mgba',gba:'mgba'};
   let overlay=null,canvas=null,instance=null,current=null,prepareMode='normal',preparePromise=null;
   let sessionID='',elapsed=0,lastTick=0,tickTimer=null,heartbeatTimer=null,autosaveTimer=null;
-  let saveBusy=false,closing=false,scriptPromise=null,romPromise=null;
+  let savePromise=null,closing=false,scriptPromise=null,romPromise=null;
   const $=(sel,root=document)=>root.querySelector(sel);
   const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const platformLabel=p=>({nes:'Nintendo Entertainment System',snes:'Super Nintendo',genesis:'Mega Drive / Genesis',gb:'Game Boy',gbc:'Game Boy Color',gba:'Game Boy Advance'}[p]||String(p||'').toUpperCase());
@@ -80,11 +80,10 @@
     let game;
     try{game=await jsonFetch(`/api/v1/games/${Number(gameInput.id||gameInput)}`)}catch(err){notify(err.message);return}
     if(!game.playable||!game.core){notify('Este jogo não está disponível na matriz G2 do navegador.');return}
-    current=game;sessionID=randomSession();elapsed=0;preparePromise=null;prepareMode='normal';closing=false;
+    current=game;sessionID=randomSession();elapsed=0;preparePromise=null;prepareMode='normal';savePromise=null;closing=false;
     createOverlay(game);
     const launch=$('[data-game-launch]',overlay);launch.innerHTML=launchHTML(game);
     launch.querySelectorAll('[data-game-mode]').forEach(button=>button.onclick=()=>prepare(button.dataset.gameMode));
-    // Warm the authenticated ROM and pinned JS while the player chooses how to start.
     romPromise=blobFetch(`/api/v1/games/${game.id}/rom`);
     ensureRuntime().catch(()=>{});
     $('[data-game-close]',overlay)?.focus();
@@ -177,16 +176,24 @@
   }
 
   async function saveAll(manual){
-    if(saveBusy||!instance||!current||instance.getStatus?.()==='terminated')return;
-    saveBusy=true;const errors=[];let stateInfo=null,sramInfo=null;
+    if(savePromise){
+      try{await savePromise}catch{}
+      if(!manual)return;
+    }
+    if(!instance||!current||instance.getStatus?.()==='terminated')return;
     if(manual)toast('Salvando estado e SRAM…');
-    try{
-      try{const result=await instance.saveState();if(result?.state?.size)stateInfo=await uploadSave('state',result.state)}catch(err){errors.push(`estado: ${err.message}`)}
-      try{const sram=await instance.saveSRAM();if(sram?.size)sramInfo=await uploadSave('sram',sram)}catch(err){errors.push(`SRAM: ${err.message}`)}
-      if(stateInfo){current.saves=current.saves||{};current.saves.state=stateInfo}
-      if(sramInfo){current.saves=current.saves||{};current.saves.sram=sramInfo}
-      if(errors.length){if(manual)toast(`Save parcial · ${errors.join(' · ')}`,true)}else if(manual)toast('Save sincronizado com o perfil ✓');
-    }finally{saveBusy=false}
+    const targetInstance=instance,targetGame=current;
+    savePromise=(async()=>{
+      const errors=[];let stateInfo=null,sramInfo=null;
+      try{const result=await targetInstance.saveState();if(result?.state?.size&&current===targetGame)stateInfo=await uploadSave('state',result.state)}catch(err){errors.push(`estado: ${err.message}`)}
+      try{const sram=await targetInstance.saveSRAM();if(sram?.size&&current===targetGame)sramInfo=await uploadSave('sram',sram)}catch(err){errors.push(`SRAM: ${err.message}`)}
+      if(current===targetGame){
+        if(stateInfo){current.saves=current.saves||{};current.saves.state=stateInfo}
+        if(sramInfo){current.saves=current.saves||{};current.saves.sram=sramInfo}
+      }
+      if(manual&&overlay){if(errors.length)toast(`Save parcial · ${errors.join(' · ')}`,true);else toast('Save sincronizado com o perfil ✓')}
+    })();
+    try{return await savePromise}finally{savePromise=null}
   }
 
   async function togglePause(){
@@ -208,10 +215,11 @@
     stopTracking();
     try{
       if(saveFirst&&instance){toast('Salvando antes de sair…');await saveAll(true)}
+      else if(savePromise){try{await savePromise}catch{}}
       await heartbeat();
       if(instance){try{await instance.exit()}catch{}}
     }finally{
-      instance=null;current=null;preparePromise=null;romPromise=null;sessionID='';elapsed=0;
+      instance=null;current=null;preparePromise=null;romPromise=null;savePromise=null;sessionID='';elapsed=0;
       if(overlay){overlay.remove();overlay=null;canvas=null}
       closing=false;
       window.dispatchEvent(new CustomEvent('stormflix:game-closed'));
