@@ -11,7 +11,7 @@ func TestGamesG45KeepsNativeMediaCatalogAndAddsGames(t *testing.T) {
 		t.Fatalf("read index.html: %v", err)
 	}
 	if !bytes.Contains(index, []byte(`/games-g45-home-compat.js?v=g45`)) {
-		t.Fatal("Games G4.5 compatibility guard is not loaded")
+		t.Fatal("Games compatibility guard is not loaded")
 	}
 
 	js, err := Static.ReadFile("static/games-g45-home-compat.js")
@@ -30,7 +30,29 @@ func TestGamesG45KeepsNativeMediaCatalogAndAddsGames(t *testing.T) {
 		[]byte(`Games rails are the only surviving rows`),
 	} {
 		if !bytes.Contains(js, required) {
-			t.Fatalf("Games G4.5 native catalog guard missing %q", required)
+			t.Fatalf("Games native catalog guard missing %q", required)
+		}
+	}
+}
+
+func TestGamesG46PlacesRailsNearTopWithoutTakingOverHome(t *testing.T) {
+	js, err := Static.ReadFile("static/games-g45-home-compat.js")
+	if err != nil {
+		t.Fatalf("read games-g45-home-compat.js: %v", err)
+	}
+	for _, required := range [][]byte{
+		[]byte(`data-g44-home-row=\"continue\"`),
+		[]byte(`data-g44-home-row=\"recent\"`),
+		[]byte(`nativeRow('Em alta agora')`),
+		[]byte(`nativeRow('Em alta nesta semana')`),
+		[]byte(`nativeRow('Lançamentos')`),
+		[]byte(`placeHomeGameRows`),
+		[]byte(`insertAdjacentElement('afterend',continued)`),
+		[]byte(`insertAdjacentElement('afterend',recent)`),
+		[]byte(`avoiding two consecutive game rails`),
+	} {
+		if !bytes.Contains(js, required) {
+			t.Fatalf("Games G4.6 Home placement contract missing %q", required)
 		}
 	}
 }
