@@ -35,12 +35,12 @@ func TestPhase19AllowsSeparatedCreditSegments(t *testing.T) {
 	}
 	defer db.Close()
 
-	library, err := db.Exec(`INSERT INTO libraries(name,kind,path,active) VALUES('TV','series','/tv',1)`)
+	library, err := db.Exec(`INSERT INTO libraries(name,kind,path) VALUES('TV','series','/tv')`)
 	if err != nil {
 		t.Fatalf("insert library: %v", err)
 	}
 	libraryID, _ := library.LastInsertId()
-	media, err := db.Exec(`INSERT INTO media(library_id,path,title,kind,available) VALUES(?, '/tv/episode.mkv', 'Episode', 'episode', 1)`, libraryID)
+	media, err := db.Exec(`INSERT INTO media(library_id,path,title,extension,available) VALUES(?, '/tv/episode.mkv', 'Episode', '.mkv', 1)`, libraryID)
 	if err != nil {
 		t.Fatalf("insert media: %v", err)
 	}
