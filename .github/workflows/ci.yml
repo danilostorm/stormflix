@@ -45,6 +45,9 @@ jobs:
           node --check internal/webui/static/admin/admin-automation.js
           node --check internal/webui/static/admin/admin-transcode.js
           node --check internal/webui/static/admin/admin-music.js
+          node --check internal/webui/static/admin/admin-games.js
+          node --check internal/webui/static/admin/admin-games-hub.js
+          node --check internal/webui/static/admin/admin-games-metadata.js
           node --check internal/webui/static/admin/admin-library-metadata.js
           node --check internal/webui/static/admin/admin-jobs.js
           node --check internal/webui/static/admin/admin-time.js
