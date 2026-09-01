@@ -15,12 +15,20 @@ func TestGamesPlayerUsesDirectRetroPadInputs(t *testing.T) {
 		[]byte(`input_player1_b:'z'`),
 		[]byte(`input_player1_x:'s'`),
 		[]byte(`input_player1_y:'a'`),
-		[]byte(`pressDown,pressUp`),
+		[]byte(`input_player1_select:'rshift'`),
+		[]byte(`INPUT_ASSET_VERSION='g34'`),
+		[]byte(`/games-g3-inputs.js?v=${INPUT_ASSET_VERSION}`),
+		[]byte(`/games-g3-inputs.css?v=${INPUT_ASSET_VERSION}`),
+		[]byte(`instance.pressDown({button,player:1})`),
+		[]byte(`instance.pressUp({button,player:1})`),
+		[]byte(`pressedInputs=new Set()`),
+		[]byte(`releaseAllInputs()`),
+		[]byte(`instance.resize({width,height})`),
+		[]byte(`aspectByPlatform`),
 		[]byte(`stormflix:game-started`),
-		[]byte(`/games-g3-inputs.js`),
 	} {
 		if !bytes.Contains(player, required) {
-			t.Fatalf("Games player missing direct input contract %q", required)
+			t.Fatalf("Games player missing direct input/resize contract %q", required)
 		}
 	}
 	if bytes.Contains(player, []byte(`overlay.addEventListener('keydown',captureGameKeys,true)`)) {
@@ -44,10 +52,13 @@ func TestGamesVirtualPadCoversPlatformControls(t *testing.T) {
 		[]byte(`Math.atan2(dy,dx)`),
 		[]byte(`['down','right']`),
 		[]byte(`['up','left']`),
-		[]byte(`button.setPointerCapture?.(pointerId)`),
-		[]byte(`lostpointercapture`),
+		[]byte(`button.hasPointerCapture?.(event.pointerId)`),
+		[]byte(`button.releasePointerCapture(event.pointerId)`),
+		[]byte(`event.buttons===0`),
 		[]byte(`resetVirtualInputs()`),
 		[]byte(`removeLegacyController(overlay)`),
+		[]byte(`type="button"`),
+		[]byte(`player()?.resize?.()`),
 	} {
 		if !bytes.Contains(input, required) {
 			t.Fatalf("Games virtual pad missing control/layout %q", required)
@@ -57,6 +68,7 @@ func TestGamesVirtualPadCoversPlatformControls(t *testing.T) {
 		[]byte(`class="sf-pad-dpad"`),
 		[]byte(`class="diag ul"`),
 		[]byte(`buttonFromPoint(`),
+		[]byte(`button.setPointerCapture?.(pointerId)`),
 	} {
 		if bytes.Contains(input, forbidden) {
 			t.Fatalf("Games virtual pad contains obsolete/cross-input behavior %q", forbidden)
@@ -75,12 +87,18 @@ func TestGamesVirtualPadCoversPlatformControls(t *testing.T) {
 		[]byte(`.sf-pad-face.diamond`),
 		[]byte(`.sf-pad-shoulders`),
 		[]byte(`orientation:landscape`),
+		[]byte(`button.pressed{`),
 	} {
 		if !bytes.Contains(css, required) {
 			t.Fatalf("Games responsive input CSS missing %q", required)
 		}
 	}
-	if bytes.Contains(css, []byte(`.sf-pad-dpad`)) {
-		t.Fatal("Games responsive input CSS must not ship the old nine-button D-pad grid")
+	for _, forbidden := range [][]byte{
+		[]byte(`.sf-pad-dpad`),
+		[]byte(`.sf-pad-face.diamond .a{grid-column:3;grid-row:2;background:`),
+	} {
+		if bytes.Contains(css, forbidden) {
+			t.Fatalf("Games responsive input CSS contains stale/false pressed styling %q", forbidden)
+		}
 	}
 }

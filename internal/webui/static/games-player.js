@@ -1,15 +1,19 @@
-/* StormFlix Games G3.1: pinned Nostalgist/RetroArch browser player + profile saves. */
+/* StormFlix Games G3.4: pinned Nostalgist/RetroArch browser player + profile saves. */
 (function(){
   const RUNTIME_LABEL='Nostalgist 0.21.1 · RetroArch cores v1.22.2';
+  const INPUT_ASSET_VERSION='g34';
   const coreByPlatform={nes:'fceumm',snes:'snes9x',genesis:'genesis_plus_gx',gb:'mgba',gbc:'mgba',gba:'mgba'};
+  const aspectByPlatform={nes:4/3,snes:4/3,genesis:4/3,gb:10/9,gbc:10/9,gba:3/2};
   const keyboardConfig={
     input_player1_a:'x',input_player1_b:'z',input_player1_x:'s',input_player1_y:'a',
     input_player1_l:'q',input_player1_r:'w',input_player1_l2:'e',input_player1_r2:'r',
     input_player1_up:'up',input_player1_down:'down',input_player1_left:'left',input_player1_right:'right',
     input_player1_select:'rshift',input_player1_start:'enter',
   };
+  const gameInputs=['up','down','left','right','a','b','x','y','l','r','l2','r2','select','start'];
+  const validInputs=new Set(gameInputs),pressedInputs=new Set();
   let overlay=null,canvas=null,instance=null,current=null,prepareMode='normal',preparePromise=null;
-  let sessionID='',elapsed=0,lastTick=0,tickTimer=null,heartbeatTimer=null,autosaveTimer=null;
+  let sessionID='',elapsed=0,lastTick=0,tickTimer=null,heartbeatTimer=null,autosaveTimer=null,resizeTimer=null;
   let savePromise=null,closing=false,scriptPromise=null,romPromise=null,inputLayerRequested=false;
   const $=(sel,root=document)=>root.querySelector(sel);
   const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[c]));
@@ -53,17 +57,17 @@
   function ensureInputLayer(){
     if(inputLayerRequested)return;inputLayerRequested=true;
     if(!document.querySelector('link[data-stormflix-game-inputs]')){
-      const link=document.createElement('link');link.rel='stylesheet';link.href='/games-g3-inputs.css';link.dataset.stormflixGameInputs='1';document.head.appendChild(link);
+      const link=document.createElement('link');link.rel='stylesheet';link.href=`/games-g3-inputs.css?v=${INPUT_ASSET_VERSION}`;link.dataset.stormflixGameInputs='1';document.head.appendChild(link);
     }
     if(!document.querySelector('script[data-stormflix-game-inputs]')){
-      const script=document.createElement('script');script.src='/games-g3-inputs.js';script.async=true;script.dataset.stormflixGameInputs='1';document.head.appendChild(script);
+      const script=document.createElement('script');script.src=`/games-g3-inputs.js?v=${INPUT_ASSET_VERSION}`;script.async=true;script.dataset.stormflixGameInputs='1';document.head.appendChild(script);
     }
   }
 
   function createOverlay(game){
     if(overlay)overlay.remove();ensureInputLayer();
     overlay=document.createElement('section');overlay.id='game-player-overlay';overlay.className='game-player-overlay';overlay.setAttribute('role','dialog');overlay.setAttribute('aria-modal','true');overlay.setAttribute('aria-label',`Jogando ${game.title}`);
-    overlay.innerHTML=`<header class="game-player-top"><div><span class="game-player-kicker">STORMFLIX GAME PLAYER G3.1</span><strong data-game-player-title>${esc(game.title)}</strong></div><div class="game-player-top-actions"><span class="game-runtime-badge">${esc(RUNTIME_LABEL)}</span><button type="button" data-game-fullscreen aria-label="Tela cheia">⛶</button><button type="button" data-game-close aria-label="Sair do jogo">✕</button></div></header>
+    overlay.innerHTML=`<header class="game-player-top"><div><span class="game-player-kicker">STORMFLIX GAME PLAYER G3.4</span><strong data-game-player-title>${esc(game.title)}</strong></div><div class="game-player-top-actions"><span class="game-runtime-badge">${esc(RUNTIME_LABEL)}</span><button type="button" data-game-fullscreen aria-label="Tela cheia">⛶</button><button type="button" data-game-close aria-label="Sair do jogo">✕</button></div></header>
       <div class="game-player-stage"><canvas id="stormflix-game-canvas" class="game-player-canvas" tabindex="0"></canvas><div class="game-launch-panel" data-game-launch></div><div class="game-player-toast hidden" data-game-toast></div></div>
       <footer class="game-player-controls hidden" data-game-controls><div class="game-player-status"><span class="gamepad-dot" data-gamepad-dot></span><span data-gamepad-label>Nenhum gamepad detectado · teclado ativo</span><span data-playtime>Tempo deste perfil: ${clock(game.play_seconds)}</span></div><div class="game-player-buttons"><button type="button" data-game-pause>Pausar</button><button type="button" data-game-save>Salvar agora</button><button type="button" data-game-exit>Salvar e sair</button></div></footer>`;
     document.body.appendChild(overlay);canvas=$('#stormflix-game-canvas',overlay);
@@ -90,7 +94,7 @@
   async function open(gameInput){
     if(closing)return;
     if(instance||overlay)await close(false);
-    pauseOtherMedia();
+    pauseOtherMedia();releaseAllInputs();
     let game;
     try{game=await jsonFetch(`/api/v1/games/${Number(gameInput.id||gameInput)}`)}catch(err){notify(err.message);return}
     if(!game.playable||!game.core){notify('Este jogo não está disponível na matriz G2 do navegador.');return}
@@ -141,19 +145,58 @@
   async function startPrepared(){
     if(!instance||!overlay)throw new Error('Emulador não está preparado.');
     await instance.start();
+    releaseAllInputs();
     $('[data-game-launch]',overlay)?.classList.add('hidden');$('[data-game-controls]',overlay)?.classList.remove('hidden');
     canvas?.focus({preventScroll:true});startTracking();await heartbeat();
     window.dispatchEvent(new CustomEvent('stormflix:game-started',{detail:{id:current?.id,platform:current?.platform,core:current?.core}}));
+    queueResize(0);queueResize(140);
     toast('Jogo iniciado · saves sincronizam com este perfil');
   }
 
+  function traceInput(button,down){
+    if(localStorage.getItem('stormflix.games.input-debug')==='1')console.debug(`[StormFlix Games] ${button.toUpperCase()} ${down?'DOWN':'UP'}`);
+    window.dispatchEvent(new CustomEvent('stormflix:game-input',{detail:{button,down}}));
+  }
   function pressDown(button){
-    if(!instance||instance.getStatus?.()==='terminated')return false;
-    try{instance.pressDown(button);return true}catch{return false}
+    if(!instance||instance.getStatus?.()==='terminated'||!validInputs.has(button))return false;
+    if(pressedInputs.has(button))return true;
+    try{instance.pressDown({button,player:1});pressedInputs.add(button);traceInput(button,true);return true}catch{return false}
   }
   function pressUp(button){
-    if(!instance||instance.getStatus?.()==='terminated')return false;
-    try{instance.pressUp(button);return true}catch{return false}
+    if(!instance||instance.getStatus?.()==='terminated'||!validInputs.has(button))return false;
+    try{instance.pressUp({button,player:1});pressedInputs.delete(button);traceInput(button,false);return true}catch{return false}
+  }
+  function releaseAllInputs(){
+    if(!instance){pressedInputs.clear();return}
+    for(const button of gameInputs){try{instance.pressUp({button,player:1})}catch{}}
+    pressedInputs.clear();
+  }
+
+  function canvasAspect(){return aspectByPlatform[current?.platform]||4/3}
+  function resizeEmulator(){
+    if(!instance||!canvas||!overlay||instance.getStatus?.()==='terminated')return false;
+    const stage=$('.game-player-stage',overlay);if(!stage)return false;
+    const coarse=!!window.matchMedia?.('(pointer: coarse)').matches||innerWidth<=900;
+    const touch=coarse&&overlay.classList.contains('sf-virtual-pad-on');
+    let cssWidth=0,cssHeight=0;
+    if(touch){
+      const rect=canvas.getBoundingClientRect();cssWidth=rect.width;cssHeight=rect.height;
+    }else{
+      const rect=stage.getBoundingClientRect(),aspect=canvasAspect();
+      const maxWidth=Math.max(320,rect.width-48),maxHeight=Math.max(240,rect.height-24);
+      cssWidth=Math.min(maxWidth,maxHeight*aspect);cssHeight=cssWidth/aspect;
+      canvas.style.setProperty('width',`${Math.round(cssWidth)}px`,'important');
+      canvas.style.setProperty('height',`${Math.round(cssHeight)}px`,'important');
+      canvas.style.setProperty('max-width','100%','important');canvas.style.setProperty('max-height','100%','important');
+    }
+    if(cssWidth<2||cssHeight<2)return false;
+    const dpr=Math.min(1.5,Math.max(1,Number(devicePixelRatio)||1));
+    let width=Math.round(cssWidth*dpr),height=Math.round(cssHeight*dpr);
+    const scale=Math.min(1,1600/width,1200/height);width=Math.max(256,Math.round(width*scale));height=Math.max(192,Math.round(height*scale));
+    try{instance.resize({width,height});return true}catch{return false}
+  }
+  function queueResize(delay=40){
+    clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{resizeTimer=null;requestAnimationFrame(()=>resizeEmulator())},Math.max(0,delay));
   }
 
   function startTracking(){
@@ -191,17 +234,17 @@
 
   async function togglePause(){
     if(!instance)return;const button=$('[data-game-pause]',overlay);
-    try{if(instance.getStatus?.()==='paused'){await instance.resume();if(button)button.textContent='Pausar';lastTick=performance.now();canvas?.focus({preventScroll:true});toast('Jogo retomado')}else{await instance.pause();if(button)button.textContent='Continuar';await heartbeat();toast('Jogo pausado')}}catch(err){toast(err.message,true)}
+    try{if(instance.getStatus?.()==='paused'){await instance.resume();if(button)button.textContent='Pausar';lastTick=performance.now();canvas?.focus({preventScroll:true});queueResize();toast('Jogo retomado')}else{releaseAllInputs();await instance.pause();if(button)button.textContent='Continuar';await heartbeat();toast('Jogo pausado')}}catch(err){toast(err.message,true)}
   }
 
   async function toggleFullscreen(){
-    try{if(document.fullscreenElement)await document.exitFullscreen();else await overlay?.requestFullscreen?.();setTimeout(()=>canvas?.focus({preventScroll:true}),0)}catch{toast('Tela cheia não disponível neste navegador',true)}
+    try{if(document.fullscreenElement)await document.exitFullscreen();else await overlay?.requestFullscreen?.();setTimeout(()=>{canvas?.focus({preventScroll:true});queueResize(20)},0)}catch{toast('Tela cheia não disponível neste navegador',true)}
   }
 
   async function close(saveFirst){
-    if(closing)return;closing=true;stopTracking();
-    try{if(saveFirst&&instance){toast('Salvando antes de sair…');await saveAll(true)}else if(savePromise){try{await savePromise}catch{}}await heartbeat();if(instance){try{await instance.exit()}catch{}}}
-    finally{instance=null;current=null;preparePromise=null;romPromise=null;savePromise=null;sessionID='';elapsed=0;if(overlay){overlay.remove();overlay=null;canvas=null}closing=false;window.dispatchEvent(new CustomEvent('stormflix:game-closed'))}
+    if(closing)return;closing=true;stopTracking();clearTimeout(resizeTimer);resizeTimer=null;releaseAllInputs();
+    try{if(saveFirst&&instance){toast('Salvando antes de sair…');await saveAll(true)}else if(savePromise){try{await savePromise}catch{}}await heartbeat();releaseAllInputs();if(instance){try{await instance.exit()}catch{}}}
+    finally{pressedInputs.clear();instance=null;current=null;preparePromise=null;romPromise=null;savePromise=null;sessionID='';elapsed=0;if(overlay){overlay.remove();overlay=null;canvas=null}closing=false;window.dispatchEvent(new CustomEvent('stormflix:game-closed'))}
   }
 
   function pauseOtherMedia(){try{const video=document.querySelector('#player');if(video&&!video.paused)video.pause()}catch{}try{const audio=document.querySelector('#music-audio');if(audio&&!audio.paused)audio.pause()}catch{}try{if(typeof stopTheme==='function')stopTheme()}catch{}}
@@ -210,12 +253,14 @@
   function updateGamepadLabel(){if(!overlay)return;const pads=navigator.getGamepads?.()||[],count=[...pads].filter(Boolean).length,label=$('[data-gamepad-label]',overlay),dot=$('[data-gamepad-dot]',overlay);if(label)label.textContent=count?`${count} gamepad(s) conectado(s) · teclado também ativo`:'Nenhum gamepad detectado · teclado ativo';if(dot)dot.classList.toggle('online',count>0)}
 
   addEventListener('gamepadconnected',updateGamepadLabel);addEventListener('gamepaddisconnected',updateGamepadLabel);
-  document.addEventListener('visibilitychange',()=>{if(document.hidden&&instance)saveAll(false)});
-  addEventListener('beforeunload',()=>{if(!current||!sessionID||!navigator.sendBeacon)return;const body=new Blob([JSON.stringify({session_id:sessionID,elapsed_seconds:Math.floor(elapsed)})],{type:'application/json'});navigator.sendBeacon(`/api/v1/games/${current.id}/playback`,body)});
+  addEventListener('resize',()=>queueResize(80));addEventListener('orientationchange',()=>queueResize(160));document.addEventListener('fullscreenchange',()=>queueResize(60));
+  document.addEventListener('visibilitychange',()=>{if(document.hidden&&instance){releaseAllInputs();saveAll(false)}else if(instance)queueResize(80)});
+  addEventListener('beforeunload',()=>{if(!current||!sessionID||!navigator.sendBeacon)return;releaseAllInputs();const body=new Blob([JSON.stringify({session_id:sessionID,elapsed_seconds:Math.floor(elapsed)})],{type:'application/json'});navigator.sendBeacon(`/api/v1/games/${current.id}/playback`,body)});
 
   window.StormFlixGamePlayer={
     open,close:()=>close(true),active:()=>!!instance,
-    pressDown,pressUp,
+    pressDown,pressUp,resize:resizeEmulator,releaseInputs:releaseAllInputs,
+    pressedInputs:()=>[...pressedInputs],
     current:()=>current?{id:current.id,title:current.title,platform:current.platform,core:current.core}:null,
   };
 })();
