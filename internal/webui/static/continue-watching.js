@@ -41,6 +41,8 @@
 
   function readJSON(key,fallback){try{const v=JSON.parse(localStorage.getItem(key)||'null');return v&&typeof v==='object'?v:fallback}catch{return fallback}}
   function writeJSON(key,value){try{localStorage.setItem(key,JSON.stringify(value))}catch{}}
+  const validInterval=m=>{const start=Number(m?.start),end=Number(m?.end);return Number.isFinite(start)&&Number.isFinite(end)&&end>start+.25?{start,end}:null};
+  const markerList=value=>(Array.isArray(value)?value:[value]).map(validInterval).filter(Boolean).sort((a,b)=>a.start-b.start);
 
   async function syncPreferences(mediaID,prefs){
     if(!mediaID||!prefs)return;
@@ -50,9 +52,16 @@
   async function syncMarkers(mediaID,source='manual'){
     if(!mediaID)return;
     const local=readJSON(markerKey(mediaID),{}),jobs=[];
-    for(const kind of ['intro','credits','recap']){
-      const m=local[kind];
-      if(m&&Number(m.end)>Number(m.start))jobs.push(delightRPC(mediaID,'marker_upsert',{marker:{kind,start_seconds:Number(m.start),end_seconds:Number(m.end),source}}));
+    const intro=markerList(local.intro)[0];
+    if(intro)jobs.push(delightRPC(mediaID,'marker_upsert',{marker:{kind:'intro',start_seconds:intro.start,end_seconds:intro.end,source}}));
+    const recap=markerList(local.recap)[0];
+    if(recap)jobs.push(delightRPC(mediaID,'marker_upsert',{marker:{kind:'recap',start_seconds:recap.start,end_seconds:recap.end,source}}));
+    const credits=markerList(local.credits);
+    if(credits.length){
+      // Replace the credit set atomically from the client's point of view. Each
+      // interval receives a stable index so another device gets the same gaps.
+      await delightRPC(mediaID,'marker_delete',{marker:{kind:'credits'}}).catch(()=>{});
+      credits.forEach((m,index)=>jobs.push(delightRPC(mediaID,'marker_upsert',{marker:{kind:'credits',segment_index:index,start_seconds:m.start,end_seconds:m.end,source}})));
     }
     try{await Promise.all(jobs)}catch(e){console.warn('StormFlix marker sync failed',e)}
   }
@@ -73,7 +82,13 @@
     serverMarkerCount.set(mediaID,serverMarkers.length);
     if(serverMarkers.length){
       const mapped={};
-      serverMarkers.forEach(m=>{if(m?.kind&&Number(m.end_seconds)>Number(m.start_seconds))mapped[m.kind]={start:Number(m.start_seconds),end:Number(m.end_seconds)}});
+      serverMarkers.forEach(m=>{
+        if(!m?.kind||Number(m.end_seconds)<=Number(m.start_seconds))return;
+        const interval={start:Number(m.start_seconds),end:Number(m.end_seconds)};
+        if(m.kind==='credits')mapped.credits=[...(mapped.credits||[]),interval];
+        else mapped[m.kind]=interval;
+      });
+      if(mapped.credits)mapped.credits.sort((a,b)=>a.start-b.start);
       writeJSON(markerKey(mediaID),mapped);
     }else{
       const local=readJSON(markerKey(mediaID),{});
@@ -108,8 +123,9 @@
     },0);
   });
 
-  // Manual corrections are server authoritative. Clear removes every marker;
-  // completed intro/credits edits upsert the local marker values.
+  // Manual corrections are server authoritative. A credit correction is only
+  // synced after its explicit end is marked, so a half-created interval never
+  // becomes a skip range on another device.
   document.addEventListener('click',event=>{
     const button=event.target.closest?.('#sf-playback-delight-settings [data-m]');
     if(!button)return;
@@ -119,7 +135,7 @@
         await Promise.all(['intro','credits','recap'].map(kind=>delightRPC(id,'marker_delete',{marker:{kind}}).catch(()=>{})));
         serverMarkerCount.set(id,0);return;
       }
-      if(button.dataset.m==='end'||button.dataset.m==='credits')await syncMarkers(id,'manual');
+      if(button.dataset.m==='end'||button.dataset.m==='credits-end')await syncMarkers(id,'manual');
     },0);
   });
 
