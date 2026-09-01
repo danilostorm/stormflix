@@ -23,6 +23,8 @@ import com.google.android.gms.cast.framework.media.RemoteMediaClient;
 import org.json.JSONObject;
 
 import java.util.Locale;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Native Android bridge for Playback Anywhere.
@@ -59,6 +61,31 @@ public final class PlaybackAnywhereNative {
         } catch (PackageManager.NameNotFoundException ignored) {
             return false;
         }
+    }
+
+    /**
+     * Returns a small JSON snapshot instead of retaining a long-lived Cast
+     * progress listener. JavaScript polls this every ~10 s only while casting,
+     * then writes progress through the normal StormFlix profile endpoint.
+     */
+    @JavascriptInterface
+    public String castStatus() {
+        if (Looper.myLooper() == Looper.getMainLooper()) return castStatusOnMain();
+        final String[] value = new String[]{"{\"connected\":false}"};
+        CountDownLatch latch = new CountDownLatch(1);
+        main.post(() -> {
+            try {
+                value[0] = castStatusOnMain();
+            } finally {
+                latch.countDown();
+            }
+        });
+        try {
+            latch.await(700, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+        }
+        return value[0];
     }
 
     @JavascriptInterface
@@ -174,6 +201,32 @@ public final class PlaybackAnywhereNative {
         } catch (Exception error) {
             emit("error", safeMessage(error, "Google Cast não está disponível neste aparelho."));
         }
+    }
+
+    private String castStatusOnMain() {
+        JSONObject out = new JSONObject();
+        try {
+            CastContext context = CastContext.getSharedInstance(activity);
+            CastSession session = context.getSessionManager().getCurrentCastSession();
+            if (session == null || !session.isConnected()) {
+                out.put("connected", false);
+                return out.toString();
+            }
+            RemoteMediaClient remote = session.getRemoteMediaClient();
+            if (remote == null) {
+                out.put("connected", false);
+                return out.toString();
+            }
+            out.put("connected", true);
+            out.put("position_seconds", Math.max(0d, remote.getApproximateStreamPosition() / 1000d));
+            MediaInfo info = remote.getMediaInfo();
+            if (info != null && info.getStreamDuration() > 0) {
+                out.put("duration_seconds", info.getStreamDuration() / 1000d);
+            }
+        } catch (Exception ignored) {
+            try { out.put("connected", false); } catch (Exception ignoredAgain) {}
+        }
+        return out.toString();
     }
 
     private void loadPendingCast(CastSession session) {
