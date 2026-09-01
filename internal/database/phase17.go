@@ -30,5 +30,5 @@ CREATE INDEX IF NOT EXISTS idx_media_marker_analysis_status
 	if _, err := db.Exec(schema); err != nil {
 		return fmt.Errorf("migrate phase17 automatic intro analysis: %w", err)
 	}
-	return nil
+	return migratePhase18(db)
 }
