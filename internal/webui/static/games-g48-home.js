@@ -36,7 +36,7 @@
     const head=document.createElement('div');head.className='g48-activity-head';
     head.innerHTML=`<div><p>SUA ATIVIDADE</p><h2>${activeCards.length?'Continue seus outros jogos':'Acesso rápido'}</h2></div><small>${activeCards.length?'Retome outra partida sem repetir o destaque.':'Sua biblioteca e seus saves em um toque.'}</small>`;
     const grid=document.createElement('div');grid.className='g48-activity-grid';
-    activeCards.slice(0,4).forEach(card=>{card.classList.add('g48-continue-card');grid.appendChild(card)});
+    activeCards.forEach(card=>{card.classList.add('g48-continue-card');grid.appendChild(card)});
     const shortcuts=[
       ['library','▦','Biblioteca','Ver todos os jogos'],
       ['saves','▤','Saves','Continuar de outro save'],
@@ -62,6 +62,7 @@
       if(gameID(card)===heroId)card.remove();
       else otherActive.push(card);
     }
+    const shownActive=otherActive.slice(0,4);
     continued?.remove();
 
     const eyebrow=$('.gx-hero-copy>p:first-child',hero);
@@ -70,9 +71,9 @@
     if(hint){hint.classList.add('g48-hero-action');hint.textContent=hasProgress?'▶ Continuar partida':'▶ Abrir jogo'}
 
     const dashboard=document.createElement('section');dashboard.className='g48-dashboard';
-    hero.before(dashboard);dashboard.append(hero,buildActivityPanel(otherActive));
+    hero.before(dashboard);dashboard.append(hero,buildActivityPanel(shownActive));
 
-    const seen=new Set();if(heroId)seen.add(heroId);otherActive.forEach(card=>{const id=gameID(card);if(id)seen.add(id)});
+    const seen=new Set();if(heroId)seen.add(heroId);shownActive.forEach(card=>{const id=gameID(card);if(id)seen.add(id)});
     const favorites=sectionByTitle(home,'Favoritos');
     const recent=sectionByTitle(home,'Adicionados recentemente');
     const ready=sectionByTitle(home,'Prontos para jogar');
