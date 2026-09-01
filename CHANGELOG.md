@@ -4,6 +4,17 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 
 ## 2026-09-01
 
+### Games ZIP cartridges, direct launch and RetroArch runtime fix
+
+- Added bounded **single-ROM ZIP** discovery for the existing NES/SNES/Mega Drive/GB/GBC/GBA cartridge matrix. Platform and SHA-256 identity come from the uncompressed inner ROM; ambiguous multi-ROM ZIPs are ignored instead of guessed.
+- ZIP cartridges are resolved lazily into a native-extension server cache for playback, so the emulator receives `.sfc/.smc/.nes/.gba/...` bytes while the original archive remains untouched.
+- Fixed real browser game startup against RetroArch Emscripten build **v1.22.2**. That build publishes cores as `<core>_libretro.zip`; StormFlix had incorrectly requested loose `<core>_libretro.js/.wasm` URLs, which returned non-2xx responses and surfaced through Nostalgist only as `Failed to load response`.
+- StormFlix now downloads the pinned official core ZIP on first use, validates and extracts its JS/WASM pair server-side, caches those files under the StormFlix data directory and serves them same-origin through the existing authenticated runtime endpoints.
+- Clicking **Play** now means play: the game overlay begins ROM/runtime/save preparation immediately and attempts automatic emulator startup without a mandatory **Preparar jogo** or **Iniciar agora** step.
+- Existing save-state resumes automatically; otherwise normal boot preserves SRAM. A final **Iniciar jogo** button appears only when the browser requires a renewed user gesture after asynchronous WASM loading.
+- Runtime/ROM/core fetch errors now surface their StormFlix HTTP error instead of collapsing into Nostalgist's generic response-loading message.
+- Added regression tests for official core-bundle URL selection, JS/WASM extraction and incomplete-bundle rejection.
+
 ### Games G3 — mobile controls, living-room gamepad and save previews
 
 - Added an optional **virtual mobile controller** for the native browser game player with D-pad, A/B, SELECT and START, pointer-based multi-touch, Auto/On/Off visibility and optional short haptic feedback.
