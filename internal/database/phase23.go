@@ -3,6 +3,7 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 )
 
 // Phase 23 extends profile-owned game saves with a small preview image payload.
@@ -11,6 +12,14 @@ import (
 // in the existing versioned save catalog makes backup/recovery behavior and the
 // Games save gallery deterministic without putting binary payloads in SQLite.
 func migratePhase23(db *sql.DB) error {
+	var currentSchema string
+	if err := db.QueryRow(`SELECT COALESCE(sql,'') FROM sqlite_master WHERE type='table' AND name='game_saves'`).Scan(&currentSchema); err != nil {
+		return fmt.Errorf("inspect phase23 game_saves schema: %w", err)
+	}
+	if strings.Contains(currentSchema, "'preview'") {
+		return nil
+	}
+
 	tx, err := db.Begin()
 	if err != nil {
 		return fmt.Errorf("migrate phase23 begin: %w", err)
