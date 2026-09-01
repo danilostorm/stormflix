@@ -200,7 +200,7 @@ Current cartridge matrix:
 - Game Boy Color: `.gbc`
 - Game Boy Advance: `.gba`
 
-The scanner identifies a game by platform + SHA-256, keeps physical ROM paths private, supports optional local sidecar cover files and exposes favorites/playtime/last-played per selected profile. Disc/archive formats remain intentionally outside this first matrix.
+The scanner identifies a game by platform + SHA-256, keeps physical ROM paths private, supports optional local sidecar cover files and exposes favorites/playtime/last-played per selected profile. A `.zip` containing exactly one supported cartridge ROM is accepted as a container; its platform and SHA-256 identity come from the uncompressed inner ROM. ZIPs with zero or multiple supported ROMs are ignored instead of guessed, and disc images remain outside this cartridge matrix.
 
 ### G2 browser player
 
@@ -216,13 +216,15 @@ GB/GBC/GBA→ mgba
 Runtime policy:
 - browser never loads arbitrary emulator URLs;
 - server accepts only the fixed Nostalgist version and allowlisted core names/extensions;
-- first use of Nostalgist/a core may require outbound Internet to populate `DataDir/game-runtime`;
-- after the exact asset is cached, it is served same-origin with immutable caching;
+- RetroArch build v1.22.2 publishes each allowed core as `<core>_libretro.zip`; StormFlix downloads that pinned bundle on first use, validates/bounds it, extracts the JS/WASM pair and caches both under `DataDir/game-runtime/retroarch-v1.22.2/`;
+- core JS/WASM and the Nostalgist runtime are then served same-origin through authenticated StormFlix endpoints with immutable caching;
+- once the pinned runtime/core files exist in the server cache, another client does not need to reach the runtime CDN for that core;
 - ROM and save payloads are never uploaded to the runtime CDN.
 
 ROM access:
 - `/api/v1/games/{id}/rom` is authenticated and library-permission-aware;
 - actual filesystem paths are never returned to Web clients;
+- single-ROM ZIP cartridges are resolved lazily into `DataDir/game-rom-cache/<platform>/<sha256>.<ext>` for playback so the browser/core receives the native cartridge extension while the original archive remains untouched;
 - the initial cartridge limit remains 512 MiB.
 
 Profile saves:
@@ -239,8 +241,10 @@ Playtime:
 - `game_profile_state.play_seconds` and `last_played_at` feed **Continuar jogando**.
 
 Player UX:
-- ROM/runtime/save preparation occurs before the final `Iniciar agora` user gesture to preserve browser audio activation;
-- existing state offers Continue from save-state vs normal boot with SRAM;
+- selecting **Play** immediately opens the game overlay, starts ROM/runtime/save preparation and attempts emulator start without a mandatory `Preparar jogo` or `Iniciar agora` step;
+- if a profile save-state exists, direct launch resumes it automatically; otherwise the game boots normally while preserving battery SRAM;
+- only if a browser rejects automatic start after asynchronous WASM/runtime loading does the player show a final **Iniciar jogo** interaction fallback;
+- ROM/runtime/core fetch failures are surfaced with their StormFlix HTTP error instead of collapsing into Nostalgist's generic `Failed to load response` message;
 - fullscreen, pause/resume, gamepad status, keyboard focus, autosave, manual save and Save-and-exit are built in;
 - Save-and-exit waits for an in-flight autosave and performs a final save before terminating the emulator.
 

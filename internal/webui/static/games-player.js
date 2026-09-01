@@ -66,11 +66,16 @@
     if(event.key==='Escape'){event.preventDefault();close(true)}
   }
 
-  function launchHTML(game){
-    const state=game.saves?.state||{},sram=game.saves?.sram||{};
-    const stateMeta=state.exists?`Save state v${Number(state.version||0)} · ${fmtBytes(state.size_bytes)}`:'Sem save state';
-    const sramMeta=sram.exists?`SRAM v${Number(sram.version||0)} · ${fmtBytes(sram.size_bytes)}`:'Sem SRAM salvo';
-    return `<div class="game-launch-card"><p>${esc(platformLabel(game.platform))}</p><h2>${esc(game.title)}</h2><div class="game-launch-facts"><span>${esc(game.rom_name||'ROM')}</span><span>${fmtBytes(game.rom_size_bytes)}</span><span>${esc(game.core||coreByPlatform[game.platform]||'core')}</span></div><div class="game-save-summary"><span>${esc(stateMeta)}</span><span>${esc(sramMeta)}</span></div><p class="game-launch-note">Na primeira execução deste core, o servidor baixa a versão fixada e mantém uma cópia local. ROM e saves nunca são enviados ao CDN.</p><div class="game-launch-actions">${state.exists?'<button class="primary" type="button" data-game-mode="continue">Continuar do save state</button><button type="button" data-game-mode="normal">Abrir normalmente (SRAM)</button>':'<button class="primary" type="button" data-game-mode="normal">Preparar jogo</button>'}</div><small>Gamepad USB/Bluetooth é reconhecido pelo RetroArch. Teclado: setas, Enter/Shift e Z/X/A/S.</small></div>`;
+  function loadingHTML(game,mode){
+    const resume=mode==='continue';
+    return `<div class="game-launch-card loading"><span class="game-loader"></span><p>${esc(platformLabel(game.platform))}</p><h2>Abrindo ${esc(game.title)}…</h2><div class="game-launch-facts"><span>${esc(game.rom_name||'ROM')}</span><span>${fmtBytes(game.rom_size_bytes)}</span><span>${esc(game.core||coreByPlatform[game.platform]||'core')}</span></div><p>${resume?'Restaurando seu save state e carregando o emulador.':'Carregando ROM e emulador.'}</p><small>No primeiro uso deste core o servidor baixa o bundle oficial e mantém JS/WASM no cache local; depois o início é mais rápido.</small></div>`;
+  }
+
+  function showLaunchError(message,mode){
+    const launch=$('[data-game-launch]',overlay);if(!launch)return;
+    launch.classList.remove('hidden');
+    launch.innerHTML=`<div class="game-launch-card error"><span class="game-ready-icon">!</span><h2>Não foi possível abrir o jogo</h2><p>${esc(message)}</p><button class="primary" type="button" data-game-retry>Tentar novamente</button><small>Se o erro continuar, a mensagem acima indica se a falha foi na ROM, no runtime ou no core.</small></div>`;
+    $('[data-game-retry]',launch).onclick=()=>prepare(mode);
   }
 
   async function open(gameInput){
@@ -80,42 +85,62 @@
     let game;
     try{game=await jsonFetch(`/api/v1/games/${Number(gameInput.id||gameInput)}`)}catch(err){notify(err.message);return}
     if(!game.playable||!game.core){notify('Este jogo não está disponível na matriz G2 do navegador.');return}
-    current=game;sessionID=randomSession();elapsed=0;preparePromise=null;prepareMode='normal';savePromise=null;closing=false;
+    current=game;sessionID=randomSession();elapsed=0;preparePromise=null;prepareMode=game.saves?.state?.exists?'continue':'normal';savePromise=null;closing=false;
     createOverlay(game);
-    const launch=$('[data-game-launch]',overlay);launch.innerHTML=launchHTML(game);
-    launch.querySelectorAll('[data-game-mode]').forEach(button=>button.onclick=()=>prepare(button.dataset.gameMode));
     romPromise=blobFetch(`/api/v1/games/${game.id}/rom`);
-    ensureRuntime().catch(()=>{});
+    const launch=$('[data-game-launch]',overlay);launch.innerHTML=loadingHTML(game,prepareMode);
     $('[data-game-close]',overlay)?.focus();
+    // The Play action now means play: preparation starts immediately and the
+    // emulator is started automatically as soon as its files are ready.
+    void prepare(prepareMode);
   }
 
   async function prepare(mode){
     if(!current||preparePromise)return;
     prepareMode=mode==='continue'?'continue':'normal';
-    const launch=$('[data-game-launch]',overlay);launch.innerHTML=`<div class="game-launch-card loading"><span class="game-loader"></span><h2>Preparando ${esc(current.title)}…</h2><p>Carregando ROM autenticada, runtime local e ${prepareMode==='continue'?'seu save state':'seu SRAM'}.</p><small>O primeiro uso de um core pode demorar mais; depois ele fica no cache do servidor.</small></div>`;
+    const launch=$('[data-game-launch]',overlay);if(!launch)return;
+    launch.classList.remove('hidden');launch.innerHTML=loadingHTML(current,prepareMode);
     preparePromise=prepareEmulator(prepareMode);
     try{
       await preparePromise;
-      launch.innerHTML=`<div class="game-launch-card ready"><span class="game-ready-icon">✓</span><h2>Pronto para jogar</h2><p>${prepareMode==='continue'?'Seu save state foi carregado.':'O jogo será iniciado normalmente, preservando o SRAM existente.'}</p><button class="primary big" type="button" data-game-start>Iniciar agora</button><small>Use este clique para liberar áudio e controles no navegador.</small></div>`;
-      $('[data-game-start]',launch).onclick=startPrepared;
-      $('[data-game-start]',launch).focus();
     }catch(err){
       preparePromise=null;
-      launch.innerHTML=`<div class="game-launch-card error"><span class="game-ready-icon">!</span><h2>Não foi possível preparar o jogo</h2><p>${esc(err.message)}</p><button type="button" data-game-retry>Tentar novamente</button></div>`;
-      $('[data-game-retry]',launch).onclick=()=>prepare(mode);
+      if(instance){try{await instance.exit()}catch{}instance=null}
+      showLaunchError(err?.message||'Falha desconhecida ao preparar o emulador.',prepareMode);
+      return;
+    }
+
+    try{
+      await startPrepared();
+    }catch(err){
+      // Some browsers expire the original user activation while WASM/core files
+      // are loading. Only in that exceptional case do we ask for one final click.
+      launch.innerHTML=`<div class="game-launch-card ready"><span class="game-ready-icon">✓</span><h2>Jogo carregado</h2><p>O navegador bloqueou a inicialização automática de áudio/controles.</p><button class="primary big" type="button" data-game-start>Iniciar jogo</button><small>Este botão aparece apenas quando o navegador exige uma nova interação.</small></div>`;
+      const button=$('[data-game-start]',launch);
+      button.onclick=async()=>{button.disabled=true;button.textContent='Iniciando…';try{await startPrepared()}catch(startErr){button.disabled=false;button.textContent='Tentar iniciar novamente';toast(startErr?.message||'Não foi possível iniciar o emulador',true)}};
+      button.focus();
     }
   }
 
   async function prepareEmulator(mode){
-    const [Nostalgist,romBlob]=await Promise.all([ensureRuntime(),romPromise||blobFetch(`/api/v1/games/${current.id}/rom`)]);
     const core=current.core||coreByPlatform[current.platform];if(!core)throw new Error('Core não configurado para esta plataforma.');
+    const [Nostalgist,romBlob,coreJS,coreWASM]=await Promise.all([
+      ensureRuntime(),
+      romPromise||blobFetch(`/api/v1/games/${current.id}/rom`),
+      blobFetch(`/api/v1/games/runtime/cores/${encodeURIComponent(core)}.js`),
+      blobFetch(`/api/v1/games/runtime/cores/${encodeURIComponent(core)}.wasm`),
+    ]);
     const rom=typeof File==='function'?new File([romBlob],current.rom_name||`game.${current.platform}`,{type:'application/octet-stream'}):{fileName:current.rom_name||`game.${current.platform}`,fileContent:romBlob};
     let state=null,sram=null;
     if(current.saves?.sram?.exists)sram=await blobFetch(`/api/v1/games/${current.id}/saves/sram`,true);
     if(mode==='continue'&&current.saves?.state?.exists)state=await blobFetch(`/api/v1/games/${current.id}/saves/state`,true);
     const options={
       element:canvas,
-      core:{name:core,js:`/api/v1/games/runtime/cores/${core}.js`,wasm:`/api/v1/games/runtime/cores/${core}.wasm`},
+      core:{
+        name:core,
+        js:{fileName:`${core}_libretro.js`,fileContent:coreJS},
+        wasm:{fileName:`${core}_libretro.wasm`,fileContent:coreWASM},
+      },
       rom,
       cache:{core:true,rom:false,bios:false,shader:false},
       respondToGlobalEvents:false,
@@ -127,20 +152,14 @@
   }
 
   async function startPrepared(){
-    if(!instance||!overlay)return;
-    const button=$('[data-game-start]',overlay);if(button){button.disabled=true;button.textContent='Iniciando…'}
-    try{
-      await instance.start();
-      $('[data-game-launch]',overlay)?.classList.add('hidden');
-      $('[data-game-controls]',overlay)?.classList.remove('hidden');
-      canvas?.focus();
-      startTracking();
-      await heartbeat();
-      toast('Jogo iniciado · saves sincronizam com este perfil');
-    }catch(err){
-      if(button){button.disabled=false;button.textContent='Tentar iniciar novamente'}
-      toast(err.message,true);
-    }
+    if(!instance||!overlay)throw new Error('Emulador não está preparado.');
+    await instance.start();
+    $('[data-game-launch]',overlay)?.classList.add('hidden');
+    $('[data-game-controls]',overlay)?.classList.remove('hidden');
+    canvas?.focus();
+    startTracking();
+    await heartbeat();
+    toast('Jogo iniciado · saves sincronizam com este perfil');
   }
 
   function startTracking(){
