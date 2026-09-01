@@ -18,7 +18,7 @@ import java.util.Map;
 
 public final class ApiClient {
     private static final String TAG = "StormFlixApi";
-    private static final String VERSION = "0.6.3";
+    private static final String VERSION = "0.6.4";
 
     public static final class ApiException extends IOException {
         public final int status;
