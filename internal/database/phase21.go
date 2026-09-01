@@ -55,5 +55,5 @@ CREATE INDEX IF NOT EXISTS idx_game_play_sessions_seen
 	if _, err := db.Exec(schema); err != nil {
 		return fmt.Errorf("migrate phase21 game saves/play sessions: %w", err)
 	}
-	return nil
+	return migratePhase22(db)
 }
