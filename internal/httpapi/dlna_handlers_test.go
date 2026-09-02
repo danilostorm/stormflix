@@ -1,15 +1,16 @@
 package httpapi
 
 import (
-	"net/url"
+	"net/http/httptest"
 	"testing"
 )
 
 func TestJellyfinDLNAQueryNamesAreCaseInsensitive(t *testing.T) {
-	values := url.Values{}
-	values.Set("itemIds", "abc")
-	values.Set("startPositionTicks", "150000000")
-	values.Set("audioStreamIndex", "2")
-	if got := jellyfinQueryValue(values, "StartPositionTicks"); got != "150000000" { t.Fatalf("startPositionTicks=%q", got) }
-	if got := jellyfinQueryValue(values, "AudioStreamIndex"); got != "2" { t.Fatalf("audioStreamIndex=%q", got) }
+	r := httptest.NewRequest("GET", "/Sessions/test/Playing?itemIds=abc&startPositionTicks=150000000&audioStreamIndex=2", nil)
+	if got := jellyfinQueryValue(r, "StartPositionTicks"); got != "150000000" {
+		t.Fatalf("startPositionTicks=%q", got)
+	}
+	if got := jellyfinQueryValue(r, "AudioStreamIndex"); got != "2" {
+		t.Fatalf("audioStreamIndex=%q", got)
+	}
 }
