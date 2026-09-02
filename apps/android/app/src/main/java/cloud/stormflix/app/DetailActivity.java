@@ -99,16 +99,8 @@ public class DetailActivity extends Activity {
     }
 
     private void showPlaybackAnywhere(Models.Media media) {
-        String[] options = {
-            "Chromecast / Google TV",
-            "Web Video Cast / Roku / DLNA",
-            "Abrir com outro player"
-        };
-        new AlertDialog.Builder(this)
-            .setTitle("Reproduzir em…")
-            .setItems(options, (dialog, which) -> preparePlaybackAnywhere(media, which))
-            .setNegativeButton("Cancelar", null)
-            .show();
+        String[] options = { "Chromecast / Google TV", "DLNA / UPnP", "Abrir com outro player" };
+        new AlertDialog.Builder(this).setTitle("Reproduzir em…").setItems(options, (dialog, which) -> preparePlaybackAnywhere(media, which)).setNegativeButton("Cancelar", null).show();
     }
 
     private void preparePlaybackAnywhere(Models.Media media, int target) {
@@ -118,53 +110,33 @@ public class DetailActivity extends Activity {
                 JSONObject caps = new JSONObject();
                 caps.put("containers", new JSONArray().put("mp4"));
                 caps.put("video_codecs", new JSONArray().put("h264"));
-                caps.put("audio_codecs", new JSONArray().put("aac").put("mp3"));
+                caps.put("audio_codecs", new JSONArray().put("aac").put("mp3").put("ac3"));
                 caps.put("subtitle_formats", new JSONArray().put("vtt"));
-                caps.put("allow_remux", true);
-                caps.put("allow_audio_compatibility", true);
-                caps.put("allow_video_transcode", true);
-                caps.put("max_transcode_bitrate_kbps", 18000);
-                caps.put("native_audio_track_selection", false);
-                caps.put("server_selects_audio", true);
+                caps.put("allow_remux", true); caps.put("allow_audio_compatibility", true); caps.put("allow_video_transcode", true);
+                caps.put("max_transcode_bitrate_kbps", 18000); caps.put("native_audio_track_selection", false); caps.put("server_selects_audio", true);
 
                 JSONObject request = new JSONObject();
-                request.put("client_kind", "tv");
-                request.put("client_name", "StormFlix Android Playback Anywhere");
-                request.put("client_version", "0.6.4");
-                request.put("quality", "auto");
-                request.put("start_position_seconds", 0);
-                request.put("capabilities", caps);
+                request.put("client_kind", "tv"); request.put("client_name", "StormFlix Android Playback Anywhere"); request.put("client_version", "0.6.5");
+                request.put("quality", "auto"); request.put("start_position_seconds", 0); request.put("capabilities", caps);
 
                 JSONObject plan = new JSONObject(api.post("/media/" + media.id + "/playback/plan", request));
-                if (!plan.optBoolean("available", false) || plan.optString("url", "").trim().isEmpty()) {
-                    throw new IllegalStateException(plan.optString("reason", "Nenhuma rota compatível ficou disponível."));
-                }
-                JSONObject grantRequest = new JSONObject();
-                grantRequest.put("url", plan.getString("url"));
+                if (!plan.optBoolean("available", false) || plan.optString("url", "").trim().isEmpty()) throw new IllegalStateException(plan.optString("reason", "Nenhuma rota compatível ficou disponível."));
+                JSONObject grantRequest = new JSONObject(); grantRequest.put("url", plan.getString("url"));
                 JSONObject grant = new JSONObject(api.post("/media/" + media.id + "/playback/grant", grantRequest));
-                String url = grant.optString("url", "").trim();
-                if (url.isEmpty()) throw new IllegalStateException("StormFlix não retornou o link temporário de reprodução.");
+                String url = grant.optString("url", "").trim(); if (url.isEmpty()) throw new IllegalStateException("StormFlix não retornou o link temporário de reprodução.");
                 String mime = remoteMime(plan, url);
-
                 main.post(() -> {
                     if (target == 0) anywhereBridge.openNativeCast(url, media.title, mime, 0);
-                    else if (target == 1) anywhereBridge.openWebVideoCast(url, media.title, mime);
+                    else if (target == 1) anywhereBridge.openNativeDlna(url, media.title, mime, 0);
                     else anywhereBridge.openExternalPlayer(url, media.title, mime);
                 });
-            } catch (Exception error) {
-                main.post(() -> Toast.makeText(this, error.getMessage(), Toast.LENGTH_LONG).show());
-            }
+            } catch (Exception error) { main.post(() -> Toast.makeText(this, error.getMessage(), Toast.LENGTH_LONG).show()); }
         });
     }
 
     private String remoteMime(JSONObject plan, String url) {
-        String lower = url == null ? "" : url.toLowerCase(Locale.ROOT);
-        String mode = plan.optString("mode", "");
-        String transport = plan.optString("transport", "");
-        if (lower.contains(".m3u8") || "hls".equalsIgnoreCase(transport)
-            || "video_transcode".equals(mode) || "audio_compatibility".equals(mode) || "remux".equals(mode)) {
-            return "application/x-mpegURL";
-        }
+        String lower = url == null ? "" : url.toLowerCase(Locale.ROOT), mode = plan.optString("mode", ""), transport = plan.optString("transport", "");
+        if (lower.contains(".m3u8") || "hls".equalsIgnoreCase(transport) || "video_transcode".equals(mode)) return "application/x-mpegURL";
         return "video/mp4";
     }
 
@@ -172,16 +144,10 @@ public class DetailActivity extends Activity {
         LinearLayout card = Ui.vertical(this,0); card.setGravity(Gravity.CENTER_HORIZONTAL); card.setFocusable(true); card.setClickable(true); card.setBackground(Ui.round(Color.TRANSPARENT,10));
         card.setOnFocusChangeListener((v,f)->{v.setBackground(Ui.round(f?Color.rgb(31,35,45):Color.TRANSPARENT,10));v.setScaleX(f?1.06f:1);v.setScaleY(f?1.06f:1);});
         ImageView image=new ImageView(this); image.setScaleType(ImageView.ScaleType.CENTER_CROP); image.setBackground(Ui.round(Color.rgb(35,40,50),60)); card.addView(image,new LinearLayout.LayoutParams(Ui.dp(this,92),Ui.dp(this,92)));
-        String url=p.optString("profile_url",""); if(!url.isEmpty())images.load(image,url);
-        String name=p.optString("name","");
+        String url=p.optString("profile_url",""); if(!url.isEmpty())images.load(image,url); String name=p.optString("name","");
         TextView n=Ui.title(this,name,11);n.setMaxLines(1);n.setGravity(Gravity.CENTER);card.addView(n,Ui.margin(this,Ui.dp(this,110),ViewGroup.LayoutParams.WRAP_CONTENT,0,6,0,0));
         TextView c=Ui.muted(this,p.optString("character",""),9);c.setMaxLines(1);c.setGravity(Gravity.CENTER);card.addView(c);
-        card.setOnClickListener(v->{
-            if(name.trim().isEmpty())return;
-            Intent intent=new Intent(this,PersonActivity.class);
-            intent.putExtra("person_name",name);
-            startActivity(intent);
-        });
+        card.setOnClickListener(v->{if(name.trim().isEmpty())return;Intent intent=new Intent(this,PersonActivity.class);intent.putExtra("person_name",name);startActivity(intent);});
         LinearLayout holder=Ui.horizontal(this,0);holder.addView(card,Ui.margin(this,ViewGroup.LayoutParams.WRAP_CONTENT,ViewGroup.LayoutParams.WRAP_CONTENT,0,0,12,0));return holder;
     }
 

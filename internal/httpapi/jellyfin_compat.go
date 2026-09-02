@@ -109,12 +109,14 @@ func (s *server) registerJellyfinRoutes(mux *http.ServeMux, prefix string) {
 		return s.jellyfinCompatWrap(s.jellyfinRequireAuth(s.jellyfinNormalizeLibraryScope(h)))
 	}
 
-	// Register native WebView bootstrap only once. Official Jellyfin Android
-	// loads the bare server root; after StormFlix login the deferred bundle uses
-	// this same-origin endpoint to populate the credentials expected by the
-	// Android native shell.
+	// Register native WebView bootstrap and native Playback Anywhere DLNA APIs
+	// only once. The web path performs SSDP from the StormFlix host; Android has
+	// an additional device-local SSDP implementation for the phone/TV LAN.
 	if p != "" {
 		mux.HandleFunc("GET /api/v1/compat/jellyfin-mobile-bridge", s.requireAuth(s.jellyfinMobileBridge))
+		mux.HandleFunc("GET /api/v1/playback/dlna/devices", s.requireAuth(s.dlnaDevices))
+		mux.HandleFunc("POST /api/v1/playback/dlna/{device_id}/play", s.requireAuth(s.dlnaPlay))
+		mux.HandleFunc("POST /api/v1/playback/dlna/{device_id}/control", s.requireAuth(s.dlnaControl))
 	}
 
 	// Discovery / connection / authentication.
@@ -135,7 +137,9 @@ func (s *server) registerJellyfinRoutes(mux *http.ServeMux, prefix string) {
 	mux.HandleFunc("POST "+route("/Sessions/Capabilities"), authed(s.jellyfinCapabilities))
 	mux.HandleFunc("POST "+route("/Sessions/Capabilities/Full"), authed(s.jellyfinCapabilities))
 	mux.HandleFunc("POST "+route("/Sessions/Logout"), authed(s.jellyfinLogout))
-	mux.HandleFunc("GET "+route("/Sessions"), authed(s.jellyfinEmptyList))
+	mux.HandleFunc("GET "+route("/Sessions"), authed(s.jellyfinSessions))
+	mux.HandleFunc("POST "+route("/Sessions/{session_id}/Playing"), authed(s.jellyfinDLNAPlay))
+	mux.HandleFunc("POST "+route("/Sessions/{session_id}/Playing/{command}"), authed(s.jellyfinDLNAControl))
 
 	// Home/catalog routes used by modern Android TV and SDK clients.
 	mux.HandleFunc("GET "+route("/UserViews"), authed(s.jellyfinRichViews))

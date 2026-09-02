@@ -18,7 +18,7 @@ import java.util.Map;
 
 public final class ApiClient {
     private static final String TAG = "StormFlixApi";
-    private static final String VERSION = "0.6.4";
+    private static final String VERSION = "0.6.5";
 
     public static final class ApiException extends IOException {
         public final int status;
@@ -49,19 +49,12 @@ public final class ApiClient {
             return request("POST", path, payload.toString());
         } catch (ApiException first) {
             if (!shouldRetryPlaybackPlan(path, first)) throw first;
-
-            // Some deployed StormFlix servers still use the older strict JSON
-            // decoder for PlaybackPlan. Retry only this very specific 400 with a
-            // conservative capability envelope that older v5 servers understand.
-            // Direct Play stays first; this fallback never silently requests a
-            // video transcode or bypasses the authoritative PlaybackPlan.
             try {
                 JSONObject compatible = minimalPlaybackPlanPayload(payload);
                 Log.w(TAG, "PlaybackPlan rejected full capability JSON; retrying minimal compatibility payload");
                 return request("POST", path, compatible.toString());
             } catch (ApiException second) {
-                throw new ApiException(second.status,
-                    "PlaybackPlan recusou JSON completo e compatível: " + String.valueOf(second.getMessage()));
+                throw new ApiException(second.status, "PlaybackPlan recusou JSON completo e compatível: " + String.valueOf(second.getMessage()));
             } catch (Exception buildError) {
                 Log.w(TAG, "Could not build PlaybackPlan compatibility payload", buildError);
                 throw first;
@@ -79,87 +72,47 @@ public final class ApiClient {
 
     private static JSONObject minimalPlaybackPlanPayload(JSONObject source) throws Exception {
         JSONObject out = new JSONObject();
-        String clientKind = source.optString("client_kind", "android").trim();
-        if (clientKind.isEmpty()) clientKind = "android";
-        out.put("client_kind", clientKind);
-
-        String preferredAudio = source.optString("preferred_audio_language", "").trim();
-        if (!preferredAudio.isEmpty()) out.put("preferred_audio_language", preferredAudio);
-
-        JSONObject sourceCaps = source.optJSONObject("capabilities");
-        JSONObject caps = new JSONObject();
+        String clientKind = source.optString("client_kind", "android").trim(); if (clientKind.isEmpty()) clientKind = "android"; out.put("client_kind", clientKind);
+        String preferredAudio = source.optString("preferred_audio_language", "").trim(); if (!preferredAudio.isEmpty()) out.put("preferred_audio_language", preferredAudio);
+        JSONObject sourceCaps = source.optJSONObject("capabilities"), caps = new JSONObject();
         if (sourceCaps != null) {
             if (sourceCaps.has("containers")) caps.put("containers", sourceCaps.get("containers"));
             if (sourceCaps.has("video_codecs")) caps.put("video_codecs", sourceCaps.get("video_codecs"));
             if (sourceCaps.has("audio_codecs")) caps.put("audio_codecs", sourceCaps.get("audio_codecs"));
             caps.put("allow_remux", sourceCaps.optBoolean("allow_remux", true));
             caps.put("allow_audio_compatibility", sourceCaps.optBoolean("allow_audio_compatibility", true));
-        } else {
-            caps.put("allow_remux", true);
-            caps.put("allow_audio_compatibility", true);
-        }
-        out.put("capabilities", caps);
-        return out;
+        } else { caps.put("allow_remux", true); caps.put("allow_audio_compatibility", true); }
+        out.put("capabilities", caps); return out;
     }
 
     private String request(String method, String path, String body) throws IOException {
-        HttpURLConnection c = open(apiUrl(path));
-        c.setRequestMethod(method);
-        c.setRequestProperty("Accept", "application/json");
-        if (body != null) {
-            c.setDoOutput(true);
-            c.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-            try (OutputStream out = c.getOutputStream()) { out.write(body.getBytes(StandardCharsets.UTF_8)); }
-        }
-        int status = c.getResponseCode();
-        captureCookies(c);
-        String text = readText(status >= 400 ? c.getErrorStream() : c.getInputStream());
-        c.disconnect();
-        if (status >= 400) throw new ApiException(status, errorMessage(text, status));
-        return text;
+        HttpURLConnection c = open(apiUrl(path)); c.setRequestMethod(method); c.setRequestProperty("Accept", "application/json");
+        if (body != null) { c.setDoOutput(true); c.setRequestProperty("Content-Type", "application/json; charset=utf-8"); try (OutputStream out = c.getOutputStream()) { out.write(body.getBytes(StandardCharsets.UTF_8)); } }
+        int status = c.getResponseCode(); captureCookies(c); String text = readText(status >= 400 ? c.getErrorStream() : c.getInputStream()); c.disconnect();
+        if (status >= 400) throw new ApiException(status, errorMessage(text, status)); return text;
     }
 
     public byte[] getBytes(String absoluteUrl) throws IOException {
-        HttpURLConnection c = open(absoluteAssetUrl(absoluteUrl));
-        c.setRequestMethod("GET");
-        int status = c.getResponseCode();
-        captureCookies(c);
-        if (status >= 400) {
-            String text = readText(c.getErrorStream());
-            c.disconnect();
-            throw new ApiException(status, errorMessage(text, status));
-        }
-        byte[] data = readBytes(c.getInputStream());
-        c.disconnect();
-        return data;
+        HttpURLConnection c = open(absoluteAssetUrl(absoluteUrl)); c.setRequestMethod("GET"); int status = c.getResponseCode(); captureCookies(c);
+        if (status >= 400) { String text = readText(c.getErrorStream()); c.disconnect(); throw new ApiException(status, errorMessage(text, status)); }
+        byte[] data = readBytes(c.getInputStream()); c.disconnect(); return data;
     }
 
     private HttpURLConnection open(String url) throws IOException {
-        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
-        c.setConnectTimeout(15000);
-        c.setReadTimeout(1200000);
-        c.setInstanceFollowRedirects(true);
-        c.setRequestProperty("User-Agent", "StormFlix-Android/" + VERSION);
-        String cookies = store.cookieHeader();
-        if (!cookies.isEmpty()) c.setRequestProperty("Cookie", cookies);
-        return c;
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection(); c.setConnectTimeout(15000); c.setReadTimeout(1200000); c.setInstanceFollowRedirects(true); c.setRequestProperty("User-Agent", "StormFlix-Android/" + VERSION);
+        String cookies = store.cookieHeader(); if (!cookies.isEmpty()) c.setRequestProperty("Cookie", cookies); return c;
     }
 
     private void captureCookies(HttpURLConnection c) {
         Map<String, List<String>> headers = c.getHeaderFields();
         for (Map.Entry<String, List<String>> entry : headers.entrySet()) {
             if (entry.getKey() == null || !entry.getKey().equalsIgnoreCase("Set-Cookie")) continue;
-            for (String raw : entry.getValue()) {
-                if (raw == null) continue;
-                captureCookie(raw, "stormflix_session", true);
-                captureCookie(raw, "stormflix_profile", false);
-            }
+            for (String raw : entry.getValue()) { if (raw == null) continue; captureCookie(raw, "stormflix_session", true); captureCookie(raw, "stormflix_profile", false); }
         }
     }
 
     private void captureCookie(String raw, String name, boolean session) {
-        String marker = name + "="; int start = raw.indexOf(marker); if (start < 0) return; start += marker.length();
-        int end = raw.indexOf(';', start); String value = (end < 0 ? raw.substring(start) : raw.substring(start, end)).trim();
+        String marker = name + "="; int start = raw.indexOf(marker); if (start < 0) return; start += marker.length(); int end = raw.indexOf(';', start); String value = (end < 0 ? raw.substring(start) : raw.substring(start, end)).trim();
         if (session) store.setSessionCookie(value); else store.setProfileCookie(value);
     }
 
