@@ -92,9 +92,9 @@ func (s *server) jellyfinSessions(w http.ResponseWriter, r *http.Request) {
 func (s *server) jellyfinDLNAPlay(w http.ResponseWriter, r *http.Request) {
 	device, err := s.dlnaDeviceForSession(r, r.PathValue("session_id")); if err != nil { writeError(w, http.StatusNotFound, err); return }
 	mediaID, ok := s.jellyfinPlayMediaID(r); if !ok { writeError(w, http.StatusBadRequest, errors.New("Jellyfin Play To request did not contain a media item")); return }
-	start := dlna.SecondsFromTicks(jellyfinQueryValue(r.URL.Query(), "StartPositionTicks", "startPositionTicks"))
+	start := dlna.SecondsFromTicks(jellyfinQueryValue(r, "StartPositionTicks"))
 	audioStream := -1
-	if raw := strings.TrimSpace(jellyfinQueryValue(r.URL.Query(), "AudioStreamIndex", "audioStreamIndex")); raw != "" { audioStream, _ = strconv.Atoi(raw) }
+	if raw := strings.TrimSpace(jellyfinQueryValue(r, "AudioStreamIndex")); raw != "" { audioStream, _ = strconv.Atoi(raw) }
 	resource, title, mimeType, err := s.jellyfinDLNAResource(r, mediaID, audioStream); if err != nil { writeError(w, http.StatusBadRequest, err); return }
 	ctx, cancel := contextWithTimeout(r, 8*time.Second); defer cancel()
 	if err := stormflixDLNA.Play(ctx, device, resource, title, mimeType, start); err != nil { writeError(w, http.StatusBadGateway, err); return }
@@ -104,7 +104,7 @@ func (s *server) jellyfinDLNAPlay(w http.ResponseWriter, r *http.Request) {
 func (s *server) jellyfinDLNAControl(w http.ResponseWriter, r *http.Request) {
 	device, err := s.dlnaDeviceForSession(r, r.PathValue("session_id")); if err != nil { writeError(w, http.StatusNotFound, err); return }
 	command := strings.ToLower(strings.TrimSpace(r.PathValue("command")))
-	position := dlna.SecondsFromTicks(jellyfinQueryValue(r.URL.Query(), "SeekPositionTicks", "seekPositionTicks"))
+	position := dlna.SecondsFromTicks(jellyfinQueryValue(r, "SeekPositionTicks"))
 	switch command { case "playpause": command="play"; case "unpause": command="play"; case "pause", "stop", "seek", "play": default: writeError(w, http.StatusBadRequest, fmt.Errorf("unsupported Jellyfin DLNA command %q", command)); return }
 	ctx, cancel := contextWithTimeout(r, 6*time.Second); defer cancel()
 	if err := stormflixDLNA.Control(ctx, device, command, position); err != nil { writeError(w, http.StatusBadGateway, err); return }
@@ -116,15 +116,6 @@ func (s *server) dlnaDeviceForSession(r *http.Request, sessionID string) (dlna.D
 	devices, err := stormflixDLNA.Discover(ctx, false); if err != nil { return dlna.Device{}, err }
 	for _, device := range devices { if dlnaSessionID(device) == strings.TrimSpace(sessionID) { return device, nil } }
 	return dlna.Device{}, errors.New("DLNA session not found")
-}
-
-func jellyfinQueryValue(values url.Values, names ...string) string {
-	for key, list := range values {
-		for _, name := range names {
-			if strings.EqualFold(key, name) && len(list) > 0 { return list[0] }
-		}
-	}
-	return ""
 }
 
 func (s *server) jellyfinPlayMediaID(r *http.Request) (int64, bool) {
