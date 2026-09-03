@@ -100,6 +100,14 @@
 
   function localDecodeEnabled(){return localStorage.getItem('stormflix.player.local_decode')!=='off'}
 
+  function localDecodeClientKind(){
+    const ua=String(navigator.userAgent||'').toLowerCase();
+    if(ua.includes('android')||ua.includes('; wv')||window.NativePlaybackAnywhere)return'android_webview';
+    if(/tizen|web0s|webos|smart-tv|smarttv|hbbtv|netcast/.test(ua))return'tv';
+    if(/iphone|ipad|ipod/.test(ua))return'mobile_web';
+    return'web';
+  }
+
   function browserLocalDecodeCapabilities(){
     const wasm=typeof WebAssembly==='object'&&typeof WebAssembly.instantiate==='function';
     const worker=typeof Worker==='function';
@@ -107,14 +115,15 @@
     const secure=Boolean(window.isSecureContext||location.hostname==='localhost'||location.hostname==='127.0.0.1');
     const cores=Math.max(1,Number(navigator.hardwareConcurrency||2));
     const memory=Math.max(0,Number(navigator.deviceMemory||0));
-    const allow4K=localStorage.getItem('stormflix.player.local_decode_4k')!=='off';
+    const allow4K=localStorage.getItem('stormflix.player.local_decode_4k')==='on';
+    const kind=localDecodeClientKind();
     let maxHeight=720;
     if(cores>=6)maxHeight=1080;
     if(allow4K&&cores>=12&&(memory===0||memory>=8))maxHeight=2160;
     const maxWidth=maxHeight>=2160?3840:maxHeight>=1080?1920:1280;
-    const enabled=localDecodeEnabled()&&!localDecodeRuntimeFailed;
+    const enabled=localDecodeEnabled()&&!localDecodeRuntimeFailed&&kind==='web';
     return{
-      kind:'web',enabled,wasm,worker,webgl:hasWebGL(),webgpu:Boolean(navigator.gpu),webcodecs,secure_context:secure,
+      kind,enabled,wasm,worker,webgl:hasWebGL(),webgpu:Boolean(navigator.gpu),webcodecs,secure_context:secure,
       hevc_wasm:enabled&&wasm&&worker&&webcodecs&&secure&&'MediaSource'in window,av1_wasm:false,hdr:false,
       max_width:maxWidth,max_height:maxHeight,hardware_concurrency:cores,device_memory_gb:memory,codecs:['hevc']
     };
