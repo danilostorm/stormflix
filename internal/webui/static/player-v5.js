@@ -1,4 +1,4 @@
-/* StormFlix Player v5.1 — cinematic UX over the unified Playback Core. */
+/* StormFlix Player v6 — cinematic UX over adaptive Playback Core. */
 (function(){
   const modal=document.querySelector('#player-modal');
   const video=document.querySelector('#player');
@@ -23,12 +23,12 @@
 
   const qualityMenu=document.createElement('div');
   qualityMenu.id='sf-v5-quality-menu';qualityMenu.className='sf-v5-popover hidden';
-  qualityMenu.innerHTML='<header><div><b>Qualidade</b><small>Mostramos somente resoluções compatíveis com a fonte.</small></div><button type="button" data-v5-close>×</button></header><div class="sf-v5-quality-list"></div>';
+  qualityMenu.innerHTML='<header><div><b>Qualidade</b><small>Mostramos somente resoluções compatíveis com a fonte.</small></div><button type="button" data-v5-close>×</button></header><div class="sf-v5-quality-list"></div><div class="sf-v6-local-row"><div><b>Decode local</b><small>HEVC no navegador por WebAssembly quando Direct Play nativo não for possível.</small></div><button type="button" data-v6-local-toggle></button></div>';
   modal.appendChild(qualityMenu);
 
   const diagnostics=document.createElement('aside');
   diagnostics.id='sf-v5-diagnostics';diagnostics.className='sf-v5-diagnostics hidden';
-  diagnostics.innerHTML='<header><div><b>Diagnóstico de reprodução</b><small>PlaybackPlan v5.1</small></div><button type="button" data-v5-diag-close>×</button></header><div id="sf-v5-diag-body"></div>';
+  diagnostics.innerHTML='<header><div><b>Diagnóstico de reprodução</b><small>Playback Engine v6</small></div><button type="button" data-v5-diag-close>×</button></header><div id="sf-v5-diag-body"></div>';
   modal.appendChild(diagnostics);
 
   const ambient=document.createElement('div');ambient.className='sf-v5-ambient';modal.insertBefore(ambient,modal.firstChild);
@@ -39,7 +39,10 @@
   }
   function qualityLabel(value){return qualityLabels[String(value||'auto')]||'Auto'}
   function plan(){return window.sfLastPlaybackPlan||window.sfPlaybackCore?.currentPlan?.()||{}}
-  function modeLabel(mode){return({direct_play:'DIRECT PLAY',remux:'DIRECT STREAM · REMUX',audio_compatibility:'DIRECT STREAM · AAC',video_transcode:'VIDEO TRANSCODE',unsupported:'SEM ROTA'})[mode]||String(mode||'STORMFLIX').replaceAll('_',' ').toUpperCase()}
+  function modeLabel(mode,p=plan()){
+    if(p?.local_decode)return'WASM LOCAL DECODE';
+    return({direct_play:'DIRECT PLAY',local_decode:'WASM LOCAL DECODE',remux:'DIRECT STREAM · REMUX',audio_compatibility:'DIRECT STREAM · AAC',video_transcode:'VIDEO TRANSCODE',unsupported:'SEM ROTA'})[mode]||String(mode||'STORMFLIX').replaceAll('_',' ').toUpperCase();
+  }
   function transportLabel(value){return({hls:'HLS sob demanda',progressive_mp4:'MP4 seekable'})[String(value||'')]||'Automático'}
   function escapeHtml(value){return String(value??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
   function formatRate(kbps){const n=Number(kbps||0);return n?`${(n/1000).toFixed(n>=10000?0:1)} Mb/s`:'—'}
@@ -59,6 +62,17 @@
     return fallbackAvailableQualities();
   }
 
+  function refreshLocalToggle(){
+    const button=qualityMenu.querySelector('[data-v6-local-toggle]');if(!button)return;
+    const caps=window.sfPlaybackCore?.localDecodeCapabilities?.()||{};
+    const enabled=localStorage.getItem('stormflix.player.local_decode')!=='off';
+    button.textContent=enabled?'Ligado':'Desligado';
+    button.classList.toggle('active',enabled);
+    const row=button.closest('.sf-v6-local-row');
+    row?.classList.toggle('unavailable',!caps.wasm||!caps.webcodecs||!caps.secure_context);
+    button.title=!caps.secure_context?'Requer HTTPS ou localhost':!caps.webcodecs?'WebCodecs indisponível neste navegador':'';
+  }
+
   function renderQualityOptions(){
     const list=qualityMenu.querySelector('.sf-v5-quality-list');if(!list)return;
     const allowed=new Set(availableQualities().map(String));
@@ -66,7 +80,7 @@
   }
 
   function refreshQuality(){
-    renderQualityOptions();
+    renderQualityOptions();refreshLocalToggle();
     const current=window.sfPlaybackCore?.currentQuality?.()||'auto';
     const value=qualityButton.querySelector('.sf-v5-quality-value');if(value)value.textContent=qualityLabel(current).toUpperCase();
     qualityMenu.querySelectorAll('[data-v5-quality]').forEach(btn=>btn.classList.toggle('active',btn.dataset.v5Quality===current));
@@ -75,14 +89,14 @@
   function refreshPlan(){
     const p=plan();
     const chip=document.querySelector('#sf-v4-plan');
-    if(chip){chip.textContent=modeLabel(p.mode);chip.dataset.mode=p.mode||''}
+    if(chip){chip.textContent=modeLabel(p.mode,p);chip.dataset.mode=p.local_decode?'local_decode':p.mode||''}
     const detail=document.querySelector('#sf-v4-playback-detail');
     if(detail){
       const source=String(p.source_video_codec||p.video_codec||'').toUpperCase();
       const target=p.video_transcode&&p.video_codec?` → ${String(p.video_codec).toUpperCase()}`:'';
       const resolution=p.target_video_height?`${p.target_video_height}p`:(p.video_height?`${p.video_height}p`:'');
       const transport=p.transport?transportLabel(p.transport):'';
-      detail.textContent=[modeLabel(p.mode),transport,source+target,resolution,String(p.audio_codec||'').toUpperCase()].filter(Boolean).join(' · ');
+      detail.textContent=[modeLabel(p.mode,p),transport,source+target,resolution,String(p.audio_codec||'').toUpperCase()].filter(Boolean).join(' · ');
     }
     renderDiagnostics();refreshQuality();
   }
@@ -91,17 +105,19 @@
     const p=plan(),root=document.querySelector('#sf-v5-diag-body');if(!root)return;
     const reasons=Array.isArray(p.transcode_reasons)?p.transcode_reasons:[];
     const activeQuality=window.sfPlaybackCore?.currentQuality?.()||p.quality||'auto';
+    const local=window.sfLocalDecodeStats||{};
     root.innerHTML=`
-      <div class="sf-v5-diag-hero"><span class="sf-v5-mode ${escapeHtml(p.mode||'')}">${escapeHtml(modeLabel(p.mode))}</span><b>${escapeHtml(p.reason||'Aguardando PlaybackPlan…')}</b></div>
+      <div class="sf-v5-diag-hero"><span class="sf-v5-mode ${escapeHtml(p.local_decode?'local_decode':p.mode||'')}">${escapeHtml(modeLabel(p.mode,p))}</span><b>${escapeHtml(p.reason||'Aguardando PlaybackPlan…')}</b></div>
       <div class="sf-v5-diag-grid">
         ${diag('Origem',`${escapeHtml(String(p.source_video_codec||p.video_codec||'—').toUpperCase())} · ${p.video_width||'—'}×${p.video_height||'—'}`)}
-        ${diag('Saída',`${escapeHtml(String(p.video_codec||'—').toUpperCase())} · ${p.target_video_width||p.video_width||'—'}×${p.target_video_height||p.video_height||'—'}`)}
+        ${diag('Saída',p.local_decode?'Decodificação no dispositivo':`${escapeHtml(String(p.video_codec||'—').toUpperCase())} · ${p.target_video_width||p.video_width||'—'}×${p.target_video_height||p.video_height||'—'}`)}
         ${diag('Transporte',escapeHtml(transportLabel(p.transport)))}
         ${diag('Bitrate origem',formatRate(p.source_bitrate_kbps))}
-        ${diag('Bitrate alvo',formatRate(p.target_bitrate_kbps))}
+        ${diag('Bitrate alvo',p.local_decode?'Original':formatRate(p.target_bitrate_kbps))}
         ${diag('Áudio',`${escapeHtml(String(p.source_audio_codec||p.audio_codec||'—').toUpperCase())}${p.audio_transcode?' → '+escapeHtml(String(p.audio_codec||'AAC').toUpperCase()):''}`)}
-        ${diag('Encoder',escapeHtml(p.encoder||'Automático / copy'))}
-        ${diag('Hardware',escapeHtml(p.hardware_acceleration||'Auto'))}
+        ${diag('Decoder',p.local_decode?escapeHtml(p.local_decode_engine||'stormflix-v6-wasm'):escapeHtml(p.encoder||'Nativo / copy'))}
+        ${diag('Local speed',p.local_decode&&Number(local.speed_x)>0?`${Number(local.speed_x).toFixed(2)}x`:'—')}
+        ${diag('Hardware servidor',p.local_decode?'Não usado para vídeo':escapeHtml(p.hardware_acceleration||'Auto'))}
         ${diag('Tone mapping',yesNo(p.tone_map))}
         ${diag('Qualidade',escapeHtml(qualityLabel(activeQuality)))}
         ${diag('Sessão',escapeHtml(p.playback_session_id||'—'))}
@@ -127,6 +143,15 @@
   diagnosticsButton.addEventListener('click',e=>{e.stopPropagation();toggleDiagnostics()});
   qualityMenu.querySelector('[data-v5-close]').onclick=()=>toggleQuality(false);
   diagnostics.querySelector('[data-v5-diag-close]').onclick=()=>toggleDiagnostics(false);
+  qualityMenu.querySelector('[data-v6-local-toggle]').onclick=async()=>{
+    const enabled=localStorage.getItem('stormflix.player.local_decode')==='off';
+    window.sfPlaybackCore?.setLocalDecodeEnabled?.(enabled);refreshLocalToggle();
+    if(typeof sfToast==='function')sfToast(enabled?'Decode local ativado':'Decode local desativado');
+    const p=plan();if(p?.media_id&&window.sfPlaybackCore?.start&&typeof sfCurrentMedia!=='undefined'){
+      const position=Number.isFinite(video.currentTime)?video.currentTime:0,autoplay=!video.paused;
+      await window.sfPlaybackCore.start(sfCurrentMedia,{resumePosition:position,autoplay,quality:window.sfPlaybackCore.preferredQuality?.()||'auto',audioStream:window.sfPlaybackCore.currentAudioStream?.()});
+    }
+  };
   qualityMenu.addEventListener('click',async event=>{
     const button=event.target.closest?.('[data-v5-quality]');if(!button)return;
     const value=button.dataset.v5Quality;
@@ -140,6 +165,7 @@
   });
 
   window.addEventListener('stormflix:playback-plan',refreshPlan);
+  window.addEventListener('stormflix:local-decode-stat',renderDiagnostics);
   video.addEventListener('loadedmetadata',refreshPlan,{passive:true});
   video.addEventListener('playing',refreshPlan,{passive:true});
 
@@ -160,9 +186,6 @@
     }
   });
 
-  // Mouse/remote focus movement keeps the UI responsive without replacing the
-  // native Android TV focus engine. WebView/desktop users can navigate buttons
-  // with arrows when a control has focus.
   modal.addEventListener('keydown',e=>{
     if(!['ArrowLeft','ArrowRight'].includes(e.key))return;
     const active=document.activeElement;if(!(active instanceof HTMLButtonElement))return;

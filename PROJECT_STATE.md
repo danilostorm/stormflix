@@ -2,7 +2,7 @@
 
 > **Authoritative continuation note.** Any coding agent/session continuing StormFlix must read this file, `AGENTS.md` and `ENTERTAINMENT_ROADMAP.md` before changing code. Update this document after meaningful architecture, compatibility, schema, playback or deployment changes.
 
-Last architecture update: **2026-09-01**.
+Last architecture update: **2026-09-03**.
 
 ## Deployment
 
@@ -22,12 +22,13 @@ Server HTTP port: **8090**, normally behind an HTTPS reverse proxy.
 ## Current clients
 
 - Server code line: **`0.25.0-playback-anywhere`**.
-- Web Player: v5 line, based on the v5.3 continuous Web playback-session architecture plus v5.4 presentation/TV controls and Playback Anywhere v3.
-- Games Web Player: G2 browser/WASM runtime plus G2.5 dedicated Admin/metadata and RomMix-inspired browsing; G3 adds virtual mobile controls, TV/gamepad focus/menu behavior and profile-owned save-state previews. Games metadata now uses the Metadata Stack v2 multi-provider pipeline.
-- Android package: `cloud.stormflix.app`, **0.6.4 / versionCode 22**, minSdk 23, targetSdk 36, Java 17.
-- Android phone/tablet, Android TV and Fire TV keep native StormFlix catalog/navigation but delegate normal video playback to the hosted StormFlix Web Player inside `PlayerActivity` WebView. Playback Anywhere routing uses native Android APIs where available.
+- Web Player: **Playback Engine v6**, retaining the v5.3 continuous Web session and v5.4 presentation controls, with adaptive local HEVC decode before server video transcode.
+- Games Web Player: G2 browser/WASM runtime plus G2.5 dedicated Admin/metadata and RomMix-inspired browsing; G3 adds virtual mobile controls, TV/gamepad focus/menu behavior and profile-owned save-state previews. Games metadata uses Metadata Stack v2.
+- Android package: `cloud.stormflix.app`, **0.6.5 / versionCode 23**, minSdk 23, targetSdk 36, Java 17.
+- Android phone/tablet, Android TV and Fire TV keep native StormFlix catalog/navigation and their native/device playback capability paths. Browser WASM local video decode is not forced onto native Android/TV/Cast/DLNA routes.
 - Samsung Tizen: `apps/tizen` 0.1.0 thin shell; final WGT requires the developer's Samsung/Tizen signing profile.
 - LG webOS: `apps/webos` 0.1.0 thin shell; CI can package the Developer Mode IPK.
+- Playback Anywhere v4 includes native DLNA/UPnP discovery/control across Web/server and Android, plus Jellyfin Play To compatibility.
 - Jellyfin compatibility facade remains isolated from native `/api/v1` state.
 - SQLite with WAL remains the production database. PostgreSQL remains a separate future migration.
 
@@ -35,38 +36,67 @@ Server HTTP port: **8090**, normally behind an HTTPS reverse proxy.
 
 1. Native `/api/v1` is the StormFlix source of truth.
 2. **Direct Play is always evaluated first.** Video transcode is never a silent bypass.
-3. If only audio is incompatible, source video remains stream-copy and only selected audio may become AAC-LC.
-4. Video transcode is chosen only by PlaybackPlan when device/codec/quality actually requires it.
-5. Scanner-owned series identity (library root → show → season → episode) precedes metadata-provider guesses.
-6. Manual episodic matches are stored at principal-series level whenever possible.
-7. Profile/kids/library authorization must survive browse, caches, collections, integrations, downloads and games.
-8. Progress is profile/session/sequence aware; source/version/quality/audio changes preserve intended position.
-9. External providers enrich the system but must not be required for login, Home, local progress or normal playback. Games already cached locally must not require the runtime CDN again.
-10. Temporary/offline FUSE/rclone sources must not cause destructive catalog disappearance.
+3. Client-side local decode is an explicit compatibility route, never a reason to skip a valid native Direct Play route.
+4. If only audio is incompatible, source video remains stream-copy and only selected audio may become AAC-LC.
+5. Video transcode is chosen only by PlaybackPlan when device/codec/quality actually requires it.
+6. Scanner-owned series identity (library root → show → season → episode) precedes metadata-provider guesses.
+7. Manual episodic matches are stored at principal-series level whenever possible.
+8. Profile/kids/library authorization must survive browse, caches, collections, integrations, downloads, external playback and games.
+9. Progress is profile/session/sequence aware; source/version/quality/audio changes preserve intended position.
+10. External providers/runtimes enrich compatibility but must not be required for login, Home, local progress or normal native Direct Play.
+11. Temporary/offline FUSE/rclone sources must not cause destructive catalog disappearance.
 
 ## Playback architecture
 
 ```text
 1. Direct Play
-   ↓ only if required
-2. Direct Stream / Remux
+   ↓ only if native video compatibility is missing
+2. Local decode (Web HEVC; video remains server stream-copy)
+   ↓ when local decode is unavailable/ineligible
+3. Direct Stream / Remux
    ↓ only if selected audio alone is incompatible
-3. Audio compatibility: video copy + selected audio → AAC-LC
-   ↓ only if video/device/quality requires it
-4. Video transcode
+4. Audio compatibility: video copy + selected audio → AAC-LC
+   ↓ only if video/device/quality/HDR/bitrate requires it
+5. Video transcode (GPU preferred, CPU fallback)
    ↓ if no safe route exists
-5. Unsupported
+6. Unsupported
 ```
 
-Plan modes remain `direct_play`, `remux`, `audio_compatibility`, `video_transcode` and `unsupported`.
+Plan modes are `direct_play`, `local_decode`, `remux`, `audio_compatibility`, `video_transcode` and `unsupported`.
+
+### Playback Engine v6 local decode
+
+The first v6 local-decode engine targets **HEVC/H.265 in Web browsers**. It uses the MIT-licensed hevc.js runtime (`@hevcjs/hlsjs-plugin` 0.1.2 and `@hevcjs/core` 1.4.2). PlaybackPlan selects it only when native HEVC is unavailable and the client explicitly advertises WebAssembly + Worker + WebCodecs + secure-context support.
+
+Server behavior on a local-decode plan:
+- the existing continuous fMP4/HLS session is reused;
+- source HEVC video remains **stream-copy** (`-c:v copy`) and is not encoded on the StormFlix server;
+- selected audio may become AAC independently when the muxed browser path requires it;
+- authorization/session/profile rules remain the same as other native `/api/v1` playback routes.
+
+Client behavior:
+- HEVC is decoded with WebAssembly and converted to a browser-consumable stream through WebCodecs on the client;
+- compute-aware statistics are exposed in Player diagnostics;
+- local budget is conservative (720p/1080p/eligible 4K based on reported CPU/RAM and the browser-local 4K policy);
+- local runtime failure is remembered for the active runtime session and the player requests a fresh PlaybackPlan, naturally falling back to server transcode rather than looping.
+
+Intentional limits in the first v6 delivery:
+- **HDR local decode is disabled** until the local color pipeline is proven; incompatible HDR remains on the server tone-mapping path;
+- AV1 can still Direct Play natively when supported, but no AV1 WASM engine is advertised yet;
+- explicit lower-quality requests and explicit bitrate/device limits remain server adaptation requests;
+- local decode requires HTTPS/secure context (localhost is accepted); plain LAN HTTP normally falls back to the server route;
+- hevc.js assets are pinned to exact versions but are loaded from public package CDNs on first local-decode use. If unavailable, normal server fallback remains usable. Future hardening may cache/self-host these pinned assets.
+
+See `docs/PLAYBACK_ENGINE_V6.md` and `THIRD_PARTY_NOTICES.md`.
 
 ### UHD / transcode cost policy
 
 - Compatible UHD stays original-resolution Direct Play.
-- Audio-only incompatibility never becomes a 4K video encode.
-- If an UHD source is incompatible and video encoding is unavoidable under Auto/Original, automatic compatibility transcode is capped at **1080p / 8 Mbps** instead of 4K→4K.
+- Eligible non-HDR HEVC on a sufficiently strong secure Web client may use local decode without server video encoding.
+- Audio-only incompatibility never becomes a 4K server video encode.
+- If an UHD source is incompatible and server video encoding is unavoidable under Auto/Original, automatic compatibility transcode is capped at **1080p / 8 Mbps** instead of 4K→4K.
 - Explicit 2160p is an intentional user request and is not silently replaced by the automatic guard.
-- Dedicated UHD smart shelves use device resolution/codec hints; normal catalog/search keeps UHD titles visible because PlaybackPlan may provide a safe lower-resolution route.
+- Dedicated UHD smart shelves use device resolution/codec hints; normal catalog/search keeps UHD titles visible because PlaybackPlan may provide a safe compatibility route.
 - Hardware encoders exposed to the container/FFmpeg (NVENC/QSV/VAAPI) are preferred; CPU remains the reliability fallback.
 - CPU H.264 live fallback uses the lower-cost `superfast` preset and UHD→1080 uses a low-latency scaler.
 
@@ -74,11 +104,13 @@ Plan modes remain `direct_play`, `remux`, `audio_compatibility`, `video_transcod
 
 The browser is the reference video implementation. Compatible files use HTTP Range Direct Play. Compatibility playback keeps a stable long-running Web session instead of exposing technical retry loops to users. Quality/audio/source changes preserve progress.
 
-Android/Fire/Android TV and the Tizen/webOS shells converge on the hosted Web Player. `tv-remote.js` normalizes remote/media keys while hardware volume stays OS-owned.
+Player diagnostics distinguish native Direct Play, WASM local decode, Direct Stream/AAC and server video transcode. The quality panel provides a local-decode toggle, while Admin → Reprodução shows whether the current browser meets the WASM/WebCodecs/secure-context requirements and exposes local/4K policy toggles for that browser.
 
-Playback Anywhere v3 keeps the server-owned PlaybackPlan + short-lived HMAC playback-grant model and expands the sender layer. In normal Chrome, Google Cast still uses the Web Sender/Default Media Receiver and requires a secure browser context for reliable discovery. In the Android 0.6.4 APK, Chromecast/Google TV discovery and session setup move to the native Google Cast Application Framework instead of relying on WebView. The native Android detail screen exposes **Reproduzir em…** without first starting local playback. **Abrir com outro player** uses Android `ACTION_VIEW` + `Intent.createChooser`, and a dedicated Web Video Cast handoff targets package `com.instantbits.cast.webvideo`, allowing that installed app to discover Roku, Fire TV, DLNA, webOS and other receivers it supports. Only the temporary authorized media URL is handed to Cast/other apps; StormFlix session cookies and passwords are never shared. DLNA discovery implemented directly inside StormFlix remains future work rather than being falsely represented as native support.
+Android/Fire/Android TV and the Tizen/webOS shells retain their device-native playback capability paths. `tv-remote.js` normalizes remote/media keys while hardware volume stays OS-owned.
 
-Real-device behavior is authoritative for startup/stall/remote/Cast/app-routing QA; CI validates code/build logic, not receiver-network behavior, installed third-party app behavior or remote-mount latency.
+Playback Anywhere v4 keeps the server-owned PlaybackPlan + short-lived HMAC playback-grant model. Google Cast uses Web Sender in compatible secure desktop browsers and the native Cast framework in Android. StormFlix also implements native DLNA/UPnP SSDP discovery plus AVTransport control for Web/server and Android, and exposes compatible renderers through Jellyfin Play To. External players receive only temporary authorized playback URLs; StormFlix cookies/passwords are not handed to receivers.
+
+Real-device behavior is authoritative for startup/stall/remote/Cast/DLNA QA; CI validates code/build logic, not receiver-network behavior or remote-mount latency.
 
 ### Intro and credits markers
 
@@ -314,7 +346,7 @@ RetroAssembly (MIT) remains an architectural reference for browser retro emulati
 
 ## Entertainment roadmap
 
-`ENTERTAINMENT_ROADMAP.md` is the executable product roadmap. Games G1/G2/G2.5/G3, Metadata Stack v2, Playback Anywhere v3 and automatic intro/credit foundations are implemented. Remaining major roadmap work includes Smart Downloads, smart playlists, Watch Party, improved editions/versions/extras, OIDC/optional stronger authentication, reuse of expensive media analysis, specialized long-tail Games providers, no-rehash scanning, BIOS/ROMset diagnostics, native DLNA discovery and the G4 rich Games ecosystem.
+`ENTERTAINMENT_ROADMAP.md` is the executable product roadmap. Games G1/G2/G2.5/G3, Metadata Stack v2, Playback Anywhere v4, Playback Engine v6 local HEVC decode and automatic intro/credit foundations are implemented. Remaining major roadmap work includes Smart Downloads, smart playlists, Watch Party, improved editions/versions/extras, OIDC/optional stronger authentication, reuse of expensive media analysis, specialized long-tail Games providers, no-rehash scanning, BIOS/ROMset diagnostics and the G4 rich Games ecosystem.
 
 ## Jellyfin compatibility
 
@@ -338,7 +370,7 @@ For relevant changes validate the exact PR head with:
 - platform-specific Android/Tizen/webOS workflow when those clients change;
 - post-merge `main` workflow green before presenting the package as production-ready.
 
-Real-device QA remains mandatory for browser playback, gamepad/emulator behavior, Fire/Android TV remotes, Tizen/webOS key behavior, Cast/app routing and remote/rclone throughput.
+Real-device QA remains mandatory for browser playback, gamepad/emulator behavior, Fire/Android TV remotes, Tizen/webOS key behavior, Cast/DLNA routing and remote/rclone throughput.
 
 ## Documentation rule
 

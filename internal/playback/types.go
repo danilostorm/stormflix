@@ -2,6 +2,7 @@ package playback
 
 const (
 	ModeDirectPlay         = "direct_play"
+	ModeLocalDecode        = "local_decode"
 	ModeRemux              = "remux"
 	ModeAudioCompatibility = "audio_compatibility"
 	ModeVideoTranscode     = "video_transcode"
@@ -36,13 +37,14 @@ type Capabilities struct {
 }
 
 type Request struct {
-	ClientKind             string       `json:"client_kind"`
-	ClientName             string       `json:"client_name"`
-	ClientVersion          string       `json:"client_version"`
-	PlaybackSessionID      string       `json:"playback_session_id,omitempty"`
-	Capabilities           Capabilities `json:"capabilities"`
-	PreferredAudioLanguage string       `json:"preferred_audio_language"`
-	Quality                string       `json:"quality,omitempty"`
+	ClientKind             string             `json:"client_kind"`
+	ClientName             string             `json:"client_name"`
+	ClientVersion          string             `json:"client_version"`
+	PlaybackSessionID      string             `json:"playback_session_id,omitempty"`
+	Capabilities           Capabilities       `json:"capabilities"`
+	LocalDecode            ClientCapabilities `json:"local_decode,omitempty"`
+	PreferredAudioLanguage string             `json:"preferred_audio_language"`
+	Quality                string             `json:"quality,omitempty"`
 }
 
 type Stream struct {
@@ -101,6 +103,9 @@ type Plan struct {
 	AudioStream           int      `json:"audio_stream"`
 	AudioTranscode        bool     `json:"audio_transcode"`
 	VideoTranscode        bool     `json:"video_transcode"`
+	LocalDecode           bool     `json:"local_decode,omitempty"`
+	LocalDecodeEngine     string   `json:"local_decode_engine,omitempty"`
+	LocalDecodeCodec      string   `json:"local_decode_codec,omitempty"`
 	ClientSelectsAudio    bool     `json:"client_selects_audio"`
 	URL                   string   `json:"url,omitempty"`
 	PrepareURL            string   `json:"prepare_url,omitempty"`

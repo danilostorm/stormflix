@@ -1,4 +1,4 @@
-/* StormFlix Web Playback Core v5.3 — stable session, Direct Play first. */
+/* StormFlix Web Playback Core v6 — Direct Play, local decode, server fallback. */
 (function(){
   let planGeneration=0;
   let activePlan=null;
@@ -10,9 +10,14 @@
   let startupInProgress=false;
   let runtimeRecoveryCount=0;
   let activeAudioStream=null;
+  let localDecodeRuntimeFailed=false;
+  let hevcSupportPromise=null;
+  let hevcSupportHandle=null;
   let preferredQuality=normalizeQuality(localStorage.getItem('stormflix.player.quality')||'auto');
 
   const START_TIMEOUT_MS=14000;
+  const HEVC_PLUGIN_URL='https://esm.sh/@hevcjs/hlsjs-plugin@0.1.2';
+  const HEVC_CORE_BASE='https://unpkg.com/@hevcjs/core@1.4.2/dist';
 
   function canPlay(mediaType){try{return Boolean(player.canPlayType(mediaType))}catch{return false}}
 
@@ -89,14 +94,42 @@
     };
   }
 
+  function hasWebGL(){
+    try{const c=document.createElement('canvas');return Boolean(c.getContext('webgl2')||c.getContext('webgl'))}catch{return false}
+  }
+
+  function localDecodeEnabled(){return localStorage.getItem('stormflix.player.local_decode')!=='off'}
+
+  function browserLocalDecodeCapabilities(){
+    const wasm=typeof WebAssembly==='object'&&typeof WebAssembly.instantiate==='function';
+    const worker=typeof Worker==='function';
+    const webcodecs=typeof VideoEncoder==='function'&&typeof VideoDecoder==='function';
+    const secure=Boolean(window.isSecureContext||location.hostname==='localhost'||location.hostname==='127.0.0.1');
+    const cores=Math.max(1,Number(navigator.hardwareConcurrency||2));
+    const memory=Math.max(0,Number(navigator.deviceMemory||0));
+    const allow4K=localStorage.getItem('stormflix.player.local_decode_4k')!=='off';
+    let maxHeight=720;
+    if(cores>=6)maxHeight=1080;
+    if(allow4K&&cores>=12&&(memory===0||memory>=8))maxHeight=2160;
+    const maxWidth=maxHeight>=2160?3840:maxHeight>=1080?1920:1280;
+    const enabled=localDecodeEnabled()&&!localDecodeRuntimeFailed;
+    return{
+      kind:'web',enabled,wasm,worker,webgl:hasWebGL(),webgpu:Boolean(navigator.gpu),webcodecs,secure_context:secure,
+      hevc_wasm:enabled&&wasm&&worker&&webcodecs&&secure&&'MediaSource'in window,av1_wasm:false,hdr:false,
+      max_width:maxWidth,max_height:maxHeight,hardware_concurrency:cores,device_memory_gb:memory,codecs:['hevc']
+    };
+  }
+
   function clientRequest(sessionID,quality,startPosition,audioStream){
-    const body={client_kind:'web',client_name:'StormFlix Web',client_version:'0.5.3',playback_session_id:String(sessionID||''),quality:normalizeQuality(quality||preferredQuality),capabilities:browserCapabilities()};
+    const body={client_kind:'web',client_name:'StormFlix Web',client_version:'0.6.0',playback_session_id:String(sessionID||''),quality:normalizeQuality(quality||preferredQuality),capabilities:browserCapabilities(),local_decode:browserLocalDecodeCapabilities()};
     if(Number.isFinite(startPosition))body.start_position_seconds=Math.max(0,Number(startPosition));
     if(Number.isInteger(audioStream)&&audioStream>=0)body.audio_stream=audioStream;
     return body;
   }
 
-  function compatibilityMode(mode){
+  function compatibilityMode(plan){
+    if(plan?.local_decode)return'wasm_local_decode';
+    const mode=plan?.mode;
     if(mode==='video_transcode')return'video_transcode';
     if(mode==='audio_compatibility')return'direct_stream_audio_aac';
     if(mode==='remux')return'direct_stream_remux';
@@ -110,7 +143,7 @@
     window.sfLastPlaybackPlan=plan||null;
     window.sfLastCompatibilityPlan=plan||null;
     window.sfPlaybackSessionID=plan?.playback_session_id||'';
-    window.sfPlaybackMode=compatibilityMode(plan?.mode);
+    window.sfPlaybackMode=compatibilityMode(plan);
     window.dispatchEvent(new CustomEvent('stormflix:playback-plan',{detail:plan||null}));
   }
 
@@ -143,6 +176,31 @@
     return hlsLibraryPromise;
   }
 
+  async function ensureHevcWasmSupport(){
+    if(hevcSupportHandle)return hevcSupportHandle;
+    if(hevcSupportPromise)return hevcSupportPromise;
+    const caps=browserLocalDecodeCapabilities();
+    if(!caps.hevc_wasm)throw new Error('Este navegador não oferece os recursos seguros necessários para decode HEVC local.');
+    hevcSupportPromise=import(HEVC_PLUGIN_URL).then(async mod=>{
+      if(typeof mod?.attachHevcSupport!=='function')throw new Error('Runtime HEVC WASM inválido.');
+      const handle=await mod.attachHevcSupport({
+        workerUrl:`${HEVC_CORE_BASE}/transcode-worker.js`,
+        wasmUrl:`${HEVC_CORE_BASE}/wasm/hevc-decode.js`,
+        wasmBinaryUrl:`${HEVC_CORE_BASE}/wasm/hevc-decode.wasm`,
+        adaptiveCompute:{
+          targetSpeedX:1.25,
+          onObservation:(stat,avg,capIndex,reason)=>{
+            window.sfLocalDecodeStats={engine:'hevc.js',codec:'hevc',speed_x:Number(stat?.speedX||0),average_speed_x:Number(avg||0),width:Number(stat?.width||0),height:Number(stat?.height||0),cap_index:Number(capIndex??-1),reason:String(reason||''),updated_at:Date.now()};
+            window.dispatchEvent(new CustomEvent('stormflix:local-decode-stat',{detail:window.sfLocalDecodeStats}));
+          }
+        }
+      });
+      hevcSupportHandle=handle||{};
+      return hevcSupportHandle;
+    }).catch(err=>{hevcSupportPromise=null;localDecodeRuntimeFailed=true;throw err});
+    return hevcSupportPromise;
+  }
+
   function waitForPlayable(generation,timeout=START_TIMEOUT_MS){
     if(generation!==planGeneration||player.readyState>=HTMLMediaElement.HAVE_CURRENT_DATA)return Promise.resolve();
     return new Promise((resolve,reject)=>{
@@ -172,11 +230,18 @@
     if('MediaSource'in window){try{HlsCtor=await ensureHlsLibrary()}catch(err){if(!nativeHls)throw err}}
     if(generation!==planGeneration)return;
     if(HlsCtor&&HlsCtor.isSupported?.()){
+      let localHandle=null;
+      if(activePlan?.local_decode){
+        try{localHandle=await ensureHevcWasmSupport()}catch(err){localDecodeRuntimeFailed=true;throw new Error(`Decode HEVC local indisponível: ${err?.message||err}`)}
+        if(generation!==planGeneration)return;
+      }
       const hls=new HlsCtor({
         enableWorker:true,progressive:true,startPosition:resume>0?resume:-1,startFragPrefetch:true,
         maxBufferLength:50,maxMaxBufferLength:90,backBufferLength:90,maxBufferHole:0.5,lowLatencyMode:false,
-        manifestLoadingTimeOut:10000,fragLoadingTimeOut:30000,manifestLoadingMaxRetry:2,fragLoadingMaxRetry:4,levelLoadingMaxRetry:2
+        manifestLoadingTimeOut:10000,fragLoadingTimeOut:30000,manifestLoadingMaxRetry:2,fragLoadingMaxRetry:4,levelLoadingMaxRetry:2,
+        ...(typeof MediaSource!=='undefined'?{preferManagedMediaSource:false}:{})
       });
+      try{localHandle?.attachComputeAware?.(hls)}catch{}
       activeHls=hls;
       let networkRecoveries=0,mediaRecoveries=0;
       hls.on(HlsCtor.Events.ERROR,(_event,data)=>{
@@ -184,11 +249,12 @@
         window.sfPlaybackLastError=data.details||'Falha HLS';
         if(data.type===HlsCtor.ErrorTypes.NETWORK_ERROR&&networkRecoveries++<2){try{hls.startLoad(player.currentTime||resume||-1)}catch{}return}
         if(data.type===HlsCtor.ErrorTypes.MEDIA_ERROR&&mediaRecoveries++<2){try{hls.recoverMediaError()}catch{}return}
+        if(activePlan?.local_decode)localDecodeRuntimeFailed=true;
         if(!startupInProgress)recoverRuntime(generation,data.details||'Falha HLS');
       });
       await new Promise((resolve,reject)=>{
         let settled=false;
-        const fail=(_e,d)=>{if(settled||!d?.fatal)return;settled=true;reject(new Error(d.details||'Falha ao abrir HLS'))};
+        const fail=(_e,d)=>{if(settled||!d?.fatal)return;settled=true;if(activePlan?.local_decode&&d.type===HlsCtor.ErrorTypes.MEDIA_ERROR)localDecodeRuntimeFailed=true;reject(new Error(d.details||'Falha ao abrir HLS'))};
         hls.on(HlsCtor.Events.ERROR,fail);
         hls.on(HlsCtor.Events.MEDIA_ATTACHED,()=>{if(generation===planGeneration)hls.loadSource(source)});
         hls.on(HlsCtor.Events.MANIFEST_PARSED,()=>{if(settled)return;settled=true;if(resume>0){try{player.currentTime=resume}catch{}}if(autoplay)player.play().catch(()=>{});resolve()});
@@ -197,10 +263,10 @@
       await waitForPlayable(generation);
       return;
     }
-    if(nativeHls){
+    if(nativeHls&&!activePlan?.local_decode){
       restoreProgressivePosition(resume,autoplay,generation);player.src=source;player.load();await waitForPlayable(generation);return;
     }
-    throw new Error('Este navegador não oferece HLS/MSE');
+    throw new Error(activePlan?.local_decode?'O runtime local requer MediaSource/hls.js.':'Este navegador não oferece HLS/MSE');
   }
 
   async function loadProgressive(url,resume,autoplay,generation){
@@ -220,7 +286,7 @@
 
   function bindPlayerErrors(){
     if(playerErrorBound)return;playerErrorBound=true;
-    player.addEventListener('error',()=>{if(!activeItem||startupInProgress)return;recoverRuntime(planGeneration,player.error?.message||'Erro de reprodução')});
+    player.addEventListener('error',()=>{if(!activeItem||startupInProgress)return;if(activePlan?.local_decode)localDecodeRuntimeFailed=true;recoverRuntime(planGeneration,player.error?.message||'Erro de reprodução')});
   }
 
   function updateMediaSessionPosition(){
@@ -272,6 +338,7 @@
       if(isHLSSource(plan.url))await loadHls(plan.url,resume,autoplay,generation);else await loadProgressive(plan.url,resume,autoplay,generation);
     }catch(err){
       if(generation!==planGeneration)return plan;startupInProgress=false;window.sfPlaybackLastError=String(err?.message||err);
+      if(plan?.local_decode)localDecodeRuntimeFailed=true;
       if(options.recovery||runtimeRecoveryCount>=1)visibleFailure('Não foi possível iniciar este vídeo.');else{runtimeRecoveryCount++;return start(item,{resumePosition:resume,autoplay,quality:preferredQuality,audioStream:activeAudioStream,recovery:true})}
       return plan;
     }
@@ -301,6 +368,12 @@
     return start({...activeItem},{resumePosition:position,autoplay,sessionID:session,quality:preferredQuality,audioStream:index});
   }
 
+  function setLocalDecodeEnabled(enabled){
+    localStorage.setItem('stormflix.player.local_decode',enabled?'on':'off');
+    localDecodeRuntimeFailed=false;
+    return browserLocalDecodeCapabilities();
+  }
+
   async function playPlanned(item){
     stopTheme();if(typeof sfBuildPlayer==='function')sfBuildPlayer();if(typeof sfCurrentMedia!=='undefined')sfCurrentMedia={...item};
     activeAudioStream=null;
@@ -323,5 +396,5 @@
 
   window.sfEnsureWebAudioCompatibility=function(){return Promise.resolve(activePlan)};
   window.sfTogglePictureInPicture=togglePictureInPicture;
-  window.sfPlaybackCore={start,capabilities:browserCapabilities,currentPlan:()=>activePlan,sessionID:()=>String(activePlan?.playback_session_id||''),currentQuality:()=>effectiveQuality(activePlan,preferredQuality),preferredQuality:()=>preferredQuality,availableQualities:()=>availableQualities(activePlan),currentAudioStream:()=>activeAudioStream,setQuality,setAudioStream,togglePictureInPicture};
+  window.sfPlaybackCore={start,capabilities:browserCapabilities,localDecodeCapabilities:browserLocalDecodeCapabilities,currentPlan:()=>activePlan,sessionID:()=>String(activePlan?.playback_session_id||''),currentQuality:()=>effectiveQuality(activePlan,preferredQuality),preferredQuality:()=>preferredQuality,availableQualities:()=>availableQualities(activePlan),currentAudioStream:()=>activeAudioStream,setQuality,setAudioStream,setLocalDecodeEnabled,togglePictureInPicture};
 })();
