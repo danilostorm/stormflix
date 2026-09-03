@@ -1,8 +1,10 @@
 package streaming
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCPUH264FallbackUsesLiveSuperfastPreset(t *testing.T) {
@@ -10,6 +12,46 @@ func TestCPUH264FallbackUsesLiveSuperfastPreset(t *testing.T) {
 	joined := strings.Join(args, " ")
 	if !strings.Contains(joined, "-preset superfast") {
 		t.Fatalf("expected low-CPU superfast live preset, got %q", joined)
+	}
+}
+
+func TestDefaultPolicyBoundsContinuousWebStreamCache(t *testing.T) {
+	policy := DefaultPolicy()
+	if policy.MaxBytes != 5<<30 || policy.MinFreeBytes < 10<<30 || policy.MinFreePercent < 5 {
+		t.Fatalf("disk safety defaults were weakened: %#v", policy)
+	}
+	if got := time.Duration(policy.MaxAheadSegments) * segmentDuration; got > time.Minute {
+		t.Fatalf("continuous worker may run too far ahead: %s", got)
+	}
+	if got := time.Duration(policy.KeepBehindSegments) * segmentDuration; got > 4*time.Minute {
+		t.Fatalf("continuous worker retains too much history: %s", got)
+	}
+}
+
+func TestSetPlaybackStateUpdatesAutomaticWorkerControl(t *testing.T) {
+	m := &Manager{dir: filepath.Join(t.TempDir(), "cache"), policy: DefaultPolicy(), sessions: map[string]*session{}}
+	id := SessionID("state-test")
+	now := time.Now()
+	m.sessions[id] = &session{ID: id, UserID: 7, MediaID: 8, LastTouch: now}
+	m.SetPlaybackState(7, id, "PAUSED", 42)
+	s := m.sessions[id]
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.PlaybackState != "paused" {
+		t.Fatalf("state=%q, want paused", s.PlaybackState)
+	}
+	if s.RequestedSegment != 21 {
+		t.Fatalf("requested segment=%d, want 21", s.RequestedSegment)
+	}
+}
+
+func TestNormalizePolicyKeepsAheadAndResumeThresholdsSafe(t *testing.T) {
+	policy := normalizePolicy(Policy{MaxAheadSegments: 3, ResumeAheadSegments: 9})
+	if policy.ResumeAheadSegments >= policy.MaxAheadSegments {
+		t.Fatalf("resume threshold must stay below ahead limit: %#v", policy)
+	}
+	if policy.IdleTTL <= 0 || policy.WorkerIdleTTL <= 0 || policy.KeepBehindSegments <= 0 {
+		t.Fatalf("policy defaults not restored: %#v", policy)
 	}
 }
 

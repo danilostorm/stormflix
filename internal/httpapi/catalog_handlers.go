@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"net/http"
@@ -14,8 +13,8 @@ func (s *server) homeFeed(w http.ResponseWriter, r *http.Request) {
 	// Collection discovery and automatic marker analysis are lazy-started by the
 	// first authenticated Home. They continue in background and Home never waits.
 	s.startMovieCollectionIndexer()
-	s.startMarkerAnalyzer(context.Background())
-	s.startCreditAnalyzer(context.Background())
+	s.startMarkerAnalyzer(s.lifecycle)
+	s.startCreditAnalyzer(s.lifecycle)
 
 	u := currentUser(r)
 	var allowed []int64

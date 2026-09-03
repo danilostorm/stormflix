@@ -18,6 +18,8 @@ import (
 
 func main() {
 	cfg := config.Load()
+	lifecycle, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stopSignals()
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
@@ -45,7 +47,7 @@ func main() {
 		}
 	}
 
-	handler := httpapi.New(db, libraryService, cfg)
+	handler := httpapi.NewWithContext(lifecycle, db, libraryService, cfg)
 	server := &http.Server{
 		Addr:              cfg.Address,
 		Handler:           handler,
@@ -55,9 +57,7 @@ func main() {
 
 	shutdownDone := make(chan struct{})
 	go func() {
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-		<-sigCh
+		<-lifecycle.Done()
 
 		logger.Info("shutting down StormFlix")
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)

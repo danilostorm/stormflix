@@ -5,13 +5,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/danilostorm/stormflix/internal/transcode"
@@ -21,10 +24,56 @@ const sessionPrefix = "web53-"
 
 const (
 	segmentDuration = 2 * time.Second
-	idleTTL         = 30 * time.Minute
 	seekAheadWindow = 12
-	keepBehind      = 300 // 10 minutes at 2-second fragments; older data can be regenerated on seek.
 )
+
+type Policy struct {
+	MaxBytes            int64
+	MinFreeBytes        int64
+	MinFreePercent      int
+	IdleTTL             time.Duration
+	WorkerIdleTTL       time.Duration
+	MaxAheadSegments    int
+	ResumeAheadSegments int
+	KeepBehindSegments  int
+}
+
+func DefaultPolicy() Policy {
+	return Policy{
+		MaxBytes: 5 << 30, MinFreeBytes: 10 << 30, MinFreePercent: 5,
+		IdleTTL: 20 * time.Minute, WorkerIdleTTL: 90 * time.Second,
+		MaxAheadSegments: 30, ResumeAheadSegments: 10, KeepBehindSegments: 120,
+	}
+}
+
+func normalizePolicy(policy Policy) Policy {
+	defaults := DefaultPolicy()
+	if policy.MaxBytes <= 0 {
+		policy.MaxBytes = defaults.MaxBytes
+	}
+	if policy.MinFreeBytes <= 0 {
+		policy.MinFreeBytes = defaults.MinFreeBytes
+	}
+	if policy.MinFreePercent <= 0 {
+		policy.MinFreePercent = defaults.MinFreePercent
+	}
+	if policy.IdleTTL <= 0 {
+		policy.IdleTTL = defaults.IdleTTL
+	}
+	if policy.WorkerIdleTTL <= 0 {
+		policy.WorkerIdleTTL = defaults.WorkerIdleTTL
+	}
+	if policy.MaxAheadSegments < 2 {
+		policy.MaxAheadSegments = defaults.MaxAheadSegments
+	}
+	if policy.ResumeAheadSegments < 1 || policy.ResumeAheadSegments >= policy.MaxAheadSegments {
+		policy.ResumeAheadSegments = policy.MaxAheadSegments / 3
+	}
+	if policy.KeepBehindSegments < 1 {
+		policy.KeepBehindSegments = defaults.KeepBehindSegments
+	}
+	return policy
+}
 
 type Spec struct {
 	VideoStream       int
@@ -59,23 +108,30 @@ type session struct {
 	mu        sync.Mutex
 	restartMu sync.Mutex
 
-	ID        string
-	UserID    int64
-	MediaID   int64
-	Source    string
-	Spec      Spec
-	Dir       string
-	LastTouch time.Time
-	Closed    bool
-	worker    *worker
-	Encoder   string
-	Hardware  string
-	LastError string
+	ID               string
+	UserID           int64
+	MediaID          int64
+	Source           string
+	Spec             Spec
+	Dir              string
+	LastTouch        time.Time
+	StartedAt        time.Time
+	Closed           bool
+	worker           *worker
+	Encoder          string
+	Hardware         string
+	ProcessID        int
+	WorkerPaused     bool
+	PlaybackState    string
+	RequestedSegment int
+	ResourceWait     time.Duration
+	LastError        string
 }
 
 type Manager struct {
 	dir    string
 	engine transcode.EngineStatus
+	policy Policy
 
 	mu       sync.Mutex
 	sessions map[string]*session
@@ -94,9 +150,15 @@ func SessionID(raw string) string {
 	return sessionPrefix + raw
 }
 
-func IsSessionID(value string) bool { return strings.HasPrefix(strings.TrimSpace(value), sessionPrefix) }
+func IsSessionID(value string) bool {
+	return strings.HasPrefix(strings.TrimSpace(value), sessionPrefix)
+}
 
 func ForDataDir(dataDir string) (*Manager, error) {
+	return ForDataDirWithPolicy(dataDir, DefaultPolicy())
+}
+
+func ForDataDirWithPolicy(dataDir string, policy Policy) (*Manager, error) {
 	root := filepath.Join(filepath.Clean(dataDir), "web-stream-cache")
 	managers.Lock()
 	defer managers.Unlock()
@@ -110,7 +172,7 @@ func ForDataDir(dataDir string) (*Manager, error) {
 	for _, entry := range entries {
 		_ = os.RemoveAll(filepath.Join(root, entry.Name()))
 	}
-	m := &Manager{dir: root, engine: transcode.Detect(), sessions: map[string]*session{}}
+	m := &Manager{dir: root, engine: transcode.Detect(), policy: normalizePolicy(policy), sessions: map[string]*session{}}
 	managers.items[root] = m
 	go m.cleanupLoop()
 	return m, nil
@@ -167,11 +229,15 @@ func (m *Manager) Prepare(sessionID string, userID, mediaID int64, source string
 		return err
 	}
 
-	s := &session{ID: sessionID, UserID: userID, MediaID: mediaID, Source: source, Spec: spec, Dir: path, LastTouch: now}
+	start := segmentForTime(spec.StartSeconds)
+	s := &session{ID: sessionID, UserID: userID, MediaID: mediaID, Source: source, Spec: spec, Dir: path, LastTouch: now, StartedAt: now, RequestedSegment: start}
+	if err := m.ensureCapacity(s); err != nil {
+		_ = os.RemoveAll(path)
+		return err
+	}
 	m.mu.Lock()
 	m.sessions[sessionID] = s
 	m.mu.Unlock()
-	start := segmentForTime(spec.StartSeconds)
 	return m.restartAt(s, start)
 }
 
@@ -202,6 +268,30 @@ func (m *Manager) Touch(userID int64, id string) {
 		s.LastTouch = time.Now()
 	}
 	m.mu.Unlock()
+}
+
+// SetPlaybackState lets the continuous worker stop consuming CPU, disk and
+// remote bandwidth while the browser is paused. Position also moves the
+// requested segment forward so a stopped-ahead worker can resume promptly.
+func (m *Manager) SetPlaybackState(userID int64, id, state string, positionSeconds float64) {
+	if !validID(id) {
+		return
+	}
+	state = strings.ToLower(strings.TrimSpace(state))
+	m.mu.Lock()
+	s := m.sessions[id]
+	if s == nil || s.UserID != userID {
+		m.mu.Unlock()
+		return
+	}
+	s.LastTouch = time.Now()
+	m.mu.Unlock()
+	s.mu.Lock()
+	s.PlaybackState = state
+	if positionSeconds >= 0 {
+		s.RequestedSegment = segmentForTime(positionSeconds)
+	}
+	s.mu.Unlock()
 }
 
 func (m *Manager) Close(userID int64, id string) bool {
@@ -284,6 +374,9 @@ func (m *Manager) FilePath(ctx context.Context, userID, mediaID int64, id, name 
 	if segment < 0 || segment > max {
 		return "", "", errors.New("web playback fragment outside media duration")
 	}
+	s.mu.Lock()
+	s.RequestedSegment = segment
+	s.mu.Unlock()
 	path := filepath.Join(s.Dir, name)
 	if stat, statErr := os.Stat(path); statErr == nil && stat.Size() > 0 {
 		m.trimBehind(s, segment)
@@ -349,7 +442,7 @@ func (m *Manager) ensureAt(s *session, requested int) error {
 	if w == nil {
 		return m.restartAt(s, requested)
 	}
-	if requested < w.start || requested > w.start+seekAheadWindow && maxGenerated < 0 || maxGenerated >= 0 && (requested > maxGenerated+seekAheadWindow || requested < maxGenerated-keepBehind) {
+	if requested < w.start || requested > w.start+seekAheadWindow && maxGenerated < 0 || maxGenerated >= 0 && (requested > maxGenerated+seekAheadWindow || requested < maxGenerated-m.policy.KeepBehindSegments) {
 		return m.restartAt(s, requested)
 	}
 	return nil
@@ -413,8 +506,10 @@ func (m *Manager) restartAt(s *session, start int) error {
 		return errors.New("web playback session closed")
 	}
 	s.worker = w
-	s.LastTouch = time.Now()
 	s.mu.Unlock()
+	m.mu.Lock()
+	s.LastTouch = time.Now()
+	m.mu.Unlock()
 	go m.run(ctx, s, w)
 	return nil
 }
@@ -523,6 +618,15 @@ func (m *Manager) encoderCandidates(spec Spec) []encoderCandidate {
 }
 
 func (m *Manager) runCandidate(ctx context.Context, ffmpeg string, s *session, startSegment int, candidate encoderCandidate) error {
+	release, waited, err := transcode.AcquireProcess(ctx, !candidate.copy)
+	if err != nil {
+		return fmt.Errorf("wait for playback process capacity: %w", err)
+	}
+	defer release()
+	s.mu.Lock()
+	s.ResourceWait += waited
+	s.mu.Unlock()
+
 	startSeconds := float64(startSegment) * segmentDuration.Seconds()
 	remaining := s.Spec.DurationSeconds - startSeconds
 	if remaining <= 0 {
@@ -593,7 +697,95 @@ func (m *Manager) runCandidate(ctx context.Context, ffmpeg string, s *session, s
 	cmd := exec.CommandContext(ctx, ffmpeg, args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.ProcessID = cmd.Process.Pid
+	s.WorkerPaused = false
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		if s.ProcessID == cmd.Process.Pid {
+			s.ProcessID = 0
+			s.WorkerPaused = false
+		}
+		s.mu.Unlock()
+	}()
+
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	ticker := time.NewTicker(300 * time.Millisecond)
+	defer ticker.Stop()
+	paused := false
+	pressure := false
+	lastPressureCheck := time.Time{}
+	resume := func() {
+		if paused && cmd.Process != nil {
+			_ = cmd.Process.Signal(syscall.SIGCONT)
+			paused = false
+			s.mu.Lock()
+			s.WorkerPaused = false
+			s.mu.Unlock()
+		}
+	}
+	stopAhead := func() {
+		if !paused && cmd.Process != nil {
+			if cmd.Process.Signal(syscall.SIGSTOP) == nil {
+				paused = true
+				s.mu.Lock()
+				s.WorkerPaused = true
+				s.mu.Unlock()
+			}
+		}
+	}
+
+	var runErr error
+	for runErr == nil {
+		select {
+		case runErr = <-done:
+			if runErr == nil {
+				return nil
+			}
+		case <-ctx.Done():
+			resume()
+			if cmd.Process != nil {
+				_ = cmd.Process.Kill()
+			}
+			<-done
+			return ctx.Err()
+		case <-ticker.C:
+			s.mu.Lock()
+			requested := s.RequestedSegment
+			state := s.PlaybackState
+			closed := s.Closed
+			s.mu.Unlock()
+			m.mu.Lock()
+			lastTouch := s.LastTouch
+			m.mu.Unlock()
+			if closed || time.Since(lastTouch) > m.policy.WorkerIdleTTL {
+				resume()
+				if cmd.Process != nil {
+					_ = cmd.Process.Kill()
+				}
+				<-done
+				return errors.New("web playback worker stopped while client was idle")
+			}
+			generated := maxGeneratedSegment(s.Dir)
+			ahead := generated - requested
+			if time.Since(lastPressureCheck) >= 5*time.Second {
+				pressure = !m.withinCapacity(0)
+				lastPressureCheck = time.Now()
+			}
+			if state == "paused" || ahead >= m.policy.MaxAheadSegments || pressure {
+				stopAhead()
+			} else if state != "paused" && ahead <= m.policy.ResumeAheadSegments && !pressure {
+				resume()
+			}
+		}
+	}
+	resume()
+	if runErr != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -602,7 +794,7 @@ func (m *Manager) runCandidate(ctx context.Context, ffmpeg string, s *session, s
 			msg = msg[len(msg)-1800:]
 		}
 		if msg == "" {
-			msg = err.Error()
+			msg = runErr.Error()
 		}
 		return fmt.Errorf("%s web playback failed: %s", candidate.name, msg)
 	}
@@ -682,7 +874,7 @@ func (m *Manager) removeGeneratedFrom(s *session, start int) {
 }
 
 func (m *Manager) trimBehind(s *session, current int) {
-	cut := current - keepBehind
+	cut := current - m.policy.KeepBehindSegments
 	if cut <= 0 {
 		return
 	}
@@ -701,7 +893,7 @@ func (m *Manager) cleanupLoop() {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 	for range ticker.C {
-		cutoff := time.Now().Add(-idleTTL)
+		cutoff := time.Now().Add(-m.policy.IdleTTL)
 		m.mu.Lock()
 		stale := make([]*session, 0)
 		for id, s := range m.sessions {
@@ -715,5 +907,149 @@ func (m *Manager) cleanupLoop() {
 			m.stop(s)
 			_ = os.RemoveAll(s.Dir)
 		}
+	}
+}
+
+func (m *Manager) ensureCapacity(s *session) error {
+	m.cleanupIdle()
+	bitrate := s.Spec.TargetBitrateKbps
+	if bitrate <= 0 {
+		bitrate = 12000
+	}
+	windowSeconds := float64(m.policy.KeepBehindSegments+m.policy.MaxAheadSegments) * segmentDuration.Seconds()
+	estimate := int64(float64(bitrate)*1000/8*windowSeconds*1.25) + 8<<20
+	if estimate > m.policy.MaxBytes/2 {
+		estimate = m.policy.MaxBytes / 2
+	}
+	if !m.withinCapacity(estimate) {
+		return errors.New("web stream cache refused work to preserve its disk budget")
+	}
+	return nil
+}
+
+func (m *Manager) withinCapacity(extra int64) bool {
+	if m.policy.MaxBytes > 0 && directorySize(m.dir)+extra > m.policy.MaxBytes {
+		return false
+	}
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(m.dir, &stat); err != nil {
+		return true
+	}
+	free := int64(stat.Bavail) * int64(stat.Bsize)
+	total := int64(stat.Blocks) * int64(stat.Bsize)
+	reserve := m.policy.MinFreeBytes
+	if total > 0 && m.policy.MinFreePercent > 0 {
+		percent := total * int64(m.policy.MinFreePercent) / 100
+		if percent > reserve {
+			reserve = percent
+		}
+	}
+	return free-extra >= reserve
+}
+
+func (m *Manager) cleanupIdle() {
+	cutoff := time.Now().Add(-m.policy.IdleTTL)
+	m.mu.Lock()
+	stale := make([]*session, 0)
+	for id, s := range m.sessions {
+		if s.LastTouch.Before(cutoff) {
+			delete(m.sessions, id)
+			stale = append(stale, s)
+		}
+	}
+	m.mu.Unlock()
+	for _, s := range stale {
+		m.stop(s)
+		_ = os.RemoveAll(s.Dir)
+	}
+}
+
+func directorySize(root string) int64 {
+	var total int64
+	_ = filepath.WalkDir(root, func(_ string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return nil
+		}
+		if info, infoErr := entry.Info(); infoErr == nil {
+			total += info.Size()
+		}
+		return nil
+	})
+	return total
+}
+
+type SessionInfo struct {
+	ID               string `json:"id"`
+	UserID           int64  `json:"user_id"`
+	MediaID          int64  `json:"media_id"`
+	Route            string `json:"route"`
+	Encoder          string `json:"encoder"`
+	Hardware         string `json:"hardware"`
+	ProcessID        int    `json:"process_id,omitempty"`
+	WorkerPaused     bool   `json:"worker_paused"`
+	PlaybackState    string `json:"playback_state"`
+	RequestedSegment int    `json:"requested_segment"`
+	AheadSegments    int    `json:"ahead_segments"`
+	CacheBytes       int64  `json:"cache_bytes"`
+	ResourceWaitMS   int64  `json:"resource_wait_ms"`
+	StartedAt        string `json:"started_at"`
+	LastTouch        string `json:"last_touch"`
+	LastError        string `json:"last_error,omitempty"`
+}
+
+func (m *Manager) Sessions() []SessionInfo {
+	m.cleanupIdle()
+	m.mu.Lock()
+	items := make([]*session, 0, len(m.sessions))
+	for _, s := range m.sessions {
+		items = append(items, s)
+	}
+	m.mu.Unlock()
+	out := make([]SessionInfo, 0, len(items))
+	for _, s := range items {
+		m.mu.Lock()
+		lastTouch := s.LastTouch
+		m.mu.Unlock()
+		s.mu.Lock()
+		route := "server-remux"
+		if s.Spec.VideoTranscode {
+			route = "server-video"
+		} else if s.Spec.AudioTranscode {
+			route = "server-audio"
+		}
+		requested := s.RequestedSegment
+		info := SessionInfo{
+			ID: s.ID, UserID: s.UserID, MediaID: s.MediaID, Route: route,
+			Encoder: s.Encoder, Hardware: s.Hardware, ProcessID: s.ProcessID,
+			WorkerPaused: s.WorkerPaused, PlaybackState: s.PlaybackState,
+			RequestedSegment: requested,
+			ResourceWaitMS:   s.ResourceWait.Milliseconds(), StartedAt: s.StartedAt.UTC().Format(time.RFC3339),
+			LastTouch: lastTouch.UTC().Format(time.RFC3339), LastError: s.LastError,
+		}
+		s.mu.Unlock()
+		info.CacheBytes = directorySize(s.Dir)
+		generated := maxGeneratedSegment(s.Dir)
+		if generated >= requested {
+			info.AheadSegments = generated - requested
+		}
+		out = append(out, info)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].StartedAt > out[j].StartedAt })
+	return out
+}
+
+func (m *Manager) CacheStatus() map[string]any {
+	m.cleanupIdle()
+	var stat syscall.Statfs_t
+	free := int64(0)
+	if syscall.Statfs(m.dir, &stat) == nil {
+		free = int64(stat.Bavail) * int64(stat.Bsize)
+	}
+	return map[string]any{
+		"directory": m.dir, "usage_bytes": directorySize(m.dir), "max_bytes": m.policy.MaxBytes,
+		"free_bytes": free, "min_free_bytes": m.policy.MinFreeBytes, "min_free_percent": m.policy.MinFreePercent,
+		"max_ahead_seconds":   m.policy.MaxAheadSegments * int(segmentDuration/time.Second),
+		"keep_behind_seconds": m.policy.KeepBehindSegments * int(segmentDuration/time.Second),
+		"worker_idle_seconds": int(m.policy.WorkerIdleTTL.Seconds()), "sessions": len(m.Sessions()),
 	}
 }

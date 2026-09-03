@@ -10,6 +10,7 @@ import (
 
 	"github.com/danilostorm/stormflix/internal/admin"
 	"github.com/danilostorm/stormflix/internal/auth"
+	"github.com/danilostorm/stormflix/internal/streaming"
 	"github.com/danilostorm/stormflix/internal/transcode"
 )
 
@@ -183,14 +184,22 @@ func (s *server) serverInfo(w http.ResponseWriter, r *http.Request) {
 	engine := transcode.Detect()
 	transcodeCache := map[string]any{}
 	transcodeSessions := []transcode.SessionInfo{}
+	webStreamCache := map[string]any{}
+	webStreamSessions := []streaming.SessionInfo{}
 	if manager, err := transcode.ForDataDir(s.config.DataDir); err == nil {
 		transcodeCache = manager.CacheStatus()
 		transcodeSessions = manager.Sessions()
+	}
+	if manager, err := streaming.ForDataDir(s.config.DataDir); err == nil {
+		webStreamCache = manager.CacheStatus()
+		webStreamSessions = manager.Sessions()
 	}
 	writeJSON(w, 200, map[string]any{
 		"name": "StormFlix", "version": version, "go": runtime.Version(), "os": runtime.GOOS, "arch": runtime.GOARCH, "cpus": runtime.NumCPU(),
 		"memory_alloc_bytes": m.Alloc, "memory_sys_bytes": m.Sys, "uptime_seconds": int64(time.Since(s.startedAt).Seconds()), "database": s.config.DatabasePath(),
 		"direct_play_first": true, "direct_play_only": false, "transcoding_enabled": engine.FFmpegPath != "", "transcode_engine": engine,
 		"transcode_cache": transcodeCache, "transcode_sessions": len(transcodeSessions), "transcode_session_details": transcodeSessions,
+		"web_stream_cache": webStreamCache, "web_stream_sessions": len(webStreamSessions), "web_stream_session_details": webStreamSessions,
+		"ffmpeg_resources": transcode.ProcessResources(),
 	})
 }

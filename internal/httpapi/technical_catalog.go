@@ -15,21 +15,21 @@ import (
 )
 
 type technicalSnapshot struct {
-	MediaID           int64            `json:"media_id"`
-	VideoCodec        string           `json:"video_codec"`
-	Width             int              `json:"width"`
-	Height            int              `json:"height"`
-	HDR               string           `json:"hdr"`
-	BitrateKbps       int64            `json:"bitrate_kbps"`
-	DurationSeconds   float64          `json:"duration_seconds"`
-	AudioLanguages    []string         `json:"audio_languages"`
-	SubtitleLanguages []string         `json:"subtitle_languages"`
-	AudioPTBR         bool             `json:"audio_pt_br"`
-	SubtitlePTBR      bool             `json:"subtitle_pt_br"`
-	DubStatus         string           `json:"dub_status"`
-	Status            string           `json:"status"`
-	LastError         string           `json:"last_error,omitempty"`
-	Source            playback.Source  `json:"source"`
+	MediaID           int64           `json:"media_id"`
+	VideoCodec        string          `json:"video_codec"`
+	Width             int             `json:"width"`
+	Height            int             `json:"height"`
+	HDR               string          `json:"hdr"`
+	BitrateKbps       int64           `json:"bitrate_kbps"`
+	DurationSeconds   float64         `json:"duration_seconds"`
+	AudioLanguages    []string        `json:"audio_languages"`
+	SubtitleLanguages []string        `json:"subtitle_languages"`
+	AudioPTBR         bool            `json:"audio_pt_br"`
+	SubtitlePTBR      bool            `json:"subtitle_pt_br"`
+	DubStatus         string          `json:"dub_status"`
+	Status            string          `json:"status"`
+	LastError         string          `json:"last_error,omitempty"`
+	Source            playback.Source `json:"source"`
 }
 
 var technicalIndexerKick = make(chan struct{}, 1)
@@ -70,6 +70,11 @@ func (s *server) kickTechnicalIndexer() {
 }
 
 func (s *server) indexOneTechnicalItem(ctx context.Context) bool {
+	// Technical probing is an optimization. It must never compete with an
+	// active movie for remote IO, CPU or the global FFmpeg budget.
+	if s.markerAnalysisPlaybackBusy(ctx) {
+		return false
+	}
 	var id, modified int64
 	var path string
 	err := s.db.QueryRowContext(ctx, `
@@ -91,6 +96,10 @@ LIMIT 1`).Scan(&id, &path, &modified)
 	probeCtx, cancel := context.WithTimeout(ctx, 40*time.Second)
 	defer cancel()
 	mediaAnalysisBudget.Lock()
+	if s.markerAnalysisPlaybackBusy(ctx) {
+		mediaAnalysisBudget.Unlock()
+		return false
+	}
 	_, _ = s.probeAndStoreTechnical(probeCtx, id, path, modified, true)
 	mediaAnalysisBudget.Unlock()
 	s.kickMarkerAnalyzer()
@@ -238,7 +247,7 @@ func (s *server) technicalCatalogStatus(w http.ResponseWriter, r *http.Request) 
 	if pending < 0 {
 		pending = 0
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"total": total, "ready": ready, "pending": pending, "failed": failed, "automatic": true})
+	writeJSON(w, http.StatusOK, map[string]any{"total": total, "ready": ready, "pending": pending, "failed": failed, "automatic": true, "paused_for_playback": s.markerAnalysisPlaybackBusy(r.Context())})
 }
 
 func (s *server) restartTechnicalCatalog(w http.ResponseWriter, r *http.Request) {

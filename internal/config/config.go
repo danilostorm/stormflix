@@ -49,6 +49,12 @@ type Config struct {
 	HLSCacheIdleTTL            time.Duration
 	HLSSegmentDuration         time.Duration
 	HLSBatchSegments           int
+	MaxFFmpegProcesses         int
+	MaxVideoTranscodes         int
+	WebStreamCacheMaxBytes     int64
+	WebStreamMaxAhead          time.Duration
+	WebStreamKeepBehind        time.Duration
+	WebStreamWorkerIdleTTL     time.Duration
 	BootstrapLibraryName       string
 	BootstrapLibraryPath       string
 	ManagedMovieLibraryName    string
@@ -100,6 +106,12 @@ func Load() Config {
 		// batch still keeps a healthy buffer ahead without materializing a movie.
 		HLSSegmentDuration:      envDuration("STORMFLIX_HLS_SEGMENT_DURATION", 2*time.Second),
 		HLSBatchSegments:        envInt("STORMFLIX_HLS_BATCH_SEGMENTS", 8),
+		MaxFFmpegProcesses:      envInt("STORMFLIX_MAX_FFMPEG_PROCESSES", 4),
+		MaxVideoTranscodes:      envInt("STORMFLIX_MAX_VIDEO_TRANSCODES", 2),
+		WebStreamCacheMaxBytes:  envInt64("STORMFLIX_WEB_STREAM_CACHE_MAX_BYTES", 5<<30),
+		WebStreamMaxAhead:       envDuration("STORMFLIX_WEB_STREAM_MAX_AHEAD", 60*time.Second),
+		WebStreamKeepBehind:     envDuration("STORMFLIX_WEB_STREAM_KEEP_BEHIND", 4*time.Minute),
+		WebStreamWorkerIdleTTL:  envDuration("STORMFLIX_WEB_STREAM_WORKER_IDLE_TTL", 90*time.Second),
 		BootstrapLibraryName:    env("STORMFLIX_BOOTSTRAP_LIBRARY_NAME", "Media"),
 		BootstrapLibraryPath:    os.Getenv("STORMFLIX_BOOTSTRAP_LIBRARY_PATH"),
 		ManagedMovieLibraryName: env("STORMFLIX_MANAGED_MOVIE_LIBRARY_NAME", "Filmes"),

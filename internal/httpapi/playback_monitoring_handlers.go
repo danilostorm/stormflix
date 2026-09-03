@@ -59,7 +59,7 @@ func (s *server) playbackHeartbeat(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case streaming.IsSessionID(session):
 			if manager, managerErr := streaming.ForDataDir(s.config.DataDir); managerErr == nil {
-				manager.Touch(u.ID, session)
+				manager.SetPlaybackState(u.ID, session, in.State, in.PositionSeconds)
 			}
 		case transcode.IsSessionID(session):
 			if manager, managerErr := transcode.ForDataDir(s.config.DataDir); managerErr == nil {
@@ -191,6 +191,7 @@ func (s *server) playbackStop(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	s.kickTechnicalIndexer()
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true, "hls_cache_cleared": cacheCleared})
 }
 
