@@ -7,39 +7,40 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 )
 
 type Item struct {
-	ID                int64    `json:"id"`
-	LibraryID         int64    `json:"library_id"`
-	LibraryName       string   `json:"library_name"`
-	Title             string   `json:"title"`
-	Extension         string   `json:"extension"`
-	SizeBytes         int64    `json:"size_bytes"`
-	ModifiedUnix      int64    `json:"modified_unix"`
-	Available         bool     `json:"available"`
-	MediaType         string   `json:"media_type"`
-	Year              int      `json:"year"`
-	SeasonNumber      int      `json:"season_number"`
-	EpisodeNumber     int      `json:"episode_number"`
-	Overview          string   `json:"overview"`
-	Genres            []string `json:"genres"`
-	Rating            float64  `json:"rating"`
-	RuntimeMinutes    int      `json:"runtime_minutes"`
-	MetadataStatus    string   `json:"metadata_status"`
-	TMDBID            int64    `json:"tmdb_id,omitempty"`
-	CollectionTMDBID  int64    `json:"collection_tmdb_id,omitempty"`
-	CollectionName    string   `json:"collection_name,omitempty"`
-	PosterURL         string   `json:"poster_url"`
-	BackdropURL       string   `json:"backdrop_url"`
-	LogoURL           string   `json:"logo_url"`
-	EntityType        string   `json:"entity_type,omitempty"`
-	SeriesID          string   `json:"series_id,omitempty"`
-	SeasonCount       int      `json:"season_count,omitempty"`
-	EpisodeCount      int      `json:"episode_count,omitempty"`
-	PositionSeconds   float64  `json:"position_seconds,omitempty"`
-	DurationSeconds   float64  `json:"duration_seconds,omitempty"`
-	ProgressPercent   float64  `json:"progress_percent,omitempty"`
+	ID               int64    `json:"id"`
+	LibraryID        int64    `json:"library_id"`
+	LibraryName      string   `json:"library_name"`
+	Title            string   `json:"title"`
+	Extension        string   `json:"extension"`
+	SizeBytes        int64    `json:"size_bytes"`
+	ModifiedUnix     int64    `json:"modified_unix"`
+	Available        bool     `json:"available"`
+	MediaType        string   `json:"media_type"`
+	Year             int      `json:"year"`
+	SeasonNumber     int      `json:"season_number"`
+	EpisodeNumber    int      `json:"episode_number"`
+	Overview         string   `json:"overview"`
+	Genres           []string `json:"genres"`
+	Rating           float64  `json:"rating"`
+	RuntimeMinutes   int      `json:"runtime_minutes"`
+	MetadataStatus   string   `json:"metadata_status"`
+	TMDBID           int64    `json:"tmdb_id,omitempty"`
+	CollectionTMDBID int64    `json:"collection_tmdb_id,omitempty"`
+	CollectionName   string   `json:"collection_name,omitempty"`
+	PosterURL        string   `json:"poster_url"`
+	BackdropURL      string   `json:"backdrop_url"`
+	LogoURL          string   `json:"logo_url"`
+	EntityType       string   `json:"entity_type,omitempty"`
+	SeriesID         string   `json:"series_id,omitempty"`
+	SeasonCount      int      `json:"season_count,omitempty"`
+	EpisodeCount     int      `json:"episode_count,omitempty"`
+	PositionSeconds  float64  `json:"position_seconds,omitempty"`
+	DurationSeconds  float64  `json:"duration_seconds,omitempty"`
+	ProgressPercent  float64  `json:"progress_percent,omitempty"`
 }
 
 type StreamItem struct {
@@ -47,9 +48,23 @@ type StreamItem struct {
 	Path string
 }
 
-type Service struct{ db *sql.DB }
+type Service struct {
+	db        *sql.DB
+	lifecycle context.Context
 
-func NewService(db *sql.DB) *Service { return &Service{db: db} }
+	projectionMu         sync.Mutex
+	projectionRefreshMu  sync.Mutex
+	projectionRefreshing bool
+}
+
+func NewService(db *sql.DB) *Service { return NewServiceWithContext(context.Background(), db) }
+
+func NewServiceWithContext(lifecycle context.Context, db *sql.DB) *Service {
+	if lifecycle == nil {
+		lifecycle = context.Background()
+	}
+	return &Service{db: db, lifecycle: lifecycle}
+}
 
 func (s *Service) List(ctx context.Context, libraryID int64, query string, limit, offset int, allowedLibraryIDs []int64) ([]Item, error) {
 	if limit <= 0 || limit > 500 {

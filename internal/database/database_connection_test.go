@@ -77,3 +77,40 @@ func TestOpenRecordsSchemaMigrationBaseline(t *testing.T) {
 		t.Fatalf("user_version=%d, want %d", version, currentSchemaVersion)
 	}
 }
+
+func TestInspectReportsSQLiteHealth(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "stormflix.db")
+	db, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	diagnostics := Inspect(context.Background(), db, path)
+	if diagnostics.JournalMode != "wal" || !diagnostics.ForeignKeys || diagnostics.BusyTimeoutMS != 5000 {
+		t.Fatalf("unexpected SQLite diagnostics: %+v", diagnostics)
+	}
+	if diagnostics.UserVersion != currentSchemaVersion || diagnostics.MigrationCount != currentSchemaVersion || diagnostics.PageCount == 0 || diagnostics.DatabaseBytes == 0 {
+		t.Fatalf("incomplete SQLite diagnostics: %+v", diagnostics)
+	}
+}
+
+func TestCatalogProjectionIndexesAreInstalled(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "stormflix.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, name := range []string{
+		"idx_catalog_entities_library_recent", "idx_catalog_entities_rating",
+		"idx_catalog_entities_series_recent", "idx_catalog_entities_release",
+		"idx_catalog_entities_title", "idx_catalog_entities_library_title",
+	} {
+		var count int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name=?`, name).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 1 {
+			t.Fatalf("projection index %s count=%d", name, count)
+		}
+	}
+}

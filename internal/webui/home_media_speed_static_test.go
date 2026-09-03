@@ -11,7 +11,9 @@ func TestVideoHomeUsesPerProfileSnapshotBeforeRefresh(t *testing.T) {
 		t.Fatalf("read catalog-performance.js: %v", err)
 	}
 	for _, required := range [][]byte{
-		[]byte(`stormflix.home.snapshot.v2:`),
+		[]byte(`stormflix.home.snapshot.v3:`),
+		[]byte(`SNAPSHOT_TTL=10*60*1000`),
+		[]byte(`me?.library_ids`),
 		[]byte(`sessionStorage`),
 		[]byte(`window.sfProfiles?.current?.()`),
 		[]byte(`if(cached)paintSnapshot(cached)`),

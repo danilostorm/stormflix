@@ -35,7 +35,10 @@ O projeto já possui, entre outros:
 - Android mobile/TV baseado em Media3;
 - facade Jellyfin para clientes oficiais mobile/Android TV/desktop;
 - logs administrativos, monitoramento e recebimento de crash report Jellyfin;
-- Home agrupada com cache curto e índices SQLite para catálogos maiores.
+- Home com projeção lógica persistente, cache por revisão e métricas p50/p95/p99;
+- SQLite WAL com migrações auditadas, pool limitado e diagnóstico no Admin;
+- limites globais de FFmpeg/CPU/cache e overlay NVIDIA opcional;
+- assets/API comprimidos, ETags e renderização progressiva para catálogos maiores.
 
 Consulte `PROJECT_STATE.md` para detalhes, decisões e pendências atuais.
 
@@ -69,16 +72,25 @@ Depois:
 docker compose up -d --build
 ```
 
+Em um host com NVIDIA Container Toolkit, exponha a GPU usando o overlay incluído:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up -d --build
+docker exec stormflix ffmpeg -hide_banner -encoders 2>/dev/null | grep -E 'h264_nvenc|hevc_nvenc'
+```
+
 Uma instalação Unraid existente normalmente é atualizada com:
 
 ```bash
 cd /mnt/user/appdata/stormflix
-git pull origin main
-docker compose down
-docker compose up -d --build
+git pull --ff-only origin main
+docker compose -f docker-compose.yml -f docker-compose.nvidia.yml down
+docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up -d --build
 curl -s http://127.0.0.1:8090/healthz
 echo
 ```
+
+Instalações sem NVIDIA continuam usando apenas `docker-compose.yml`. A decisão de manter SQLite, os gatilhos objetivos para uma futura migração PostgreSQL e a avaliação dos players WASM estão em [`docs/PERFORMANCE_FOUNDATION_V2.md`](docs/PERFORMANCE_FOUNDATION_V2.md).
 
 ## Direct Play e compatibilidade
 

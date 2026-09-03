@@ -29,7 +29,7 @@ func NewTMDBProvider(token, apiKey, language string) *TMDBProvider {
 }
 
 func (p *TMDBProvider) Name() string { return "tmdb" }
-func (p *TMDBProvider) Ready() bool { return p.token != "" || p.apiKey != "" }
+func (p *TMDBProvider) Ready() bool  { return p.token != "" || p.apiKey != "" }
 func (p *TMDBProvider) Supports(kind string) bool {
 	return kind == "movies" || kind == "series" || kind == "anime" || kind == "mixed" || kind == "anime_series"
 }
@@ -249,9 +249,9 @@ func (p *TMDBProvider) movie(ctx context.Context, id int64, parsed ParsedName) (
 		IMDbID:         firstNonEmpty(movie.IMDbID, movie.ExternalIDs.IMDbID),
 	}
 	result.Artwork = appendTMDBArtwork(result.Artwork, "poster", movie.PosterPath, "w500", "", 100)
-	result.Artwork = appendTMDBArtwork(result.Artwork, "backdrop", movie.BackdropPath, "original", "", 100)
+	result.Artwork = appendTMDBArtwork(result.Artwork, "backdrop", movie.BackdropPath, "w1280", "", 100)
 	if logo := bestImage(movie.Images.Logos, p.language); logo.FilePath != "" {
-		result.Artwork = appendTMDBArtwork(result.Artwork, "logo", logo.FilePath, "original", logo.ISO6391, 110+logo.VoteAverage)
+		result.Artwork = appendTMDBArtwork(result.Artwork, "logo", logo.FilePath, "w500", logo.ISO6391, 110+logo.VoteAverage)
 	}
 	return result, nil
 }
@@ -312,9 +312,9 @@ func (p *TMDBProvider) tv(ctx context.Context, id int64, parsed ParsedName) (Res
 		IMDbID:         show.ExternalIDs.IMDbID,
 	}
 	result.Artwork = appendTMDBArtwork(result.Artwork, "poster", show.PosterPath, "w500", "", 100)
-	result.Artwork = appendTMDBArtwork(result.Artwork, "backdrop", show.BackdropPath, "original", "", 100)
+	result.Artwork = appendTMDBArtwork(result.Artwork, "backdrop", show.BackdropPath, "w1280", "", 100)
 	if logo := bestImage(show.Images.Logos, p.language); logo.FilePath != "" {
-		result.Artwork = appendTMDBArtwork(result.Artwork, "logo", logo.FilePath, "original", logo.ISO6391, 110+logo.VoteAverage)
+		result.Artwork = appendTMDBArtwork(result.Artwork, "logo", logo.FilePath, "w500", logo.ISO6391, 110+logo.VoteAverage)
 	}
 
 	if parsed.Season > 0 && parsed.Episode > 0 {
@@ -338,7 +338,7 @@ func (p *TMDBProvider) tv(ctx context.Context, id int64, parsed ParsedName) (Res
 				result.Rating = episode.VoteAverage
 			}
 			if episode.StillPath != "" {
-				result.Artwork = appendTMDBArtwork(result.Artwork, "backdrop", episode.StillPath, "original", "", 120)
+				result.Artwork = appendTMDBArtwork(result.Artwork, "backdrop", episode.StillPath, "w780", "", 120)
 			}
 		}
 	}

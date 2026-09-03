@@ -3,13 +3,21 @@ package httpapi
 import (
 	"errors"
 	"net/http"
+
+	"github.com/danilostorm/stormflix/internal/transcode"
 )
 
 func (s *server) health(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"status": "ok", "transcoding": false, "version": version})
+	engine := transcode.Detect()
+	writeJSON(w, 200, map[string]any{"status": "ok", "transcoding": engine.FFmpegPath != "", "version": version})
 }
 func (s *server) systemInfo(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"name": "StormFlix", "version": version, "direct_play_only": true, "transcoding_enabled": false, "supported_extensions": s.librariesExtensions()})
+	engine := transcode.Detect()
+	writeJSON(w, 200, map[string]any{
+		"name": "StormFlix", "version": version,
+		"playback_engine": "v6", "direct_play_first": true, "direct_play_only": false,
+		"transcoding_enabled": engine.FFmpegPath != "", "supported_extensions": s.librariesExtensions(),
+	})
 }
 func (s *server) librariesExtensions() []string {
 	return []string{".avi", ".m2ts", ".m4v", ".mkv", ".mov", ".mp4", ".mpeg", ".mpg", ".ts", ".webm"}

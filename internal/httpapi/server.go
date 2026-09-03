@@ -3,7 +3,6 @@ package httpapi
 import (
 	"context"
 	"database/sql"
-	"io/fs"
 	"net/http"
 	"time"
 
@@ -25,7 +24,7 @@ import (
 )
 
 const sessionCookie = "stormflix_session"
-const version = "0.25.0-playback-anywhere"
+const version = "0.26.0-performance-foundation"
 
 type contextKey string
 
@@ -49,6 +48,7 @@ type server struct {
 	config      config.Config
 	startedAt   time.Time
 	lifecycle   context.Context
+	homeMetrics homeTelemetry
 }
 
 func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler {
@@ -69,6 +69,7 @@ func NewWithContext(lifecycle context.Context, db *sql.DB, libraries *library.Se
 	}
 	effective = config.NormalizeCredentials(effective)
 	transcode.ConfigureProcessScheduler(effective.MaxFFmpegProcesses, effective.MaxVideoTranscodes)
+	transcode.ConfigureCPUThreadLimit(effective.TranscodeCPUThreads)
 	streamPolicy := streaming.DefaultPolicy()
 	streamPolicy.MaxBytes = effective.WebStreamCacheMaxBytes
 	streamPolicy.MinFreeBytes = effective.CompatCacheMinFreeBytes
@@ -96,7 +97,7 @@ func NewWithContext(lifecycle context.Context, db *sql.DB, libraries *library.Se
 		panic(err)
 	}
 	music.ConfigureProviders(effective.LastFMAPIKey)
-	s := &server{db: db, libraries: libraries, media: media.NewService(db), music: music.NewService(db), games: games.NewService(db), auth: auth.NewService(db), admin: admin.NewService(db), assets: assetStore, settings: settingsService, compatCache: compatCache, hlsCache: hlsCache, baseConfig: cfg, config: effective, startedAt: time.Now(), lifecycle: lifecycle}
+	s := &server{db: db, libraries: libraries, media: media.NewServiceWithContext(lifecycle, db), music: music.NewService(db), games: games.NewService(db), auth: auth.NewService(db), admin: admin.NewService(db), assets: assetStore, settings: settingsService, compatCache: compatCache, hlsCache: hlsCache, baseConfig: cfg, config: effective, startedAt: time.Now(), lifecycle: lifecycle}
 	s.metadata = metadata.NewService(db, effective, assetStore)
 	s.metadata.ResumeQueuedJobs()
 	s.games.ResumeMetadataJobs()
@@ -269,10 +270,6 @@ func NewWithContext(lifecycle context.Context, db *sql.DB, libraries *library.Se
 	mux.HandleFunc("POST /api/v1/admin/backups/{id}/restore", s.requireRole("admin", s.scheduleBackupRestore))
 
 	mux.HandleFunc("GET /assets/", s.requireAuth(s.serveAsset))
-	staticFS, err := fs.Sub(webui.Static, "static")
-	if err != nil {
-		panic(err)
-	}
-	mux.Handle("/", http.FileServer(http.FS(staticFS)))
-	return requestLogger(recoverer(securityHeaders(s.jellyfinTrace(mux))))
+	mux.Handle("/", webui.Handler())
+	return requestLogger(recoverer(securityHeaders(responseCompression(s.jellyfinTrace(mux)))))
 }

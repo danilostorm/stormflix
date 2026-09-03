@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-const currentSchemaVersion = 24
+const migrationLedgerVersion = 24
 
 // Phase 24 establishes the durable migration ledger used by future schema
 // changes. Phases 1-23 predate the ledger and are recorded as an audited
@@ -41,16 +41,16 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 			return err
 		}
 	}
-	if err := recordMigration(tx, currentSchemaVersion, "migration-ledger", "phase24-v1"); err != nil {
+	if err := recordMigration(tx, migrationLedgerVersion, "migration-ledger", "phase24-v1"); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version=%d", currentSchemaVersion)); err != nil {
+	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version=%d", migrationLedgerVersion)); err != nil {
 		return fmt.Errorf("set sqlite user_version: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("migrate phase24 commit: %w", err)
 	}
-	return nil
+	return migratePhase25(db)
 }
 
 func recordMigration(tx *sql.Tx, version int, name, checksum string) error {

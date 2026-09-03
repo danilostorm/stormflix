@@ -26,11 +26,11 @@ func TestEncoderCandidatesPreferHardwareThenCPU(t *testing.T) {
 	}
 }
 
-func TestToneMapUsesSafeCPUEncoderPath(t *testing.T) {
+func TestToneMapOffloadsSafeEncodeToNVENCWithCPUFallback(t *testing.T) {
 	m := &Manager{engine: EngineStatus{VideoEncoders: []string{"h264_nvenc", "libx264"}, ToneMap: true, ZScale: true}}
 	items := m.encoderCandidates("h264", true)
-	if len(items) != 1 || items[0].name != "libx264" || items[0].hardware != "cpu" {
-		t.Fatalf("tone mapping must avoid incompatible hardware filter surfaces: %#v", items)
+	if len(items) != 2 || items[0].name != "h264_nvenc" || items[0].hardware != "nvidia" || items[1].name != "libx264" {
+		t.Fatalf("tone mapping should use NVENC after software zscale with CPU fallback: %#v", items)
 	}
 }
 

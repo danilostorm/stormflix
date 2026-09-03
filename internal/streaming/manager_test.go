@@ -5,13 +5,25 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/danilostorm/stormflix/internal/transcode"
 )
 
 func TestCPUH264FallbackUsesLiveSuperfastPreset(t *testing.T) {
+	transcode.ConfigureCPUThreadLimit(3)
+	defer transcode.ConfigureCPUThreadLimit(6)
 	args := encoderArgs(encoderCandidate{name: "libx264", hardware: "cpu"}, Spec{TargetBitrateKbps: 8000})
 	joined := strings.Join(args, " ")
-	if !strings.Contains(joined, "-preset superfast") {
+	if !strings.Contains(joined, "-preset superfast") || !strings.Contains(joined, "-threads 3") {
 		t.Fatalf("expected low-CPU superfast live preset, got %q", joined)
+	}
+}
+
+func TestHDRContinuousStreamUsesNVENCWithCPUFallback(t *testing.T) {
+	m := &Manager{engine: transcode.EngineStatus{VideoEncoders: []string{"h264_nvenc", "h264_qsv", "libx264"}}}
+	items := m.encoderCandidates(Spec{TargetVideoCodec: "h264", VideoTranscode: true, ToneMap: true})
+	if len(items) != 2 || items[0].name != "h264_nvenc" || items[1].name != "libx264" {
+		t.Fatalf("unexpected HDR encoder order: %#v", items)
 	}
 }
 

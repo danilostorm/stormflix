@@ -11,17 +11,20 @@ Primary deployment is an Unraid checkout:
 ```bash
 cd /mnt/user/appdata/stormflix
 git pull --ff-only origin main
-docker compose down
-docker compose up -d --build
+docker compose -f docker-compose.yml -f docker-compose.nvidia.yml down
+docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up -d --build
 curl -s http://127.0.0.1:8090/healthz
 echo
 ```
+
+The primary RTX/Unraid host requires NVIDIA Container Toolkit. Portable hosts
+without NVIDIA use only `docker-compose.yml`.
 
 Server HTTP port: **8090**, normally behind an HTTPS reverse proxy.
 
 ## Current clients
 
-- Server code line: **`0.25.0-playback-anywhere`**.
+- Server code line: **`0.26.0-performance-foundation`**.
 - Web Player: **Playback Engine v6**, retaining the v5.3 continuous Web session and v5.4 presentation controls, with adaptive local HEVC decode before server video transcode.
 - Games Web Player: G2 browser/WASM runtime plus G2.5 dedicated Admin/metadata and RomMix-inspired browsing; G3 adds virtual mobile controls, TV/gamepad focus/menu behavior and profile-owned save-state previews. Games metadata uses Metadata Stack v2.
 - Android package: `cloud.stormflix.app`, **0.6.5 / versionCode 23**, minSdk 23, targetSdk 36, Java 17.
@@ -30,7 +33,7 @@ Server HTTP port: **8090**, normally behind an HTTPS reverse proxy.
 - LG webOS: `apps/webos` 0.1.0 thin shell; CI can package the Developer Mode IPK.
 - Playback Anywhere v4 includes native DLNA/UPnP discovery/control across Web/server and Android, plus Jellyfin Play To compatibility.
 - Jellyfin compatibility facade remains isolated from native `/api/v1` state.
-- SQLite with WAL remains the production database. PostgreSQL remains a separate future migration.
+- SQLite with WAL remains the production database. Phase 24 provides an audited migration ledger and Phase 25 a persistent logical catalog projection. PostgreSQL is justified only by measured multi-writer/replication or sustained lock-latency requirements, not catalog size alone.
 
 ## Non-negotiable invariants
 
@@ -101,6 +104,9 @@ See `docs/PLAYBACK_ENGINE_V6.md` and `THIRD_PARTY_NOTICES.md`.
 - Dedicated UHD smart shelves use device resolution/codec hints; normal catalog/search keeps UHD titles visible because PlaybackPlan may provide a safe compatibility route.
 - Hardware encoders exposed to the container/FFmpeg (NVENC/QSV/VAAPI) are preferred; CPU remains the reliability fallback.
 - CPU H.264 live fallback uses the lower-cost `superfast` preset and UHD→1080 uses a low-latency scaler.
+- All FFmpeg work shares global process/video semaphores; software/filter threads are capped per process and reported with active/waiting counts in Admin.
+- HDR→SDR keeps the reliable software color filter but may pass its normal YUV output to NVENC. `docker-compose.nvidia.yml` exposes NVIDIA devices only on hosts that opt into the overlay.
+- Continuous Web workers stop when sufficiently far ahead, discard old segments behind playback, expire when abandoned and follow player pause/seek heartbeats.
 
 ### Web/TV player
 
@@ -164,11 +170,18 @@ Current architecture:
 - a multi-profile account no longer loads a hidden Home behind “Quem está assistindo?”;
 - static/grouped Home uses a **2-minute fresh + 10-minute stale-while-revalidate** cache;
 - stale valid Home can return immediately while a single background refresh rebuilds the grouped catalog;
-- Phase 15 adds covering indexes for selected artwork, available/recent media, collections and collection backfill.
+- Phase 25 maintains a persistent logical `catalog_entities` projection (one movie/version group or series card) with mutation-driven source/built revisions and atomic rebuilds;
+- Home, series/category galleries, releases, trending resolution and related candidates read the logical projection rather than walking every physical episode/source;
+- recent/next-episode rails use bounded SQL window queries instead of rebuilding every series in Go;
+- API/static text responses use gzip; embedded assets use ETags/cache headers; secondary CSS is non-blocking and offscreen rows use bounded rendering/content visibility;
+- `/api/v1/home` exposes cache/revision and `Server-Timing` headers, while Admin stores a bounded 256-request p50/p95/p99/cache-state window;
+- Phase 15 covering indexes remain in place and Phase 25 adds projection indexes for library/title/recent/rating/release reads.
 
 Dynamic/profile-sensitive rails such as Continue Watching remain outside the static grouped snapshot and are read independently.
 
-Target documented in `ENTERTAINMENT_ROADMAP.md`: cached Home server response p95 below 500 ms on a large catalog. Future work should add explicit timing/cache-hit diagnostics and mutation-driven cache invalidation.
+Target documented in `ENTERTAINMENT_ROADMAP.md`: cached Home server response p95 below 500 ms on a representative large catalog. Timing/cache diagnostics and mutation-driven projection invalidation are implemented; acceptance still requires observing that SLO on the real Unraid/rclone deployment.
+
+See `docs/PERFORMANCE_FOUNDATION_V2.md` for SQLite migration thresholds, resource budgets, the NVIDIA deployment overlay and the reviewed browser/WASM projects.
 
 ### Profile avatars
 
@@ -348,7 +361,7 @@ RetroAssembly (MIT) remains an architectural reference for browser retro emulati
 
 ## Entertainment roadmap
 
-`ENTERTAINMENT_ROADMAP.md` is the executable product roadmap. Games G1/G2/G2.5/G3, Metadata Stack v2, Playback Anywhere v4, Playback Engine v6 local HEVC decode and automatic intro/credit foundations are implemented. Remaining major roadmap work includes Smart Downloads, smart playlists, Watch Party, improved editions/versions/extras, OIDC/optional stronger authentication, reuse of expensive media analysis, specialized long-tail Games providers, no-rehash scanning, BIOS/ROMset diagnostics and the G4 rich Games ecosystem.
+`ENTERTAINMENT_ROADMAP.md` is the executable product roadmap. Games G1/G2/G2.5/G3, Metadata Stack v2, Playback Anywhere v4, Playback Engine v6 local HEVC decode, Performance Foundation v2 and automatic intro/credit foundations are implemented. Remaining major roadmap work includes Smart Downloads, smart playlists, Watch Party, improved editions/versions/extras, OIDC/optional stronger authentication, reuse of expensive media analysis, specialized long-tail Games providers, no-rehash scanning, BIOS/ROMset diagnostics and the G4 rich Games ecosystem.
 
 ## Jellyfin compatibility
 

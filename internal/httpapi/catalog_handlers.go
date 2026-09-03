@@ -3,13 +3,18 @@ package httpapi
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/danilostorm/stormflix/internal/media"
 )
 
 func (s *server) homeFeed(w http.ResponseWriter, r *http.Request) {
+	requestStarted := time.Now()
+	var observedCacheState string
+	defer func() { s.homeMetrics.Observe(time.Since(requestStarted), observedCacheState) }()
 	// Collection discovery and automatic marker analysis are lazy-started by the
 	// first authenticated Home. They continue in background and Home never waits.
 	s.startMovieCollectionIndexer()
@@ -26,26 +31,49 @@ func (s *server) homeFeed(w http.ResponseWriter, r *http.Request) {
 	// The Home used to do all of these independent reads sequentially. As the
 	// catalog grows that makes latency additive. SQLite WAL supports concurrent
 	// readers, so execute the independent rails together. The expensive static
-	// grouped catalog is additionally cached for 20 seconds inside media.Service.
+	// grouped catalog is additionally revision-cached with stale-while-revalidate
+	// inside media.Service.
 	var feed media.HomeFeed
+	var cacheStatus media.HomeCacheStatus
 	var feedErr error
 	var continueItems, trendingNow, trendingWeek, releases []media.Item
+	var feedTime, continueTime, trendingNowTime, trendingWeekTime, releasesTime time.Duration
 	var wg sync.WaitGroup
 	wg.Add(5)
 	go func() {
 		defer wg.Done()
-		feed, feedErr = s.media.HomeGroupedCached(r.Context(), allowed, s.config.HomeHeroMode, s.config.ServerName, s.config.ThemePreviewEnabled, s.config.ThemePreviewVolume, s.config.ThemePreviewAutoplay)
+		started := time.Now()
+		feed, cacheStatus, feedErr = s.media.HomeGroupedCachedWithStatus(r.Context(), allowed, s.config.HomeHeroMode, s.config.ServerName, s.config.ThemePreviewEnabled, s.config.ThemePreviewVolume, s.config.ThemePreviewAutoplay)
+		feedTime = time.Since(started)
 	}()
 	go func() {
 		defer wg.Done()
+		started := time.Now()
+		defer func() { continueTime = time.Since(started) }()
 		if profileID > 0 {
 			continueItems, _ = s.media.ContinueWatching(r.Context(), profileID, allowed, 24)
 		}
 	}()
-	go func() { defer wg.Done(); trendingNow, _ = s.media.Trending(r.Context(), allowed, 2, 24) }()
-	go func() { defer wg.Done(); trendingWeek, _ = s.media.Trending(r.Context(), allowed, 7, 24) }()
-	go func() { defer wg.Done(); releases, _ = s.media.Releases(r.Context(), allowed, 24) }()
+	go func() {
+		defer wg.Done()
+		started := time.Now()
+		trendingNow, _ = s.media.Trending(r.Context(), allowed, 2, 24)
+		trendingNowTime = time.Since(started)
+	}()
+	go func() {
+		defer wg.Done()
+		started := time.Now()
+		trendingWeek, _ = s.media.Trending(r.Context(), allowed, 7, 24)
+		trendingWeekTime = time.Since(started)
+	}()
+	go func() {
+		defer wg.Done()
+		started := time.Now()
+		releases, _ = s.media.Releases(r.Context(), allowed, 24)
+		releasesTime = time.Since(started)
+	}()
 	wg.Wait()
+	observedCacheState = cacheStatus.State
 	if feedErr != nil {
 		writeError(w, http.StatusInternalServerError, feedErr)
 		return
@@ -69,7 +97,16 @@ func (s *server) homeFeed(w http.ResponseWriter, r *http.Request) {
 	if s.selectedProfileRestriction(r, u.ID).Restricted {
 		s.filterRestrictedHome(r, u.ID, &feed)
 	}
+	w.Header().Set("Cache-Control", "private, no-cache")
+	w.Header().Set("X-StormFlix-Home-Cache", cacheStatus.State)
+	w.Header().Set("X-StormFlix-Catalog-Revision", fmt.Sprintf("%d", cacheStatus.Revision))
+	w.Header().Set("Server-Timing", fmt.Sprintf("catalog;dur=%.1f;desc=\"catalog %s\", continue;dur=%.1f, trending2d;dur=%.1f, trending7d;dur=%.1f, releases;dur=%.1f",
+		milliseconds(feedTime), cacheStatus.State, milliseconds(continueTime), milliseconds(trendingNowTime), milliseconds(trendingWeekTime), milliseconds(releasesTime)))
 	writeJSON(w, http.StatusOK, feed)
+}
+
+func milliseconds(duration time.Duration) float64 {
+	return float64(duration.Microseconds()) / 1000
 }
 
 func (s *server) mediaDetails(w http.ResponseWriter, r *http.Request) {

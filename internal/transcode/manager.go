@@ -589,25 +589,30 @@ func (m *Manager) encoderCandidates(codec string, toneMap bool) []encoderCandida
 			out = append(out, encoderCandidate{name: name, hardware: hardware, vaapi: vaapi})
 		}
 	}
-	// Tone mapping currently uses the reliable software zscale/tonemap chain.
-	// Hardware tone-map surfaces differ significantly between drivers; normal
-	// SDR transcodes still use hardware first with automatic CPU fallback.
-	if !toneMap {
-		switch codec {
-		case "h264":
-			add("h264_nvenc", "nvidia", false)
+	// Tone mapping stays on the reliable software zscale chain, but NVENC can
+	// safely encode its ordinary yuv420p output. That still removes the encoding
+	// half of a 4K HDR fallback from the CPU. QSV/VAAPI tone-map surfaces vary by
+	// driver, so they remain SDR-only until a capability probe proves the path.
+	switch codec {
+	case "h264":
+		add("h264_nvenc", "nvidia", false)
+		if !toneMap {
 			add("h264_qsv", "qsv", false)
 			if m.engine.VAAPIDevice != "" {
 				add("h264_vaapi", "vaapi", true)
 			}
-		case "hevc":
-			add("hevc_nvenc", "nvidia", false)
+		}
+	case "hevc":
+		add("hevc_nvenc", "nvidia", false)
+		if !toneMap {
 			add("hevc_qsv", "qsv", false)
 			if m.engine.VAAPIDevice != "" {
 				add("hevc_vaapi", "vaapi", true)
 			}
-		case "av1":
-			add("av1_nvenc", "nvidia", false)
+		}
+	case "av1":
+		add("av1_nvenc", "nvidia", false)
+		if !toneMap {
 			add("av1_qsv", "qsv", false)
 			if m.engine.VAAPIDevice != "" {
 				add("av1_vaapi", "vaapi", true)
@@ -645,6 +650,8 @@ func (m *Manager) runCandidate(ctx context.Context, ffmpeg string, s *session, b
 	initName := fmt.Sprintf("init-%06d.mp4", batchStart)
 	segmentPattern := filepath.Join(s.Dir, "seg-%06d.m4s")
 	args := []string{"-nostdin", "-hide_banner", "-loglevel", "warning", "-nostats", "-progress", "pipe:1"}
+	threads := strconv.Itoa(CPUThreadLimit())
+	args = append(args, "-filter_threads", threads, "-filter_complex_threads", threads, "-threads", threads)
 	if candidate.vaapi {
 		args = append(args, "-vaapi_device", m.engine.VAAPIDevice)
 	}
@@ -749,9 +756,9 @@ func encoderArgs(candidate encoderCandidate, spec Spec) []string {
 	case strings.HasSuffix(candidate.name, "_vaapi"):
 		return []string{"-c:v", candidate.name, "-b:v", b, "-maxrate", b, "-bufsize", buf}
 	case candidate.name == "libx264":
-		return []string{"-c:v", "libx264", "-preset", "veryfast", "-profile:v", "high", "-crf", "21", "-maxrate", b, "-bufsize", buf, "-pix_fmt", "yuv420p"}
+		return []string{"-c:v", "libx264", "-threads", strconv.Itoa(CPUThreadLimit()), "-preset", "veryfast", "-profile:v", "high", "-crf", "21", "-maxrate", b, "-bufsize", buf, "-pix_fmt", "yuv420p"}
 	case candidate.name == "libx265":
-		return []string{"-c:v", "libx265", "-preset", "fast", "-crf", "24", "-maxrate", b, "-bufsize", buf, "-pix_fmt", "yuv420p"}
+		return []string{"-c:v", "libx265", "-threads", strconv.Itoa(CPUThreadLimit()), "-x265-params", "pools=" + strconv.Itoa(CPUThreadLimit()), "-preset", "fast", "-crf", "24", "-maxrate", b, "-bufsize", buf, "-pix_fmt", "yuv420p"}
 	case candidate.name == "libsvtav1":
 		return []string{"-c:v", "libsvtav1", "-preset", "8", "-crf", "30", "-b:v", b, "-pix_fmt", "yuv420p"}
 	default:

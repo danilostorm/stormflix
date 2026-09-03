@@ -582,22 +582,28 @@ func (m *Manager) encoderCandidates(spec Spec) []encoderCandidate {
 			out = append(out, encoderCandidate{name: name, hardware: hardware, vaapi: vaapi})
 		}
 	}
-	if !spec.ToneMap {
-		switch codec {
-		case "h264":
-			add("h264_nvenc", "nvidia", false)
+	// Software HDR tone mapping can feed NVENC ordinary yuv420p frames safely,
+	// offloading encode even when GPU-specific tone-map filters are unavailable.
+	switch codec {
+	case "h264":
+		add("h264_nvenc", "nvidia", false)
+		if !spec.ToneMap {
 			add("h264_qsv", "qsv", false)
 			if m.engine.VAAPIDevice != "" {
 				add("h264_vaapi", "vaapi", true)
 			}
-		case "hevc", "h265":
-			add("hevc_nvenc", "nvidia", false)
+		}
+	case "hevc", "h265":
+		add("hevc_nvenc", "nvidia", false)
+		if !spec.ToneMap {
 			add("hevc_qsv", "qsv", false)
 			if m.engine.VAAPIDevice != "" {
 				add("hevc_vaapi", "vaapi", true)
 			}
-		case "av1":
-			add("av1_nvenc", "nvidia", false)
+		}
+	case "av1":
+		add("av1_nvenc", "nvidia", false)
+		if !spec.ToneMap {
 			add("av1_qsv", "qsv", false)
 			if m.engine.VAAPIDevice != "" {
 				add("av1_vaapi", "vaapi", true)
@@ -635,6 +641,10 @@ func (m *Manager) runCandidate(ctx context.Context, ffmpeg string, s *session, s
 	playlist := filepath.Join(s.Dir, "worker.m3u8")
 	segmentPattern := filepath.Join(s.Dir, "seg-%06d.m4s")
 	args := []string{"-nostdin", "-hide_banner", "-loglevel", "warning"}
+	if !candidate.copy {
+		threads := strconv.Itoa(transcode.CPUThreadLimit())
+		args = append(args, "-filter_threads", threads, "-filter_complex_threads", threads, "-threads", threads)
+	}
 	if candidate.vaapi {
 		args = append(args, "-vaapi_device", m.engine.VAAPIDevice)
 	}
@@ -816,9 +826,9 @@ func encoderArgs(candidate encoderCandidate, spec Spec) []string {
 	case strings.HasSuffix(candidate.name, "_vaapi"):
 		return []string{"-c:v", candidate.name, "-b:v", b, "-maxrate", b, "-bufsize", buf}
 	case candidate.name == "libx264":
-		return []string{"-c:v", "libx264", "-preset", "superfast", "-profile:v", "high", "-crf", "21", "-maxrate", b, "-bufsize", buf, "-pix_fmt", "yuv420p"}
+		return []string{"-c:v", "libx264", "-threads", strconv.Itoa(transcode.CPUThreadLimit()), "-preset", "superfast", "-profile:v", "high", "-crf", "21", "-maxrate", b, "-bufsize", buf, "-pix_fmt", "yuv420p"}
 	case candidate.name == "libx265":
-		return []string{"-c:v", "libx265", "-preset", "veryfast", "-crf", "24", "-maxrate", b, "-bufsize", buf, "-pix_fmt", "yuv420p"}
+		return []string{"-c:v", "libx265", "-threads", strconv.Itoa(transcode.CPUThreadLimit()), "-x265-params", "pools=" + strconv.Itoa(transcode.CPUThreadLimit()), "-preset", "veryfast", "-crf", "24", "-maxrate", b, "-bufsize", buf, "-pix_fmt", "yuv420p"}
 	case candidate.name == "libsvtav1":
 		return []string{"-c:v", "libsvtav1", "-preset", "8", "-crf", "30", "-b:v", b, "-pix_fmt", "yuv420p"}
 	default:

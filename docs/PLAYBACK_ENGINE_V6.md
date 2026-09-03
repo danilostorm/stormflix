@@ -55,6 +55,22 @@ PlaybackPlan deliberately bypasses local decode for:
 
 Those paths continue through the mature NVENC/QSV/VAAPI/CPU server pipeline.
 
+For a 4K HEVC HDR source, seeing `VIDEO TRANSCODE` is therefore expected when
+the browser cannot reproduce HDR natively: the current local engine advertises
+`hdr:false` rather than risking wrong colors. Performance Foundation v2 keeps
+the conservative software tone-map stage but permits its normal YUV output to
+be encoded by NVENC. On an NVIDIA host, start StormFlix with both Compose files:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up -d --build
+docker exec stormflix ffmpeg -hide_banner -encoders 2>/dev/null \
+  | grep -E 'h264_nvenc|hevc_nvenc'
+```
+
+Server FFmpeg/video concurrency and per-process CPU/filter threads are bounded
+by `STORMFLIX_MAX_FFMPEG_PROCESSES`, `STORMFLIX_MAX_VIDEO_TRANSCODES` and
+`STORMFLIX_TRANSCODE_CPU_THREADS`.
+
 ## Runtime failure fallback
 
 If the local runtime cannot initialize, its CDN assets cannot be loaded, hls.js reports a fatal media error, or playback cannot reach the first frame, the Web client marks local decode unavailable for that runtime session and asks PlaybackPlan again. The second plan naturally selects the existing server compatibility/transcode path.
@@ -78,3 +94,10 @@ The quality menu does not expose local-decode controls. Admin → Reprodução/T
 The v6 implementation pins exact hevc.js package versions but, in this first delivery, loads the plugin/Worker/WASM assets from public package CDNs on first local-decode use. The normal server transcode path remains available if those assets are unreachable. A later hardening step may cache/self-host these pinned assets similarly to the Games runtime.
 
 See `THIRD_PARTY_NOTICES.md` for the hevc.js MIT license notice.
+
+The broader browser-video research (`ffmpeg.wasm`, `libmedia`, WasmVideoPlayer,
+h265web.js, EasyPlayer.js, wasp-hls and the other evaluated repositories) is
+recorded in `PERFORMANCE_FOUNDATION_V2.md`. None is bundled merely to replace a
+working native/NVENC path; `libmedia` is the strongest isolated future lab
+candidate once HDR color, seek, audio/subtitles, memory and COOP/COEP effects
+are proven.

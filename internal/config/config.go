@@ -51,6 +51,7 @@ type Config struct {
 	HLSBatchSegments           int
 	MaxFFmpegProcesses         int
 	MaxVideoTranscodes         int
+	TranscodeCPUThreads        int
 	WebStreamCacheMaxBytes     int64
 	WebStreamMaxAhead          time.Duration
 	WebStreamKeepBehind        time.Duration
@@ -108,6 +109,7 @@ func Load() Config {
 		HLSBatchSegments:        envInt("STORMFLIX_HLS_BATCH_SEGMENTS", 8),
 		MaxFFmpegProcesses:      envInt("STORMFLIX_MAX_FFMPEG_PROCESSES", 4),
 		MaxVideoTranscodes:      envInt("STORMFLIX_MAX_VIDEO_TRANSCODES", 2),
+		TranscodeCPUThreads:     envInt("STORMFLIX_TRANSCODE_CPU_THREADS", 6),
 		WebStreamCacheMaxBytes:  envInt64("STORMFLIX_WEB_STREAM_CACHE_MAX_BYTES", 5<<30),
 		WebStreamMaxAhead:       envDuration("STORMFLIX_WEB_STREAM_MAX_AHEAD", 60*time.Second),
 		WebStreamKeepBehind:     envDuration("STORMFLIX_WEB_STREAM_KEEP_BEHIND", 4*time.Minute),

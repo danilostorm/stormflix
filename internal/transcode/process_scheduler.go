@@ -2,6 +2,7 @@ package transcode
 
 import (
 	"context"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,11 +23,12 @@ type ProcessScheduler struct {
 }
 
 type ProcessResourceStatus struct {
-	TotalLimit  int   `json:"total_limit"`
-	VideoLimit  int   `json:"video_limit"`
-	Active      int64 `json:"active"`
-	VideoActive int64 `json:"video_active"`
-	Waiters     int64 `json:"waiters"`
+	TotalLimit     int   `json:"total_limit"`
+	VideoLimit     int   `json:"video_limit"`
+	CPUThreadLimit int   `json:"cpu_thread_limit"`
+	Active         int64 `json:"active"`
+	VideoActive    int64 `json:"video_active"`
+	Waiters        int64 `json:"waiters"`
 }
 
 func NewProcessScheduler(totalLimit, videoLimit int) *ProcessScheduler {
@@ -94,6 +96,8 @@ var globalProcessScheduler = struct {
 	value *ProcessScheduler
 }{value: NewProcessScheduler(4, 2)}
 
+var cpuThreadLimit atomic.Int64
+
 func ConfigureProcessScheduler(totalLimit, videoLimit int) {
 	globalProcessScheduler.Lock()
 	defer globalProcessScheduler.Unlock()
@@ -104,6 +108,27 @@ func ConfigureProcessScheduler(totalLimit, videoLimit int) {
 		return
 	}
 	globalProcessScheduler.value = NewProcessScheduler(totalLimit, videoLimit)
+}
+
+func ConfigureCPUThreadLimit(limit int) {
+	if limit < 1 {
+		limit = 6
+	}
+	if available := runtime.NumCPU(); available > 0 && limit > available {
+		limit = available
+	}
+	cpuThreadLimit.Store(int64(limit))
+}
+
+func CPUThreadLimit() int {
+	limit := int(cpuThreadLimit.Load())
+	if limit < 1 {
+		limit = 6
+		if available := runtime.NumCPU(); available > 0 && limit > available {
+			limit = available
+		}
+	}
+	return limit
 }
 
 func AcquireProcess(ctx context.Context, video bool) (func(), time.Duration, error) {
@@ -117,5 +142,7 @@ func ProcessResources() ProcessResourceStatus {
 	globalProcessScheduler.RLock()
 	scheduler := globalProcessScheduler.value
 	globalProcessScheduler.RUnlock()
-	return scheduler.Status()
+	status := scheduler.Status()
+	status.CPUThreadLimit = CPUThreadLimit()
+	return status
 }

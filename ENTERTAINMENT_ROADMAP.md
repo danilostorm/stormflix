@@ -23,11 +23,21 @@ Target:
 - stale catalog snapshot may be returned immediately while a single background refresh rebuilds it;
 - TMDB/Trakt/other Internet calls are forbidden from the Home critical path.
 
-Work:
-- keep grouped Home stale-while-revalidate cache;
-- add/maintain covering indexes for selected artwork, available media, collections and recent media;
-- expose Home timing/cache hit metrics in Admin diagnostics;
-- invalidate static Home snapshots after catalog/category/library mutations rather than recomputing on every navigation.
+Delivered foundation:
+- grouped Home keeps a two-minute fresh and ten-minute stale-while-revalidate cache;
+- Phase 25 persists one logical catalog card per movie/version group or series and atomically refreshes it after source-table mutation triggers advance its revision;
+- Home, series/category galleries and discovery resolution use the projection; recent/next-episode queries stay bounded;
+- covering projection/artwork/media/collection indexes are installed through the migration chain;
+- Home exposes cache/revision/`Server-Timing` headers and Admin reports a bounded p50/p95/p99 plus cache-state window;
+- embedded assets/API responses are compressed/cacheable where safe, optional CSS is non-blocking and large rails render incrementally.
+
+Production acceptance still requires observing cached p95 below 500 ms on the representative Unraid/rclone catalog. If it misses, use the new timing, projection, SQLite wait and FFmpeg diagnostics to identify the actual bottleneck before adding another cache or changing databases.
+
+### Database scale decision
+
+- SQLite WAL remains the production database for one StormFlix server process.
+- Phase 24 records migration names/checksums; every pooled connection receives the same pragmas and the pool is deliberately bounded.
+- PostgreSQL becomes roadmap work only for multiple independent writers, replication/failover requirements or sustained measured SQLite lock/latency pressure. Database file/catalog size by itself is not a migration trigger.
 
 ### Profile integrity
 

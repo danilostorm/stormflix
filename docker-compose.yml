@@ -16,6 +16,10 @@ services:
       # separado das bibliotecas gerenciadas de Filmes para Games/ROMs não
       # precisarem fingir que são conteúdo de vídeo.
       STORMFLIX_BROWSE_ROOTS: "/mnt/user/Games/roms"
+      # Limites globais evitam que um cliente monopolize CPU/RAM do servidor.
+      STORMFLIX_MAX_FFMPEG_PROCESSES: "4"
+      STORMFLIX_MAX_VIDEO_TRANSCODES: "2"
+      STORMFLIX_TRANSCODE_CPU_THREADS: "6"
       # Opcional: cria automaticamente a primeira biblioteca no primeiro boot.
       # STORMFLIX_BOOTSTRAP_LIBRARY_NAME: "Filmes"
       # STORMFLIX_BOOTSTRAP_LIBRARY_PATH: "/media/Filmes"

@@ -2,6 +2,8 @@ package transcode
 
 import (
 	"context"
+	"fmt"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -48,5 +50,28 @@ func TestProcessSchedulerVideoWaitDoesNotLeakSlot(t *testing.T) {
 	release()
 	if status := scheduler.Status(); status.Active != 0 || status.VideoActive != 0 {
 		t.Fatalf("video resource leaked: %#v", status)
+	}
+}
+
+func TestCPUThreadLimitIsReportedAndUsedBySoftwareEncoder(t *testing.T) {
+	ConfigureCPUThreadLimit(3)
+	defer ConfigureCPUThreadLimit(6)
+	want := 3
+	if runtime.NumCPU() < want {
+		want = runtime.NumCPU()
+	}
+	if status := ProcessResources(); status.CPUThreadLimit != want {
+		t.Fatalf("CPU thread limit=%d, want %d", status.CPUThreadLimit, want)
+	}
+	args := encoderArgs(encoderCandidate{name: "libx264", hardware: "cpu"}, Spec{TargetBitrateKbps: 8000})
+	found := false
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "-threads" && args[i+1] == fmt.Sprint(want) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("software encoder args do not enforce thread budget: %v", args)
 	}
 }
