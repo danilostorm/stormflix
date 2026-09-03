@@ -64,25 +64,7 @@ type seriesEpisode struct {
 }
 
 func (s *Service) SeriesList(ctx context.Context, allowedLibraryIDs []int64, query string) ([]SeriesSummary, error) {
-	groups, err := s.seriesGroups(ctx, allowedLibraryIDs)
-	if err != nil {
-		return nil, err
-	}
-	query = strings.ToLower(strings.TrimSpace(query))
-	out := make([]SeriesSummary, 0, len(groups))
-	for _, group := range groups {
-		if query != "" && !strings.Contains(strings.ToLower(group.SeriesSummary.Title), query) {
-			continue
-		}
-		out = append(out, group.SeriesSummary)
-	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].ModifiedUnix == out[j].ModifiedUnix {
-			return strings.ToLower(out[i].Title) < strings.ToLower(out[j].Title)
-		}
-		return out[i].ModifiedUnix > out[j].ModifiedUnix
-	})
-	return out, nil
+	return s.projectedSeries(ctx, allowedLibraryIDs, query)
 }
 
 func (s *Service) SeriesDetail(ctx context.Context, id string, allowedLibraryIDs []int64) (SeriesDetail, error) {
@@ -99,21 +81,7 @@ func (s *Service) SeriesDetail(ctx context.Context, id string, allowedLibraryIDs
 }
 
 func (s *Service) RecentEpisodes(ctx context.Context, allowedLibraryIDs []int64, limit int) ([]Item, error) {
-	groups, err := s.seriesGroups(ctx, allowedLibraryIDs)
-	if err != nil {
-		return nil, err
-	}
-	items := []Item{}
-	for _, group := range groups {
-		for _, season := range group.Seasons {
-			items = append(items, season.Episodes...)
-		}
-	}
-	sort.SliceStable(items, func(i, j int) bool { return items[i].ModifiedUnix > items[j].ModifiedUnix })
-	if limit > 0 && len(items) > limit {
-		items = items[:limit]
-	}
-	return items, nil
+	return s.recentEpisodesForHome(ctx, allowedLibraryIDs, limit)
 }
 
 func isSeriesLikeLibraryKind(kind string) bool {

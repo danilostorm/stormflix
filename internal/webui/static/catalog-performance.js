@@ -8,8 +8,8 @@
   const baseFindItem=typeof findItem==='function'?findItem:null;
   const baseShowHome=typeof showHome==='function'?showHome:null;
   const CHUNK=28;
-  const SNAPSHOT_PREFIX='stormflix.home.snapshot.v2:';
-  const SNAPSHOT_TTL=12*60*60*1000;
+  const SNAPSHOT_PREFIX='stormflix.home.snapshot.v3:';
+  const SNAPSHOT_TTL=10*60*1000;
   let instantFeed=null;
 
   cardHTML=function(item,urgent=false){
@@ -65,8 +65,10 @@
   function profileKey(){
     const profile=window.sfProfiles?.current?.();
     if(!profile?.id)return'';
-    const user=(document.querySelector('#user-label')?.textContent||'conta').trim().toLocaleLowerCase('pt-BR');
-    return SNAPSHOT_PREFIX+encodeURIComponent(user)+'|'+Number(profile.id)+'|'+encodeURIComponent(String(profile.name||''));
+    const libraries=me?.role==='user'?(Array.isArray(me?.library_ids)?me.library_ids.map(Number).sort((a,b)=>a-b).join(','):'none'):'all';
+    const account=[Number(me?.id||0),String(me?.role||''),String(me?.updated_at||''),libraries].join('|');
+    const restrictions=[Number(profile.id),String(profile.updated_at||''),profile.is_kids?'kids':'standard',Number(profile.content_rating_limit??18)].join('|');
+    return SNAPSHOT_PREFIX+encodeURIComponent(account+'|'+restrictions);
   }
 
   function readSnapshot(){

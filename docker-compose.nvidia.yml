@@ -1,0 +1,9 @@
+# Overlay opcional para hosts com NVIDIA Container Toolkit (incluindo Unraid).
+# Use junto do compose principal; instalações sem GPU continuam usando apenas
+# docker-compose.yml e não recebem uma dependência obrigatória de NVIDIA.
+services:
+  stormflix:
+    runtime: nvidia
+    environment:
+      NVIDIA_VISIBLE_DEVICES: "all"
+      NVIDIA_DRIVER_CAPABILITIES: "compute,video,utility"

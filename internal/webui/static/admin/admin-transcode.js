@@ -49,11 +49,13 @@
     const root=ensureRoot();if(!root)return stop();
     try{
       const [server,playbacks]=await Promise.all([req('/admin/server'),req('/admin/playbacks/diagnostics').catch(()=>[])]);
-      const engine=server?.transcode_engine||{},cache=server?.transcode_cache||{},sessions=Array.isArray(server?.transcode_session_details)?server.transcode_session_details:[];
+      const engine=server?.transcode_engine||{},cache=server?.transcode_cache||{},resources=server?.ffmpeg_resources||{};
+      const sessions=Array.isArray(server?.transcode_session_details)?server.transcode_session_details:[];
+      const webSessions=Array.isArray(server?.web_stream_session_details)?server.web_stream_session_details:[];
       const playbackBySession=new Map((playbacks||[]).map(p=>[String(p.playback_session_id||''),p]));
       const local=browserLocalSummary();
       const chip=root.querySelector('.mode-chip');
-      if(chip)chip.textContent=`v6 · ${sessions.length} transcode(s)`;
+      if(chip)chip.textContent=`v6 · ${Number(resources.active||0)}/${Number(resources.total_limit||0)} FFmpeg`;
       const body=root.querySelector('[data-transcode-body]');if(!body)return;
       body.innerHTML=`
         <div class="technical-meter">
@@ -69,7 +71,13 @@
           <div><b>${bytes(cache.usage_bytes)}</b><span>Cache / ${bytes(cache.max_bytes)}</span></div>
           <div><b>${engine.tone_map&&engine.zscale?'PRONTO':'LIMITADO'}</b><span>Tone mapping</span></div>
         </div>
-        ${sessions.length?`<div class="playback-diagnostic-grid">${sessions.map(s=>sessionCard(s,playbackBySession.get(String(s.id||'')))).join('')}</div>`:'<p><small>Nenhuma sessão está transcodificando vídeo agora. Direct Play, WASM local, Remux e áudio AAC não aparecem nesta lista de transcode de vídeo.</small></p>'}
+        <div class="technical-meter">
+          <div><b>${Number(resources.active||0)} / ${Number(resources.total_limit||0)}</b><span>FFmpeg ativos / limite</span></div>
+          <div><b>${Number(resources.video_active||0)} / ${Number(resources.video_limit||0)}</b><span>Encodes de vídeo</span></div>
+          <div><b>${Number(resources.cpu_thread_limit||0)}</b><span>Threads CPU por processo</span></div>
+          <div><b>${Number(resources.waiters||0)}</b><span>Sessões aguardando recurso</span></div>
+        </div>
+        ${sessions.length||webSessions.length?`<div class="playback-diagnostic-grid">${sessions.map(s=>sessionCard(s,playbackBySession.get(String(s.id||'')))).join('')}${webSessions.map(s=>webSessionCard(s,playbackBySession.get(String(s.id||'')))).join('')}</div>`:'<p><small>Nenhuma sessão FFmpeg ativa. Direct Play nativo não cria processo; uma rota WASM local aparece como vídeo copiado no streaming contínuo.</small></p>'}
       `;
     }catch(err){const body=root.querySelector('[data-transcode-body]');if(body)body.innerHTML=`<p class="offline">${html(err.message||err)}</p>`}
   }
@@ -78,7 +86,14 @@
     const title=p?.title||`Mídia #${s.media_id||'—'}`;
     const who=[p?.display_name,p?.device].filter(Boolean).join(' · ');
     const output=s.target_height?`${s.target_height}p`:s.quality||'Auto';
-    return `<article><div class="playback-diagnostic-head"><div><b>${html(title)}</b><small>${html(who||s.quality||'Transcode')}</small></div><span class="mode-chip">VIDEO TRANSCODE</span></div><div class="playback-diagnostic-stats"><span><b>${html(String(s.source_video_codec||'—').toUpperCase())}</b> origem</span><span><b>${html(String(s.video_codec||'—').toUpperCase())}</b> saída</span><span><b>${html(output)}</b> qualidade</span><span><b>${rate(s.target_bitrate_kbps)}</b> alvo</span><span><b>${Number(s.fps||0).toFixed(1)}</b> FPS</span><span><b>${Number(s.speed||0).toFixed(2)}x</b> velocidade</span><span><b>${bytes(s.cache_bytes)}</b> cache</span></div><small>${html(s.encoder||'encoder pendente')} · ${html(s.hardware||'auto')}${s.tone_map?' · tone mapping':''}${s.last_error?' · ERRO: '+html(s.last_error):''}</small></article>`;
+    return `<article><div class="playback-diagnostic-head"><div><b>${html(title)}</b><small>${html(who||s.quality||'Transcode')}</small></div><span class="mode-chip">VIDEO TRANSCODE</span></div><div class="playback-diagnostic-stats"><span><b>${html(String(s.source_video_codec||'—').toUpperCase())}</b> origem</span><span><b>${html(String(s.video_codec||'—').toUpperCase())}</b> saída</span><span><b>${html(output)}</b> qualidade</span><span><b>${rate(s.target_bitrate_kbps)}</b> alvo</span><span><b>${Number(s.fps||0).toFixed(1)}</b> FPS</span><span><b>${Number(s.speed||0).toFixed(2)}x</b> velocidade</span><span><b>${bytes(s.cache_bytes)}</b> cache</span><span><b>${Number(s.process_id||0)||'—'}</b> PID</span></div><small>${html(s.encoder||'encoder pendente')} · ${html(s.hardware||'auto')} · espera ${Number(s.resource_wait_ms||0)} ms${s.tone_map?' · tone mapping':''}${s.last_error?' · ERRO: '+html(s.last_error):''}</small></article>`;
+  }
+
+  function webSessionCard(s,p){
+    const title=p?.title||`Mídia #${s.media_id||'—'}`;
+    const labels={"server-video":'VIDEO TRANSCODE',"server-audio":'DIRECT STREAM · AAC',"server-remux":p?.mode==='local_decode'?'WASM LOCAL DECODE · VIDEO COPY':'DIRECT STREAM · REMUX'};
+    const label=labels[String(s.route||'')]||String(s.route||'WEB STREAM').toUpperCase();
+    return `<article><div class="playback-diagnostic-head"><div><b>${html(title)}</b><small>${html([p?.display_name,p?.device,s.playback_state].filter(Boolean).join(' · ')||'Streaming contínuo')}</small></div><span class="mode-chip">${html(label)}</span></div><div class="playback-diagnostic-stats"><span><b>${html(s.encoder||'pendente')}</b> encoder</span><span><b>${html(s.hardware||'auto')}</b> hardware</span><span><b>${Number(s.process_id||0)||'—'}</b> PID</span><span><b>${Number(s.ahead_segments||0)*2}s</b> buffer à frente</span><span><b>${bytes(s.cache_bytes)}</b> cache</span><span><b>${s.worker_paused?'SIM':'NÃO'}</b> worker pausado</span></div><small>Espera de recurso ${Number(s.resource_wait_ms||0)} ms${s.last_error?' · ERRO: '+html(s.last_error):''}</small></article>`;
   }
 
   function start(){stop();setTimeout(refresh,80);timer=setInterval(refresh,5000)}

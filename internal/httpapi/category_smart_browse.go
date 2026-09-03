@@ -61,7 +61,7 @@ func (s *server) browseSmartCategory(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	items, err := s.media.List(r.Context(), 0, "", 500, 0, ids)
+	items, err := s.media.CatalogList(r.Context(), 0, "", 500, 0, ids)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -85,7 +85,7 @@ func (s *server) browseSmartCategory(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	for _, item := range items {
-		if item.EpisodeNumber > 0 || item.MediaType == "series" {
+		if item.EntityType == "series" || item.EpisodeNumber > 0 || item.MediaType == "series" {
 			continue
 		}
 		if s.smartItemMatches(r.Context(), item.ID, item.MediaType, item.Year, item.Rating, item.Genres, item.ModifiedUnix, item.MetadataStatus, config.Rules, config.RuleMode, &technicalPending) && allowedByDevice(item.ID) {

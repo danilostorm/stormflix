@@ -3,7 +3,6 @@ package httpapi
 import (
 	"context"
 	"database/sql"
-	"io/fs"
 	"net/http"
 	"time"
 
@@ -17,13 +16,15 @@ import (
 	"github.com/danilostorm/stormflix/internal/metadata"
 	"github.com/danilostorm/stormflix/internal/music"
 	appsettings "github.com/danilostorm/stormflix/internal/settings"
+	"github.com/danilostorm/stormflix/internal/streaming"
 	"github.com/danilostorm/stormflix/internal/subtitles"
+	"github.com/danilostorm/stormflix/internal/transcode"
 	"github.com/danilostorm/stormflix/internal/webcompat"
 	"github.com/danilostorm/stormflix/internal/webui"
 )
 
 const sessionCookie = "stormflix_session"
-const version = "0.25.0-playback-anywhere"
+const version = "0.26.0-performance-foundation"
 
 type contextKey string
 
@@ -46,18 +47,40 @@ type server struct {
 	baseConfig  config.Config
 	config      config.Config
 	startedAt   time.Time
+	lifecycle   context.Context
+	homeMetrics homeTelemetry
 }
 
 func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler {
+	return NewWithContext(context.Background(), db, libraries, cfg)
+}
+
+func NewWithContext(lifecycle context.Context, db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler {
+	if lifecycle == nil {
+		lifecycle = context.Background()
+	}
 	settingsService, err := appsettings.New(db, cfg.DataDir)
 	if err != nil {
 		panic(err)
 	}
-	effective, err := settingsService.Apply(context.Background(), cfg)
+	effective, err := settingsService.Apply(lifecycle, cfg)
 	if err != nil {
 		panic(err)
 	}
 	effective = config.NormalizeCredentials(effective)
+	transcode.ConfigureProcessScheduler(effective.MaxFFmpegProcesses, effective.MaxVideoTranscodes)
+	transcode.ConfigureCPUThreadLimit(effective.TranscodeCPUThreads)
+	streamPolicy := streaming.DefaultPolicy()
+	streamPolicy.MaxBytes = effective.WebStreamCacheMaxBytes
+	streamPolicy.MinFreeBytes = effective.CompatCacheMinFreeBytes
+	streamPolicy.MinFreePercent = effective.CompatCacheMinFreePercent
+	streamPolicy.IdleTTL = effective.HLSCacheIdleTTL
+	streamPolicy.WorkerIdleTTL = effective.WebStreamWorkerIdleTTL
+	streamPolicy.MaxAheadSegments = int(effective.WebStreamMaxAhead / (2 * time.Second))
+	streamPolicy.KeepBehindSegments = int(effective.WebStreamKeepBehind / (2 * time.Second))
+	if _, err := streaming.ForDataDirWithPolicy(effective.DataDir, streamPolicy); err != nil {
+		panic(err)
+	}
 	assetStore, err := assets.New(effective.AssetDir, effective.AssetPublicBaseURL)
 	if err != nil {
 		panic(err)
@@ -74,15 +97,15 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 		panic(err)
 	}
 	music.ConfigureProviders(effective.LastFMAPIKey)
-	s := &server{db: db, libraries: libraries, media: media.NewService(db), music: music.NewService(db), games: games.NewService(db), auth: auth.NewService(db), admin: admin.NewService(db), assets: assetStore, settings: settingsService, compatCache: compatCache, hlsCache: hlsCache, baseConfig: cfg, config: effective, startedAt: time.Now()}
+	s := &server{db: db, libraries: libraries, media: media.NewServiceWithContext(lifecycle, db), music: music.NewService(db), games: games.NewService(db), auth: auth.NewService(db), admin: admin.NewService(db), assets: assetStore, settings: settingsService, compatCache: compatCache, hlsCache: hlsCache, baseConfig: cfg, config: effective, startedAt: time.Now(), lifecycle: lifecycle}
 	s.metadata = metadata.NewService(db, effective, assetStore)
 	s.metadata.ResumeQueuedJobs()
 	s.games.ResumeMetadataJobs()
 	s.subtitles = subtitles.NewService(db, effective, assetStore)
-	s.auth.Cleanup(context.Background())
-	s.compatCache.Start(context.Background())
-	s.hlsCache.Start(context.Background())
-	s.startTechnicalIndexer(context.Background())
+	s.auth.Cleanup(lifecycle)
+	s.compatCache.Start(lifecycle)
+	s.hlsCache.Start(lifecycle)
+	s.startTechnicalIndexer(lifecycle)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
@@ -247,10 +270,6 @@ func New(db *sql.DB, libraries *library.Service, cfg config.Config) http.Handler
 	mux.HandleFunc("POST /api/v1/admin/backups/{id}/restore", s.requireRole("admin", s.scheduleBackupRestore))
 
 	mux.HandleFunc("GET /assets/", s.requireAuth(s.serveAsset))
-	staticFS, err := fs.Sub(webui.Static, "static")
-	if err != nil {
-		panic(err)
-	}
-	mux.Handle("/", http.FileServer(http.FS(staticFS)))
-	return requestLogger(recoverer(securityHeaders(s.jellyfinTrace(mux))))
+	mux.Handle("/", webui.Handler())
+	return requestLogger(recoverer(securityHeaders(responseCompression(s.jellyfinTrace(mux)))))
 }

@@ -39,6 +39,7 @@ type HomeRow struct {
 type HomeFeed struct {
 	Hero                 *Item     `json:"hero,omitempty"`
 	Rows                 []HomeRow `json:"rows"`
+	CacheRevision        int64     `json:"cache_revision,omitempty"`
 	ServerName           string    `json:"server_name"`
 	ThemePreviewEnabled  bool      `json:"theme_preview_enabled"`
 	ThemePreviewVolume   int       `json:"theme_preview_volume"`
@@ -46,13 +47,17 @@ type HomeFeed struct {
 }
 
 func (s *Service) Home(ctx context.Context, allowedLibraryIDs []int64, heroMode, serverName string, themeEnabled bool, themeVolume int, themeAutoplay bool) (HomeFeed, error) {
-	items, err := s.List(ctx, 0, "", 500, 0, allowedLibraryIDs)
+	items, err := s.CatalogList(ctx, 0, "", 500, 0, allowedLibraryIDs)
 	if err != nil {
 		return HomeFeed{}, err
 	}
+	return buildHomeFeed(items, heroMode, serverName, themeEnabled, themeVolume, themeAutoplay), nil
+}
+
+func buildHomeFeed(items []Item, heroMode, serverName string, themeEnabled bool, themeVolume int, themeAutoplay bool) HomeFeed {
 	feed := HomeFeed{Rows: []HomeRow{}, ServerName: serverName, ThemePreviewEnabled: themeEnabled, ThemePreviewVolume: themeVolume, ThemePreviewAutoplay: themeAutoplay}
 	if len(items) == 0 {
-		return feed, nil
+		return feed
 	}
 
 	recent := append([]Item(nil), items...)
@@ -159,7 +164,7 @@ func (s *Service) Home(ctx context.Context, allowedLibraryIDs []int64, heroMode,
 		}
 		feed.Hero = copyItem(heroPool[index])
 	}
-	return feed, nil
+	return feed
 }
 
 func (s *Service) Detail(ctx context.Context, id int64, allowedLibraryIDs []int64) (Detail, error) {
@@ -188,7 +193,7 @@ FROM media m JOIN libraries l ON l.id=m.library_id LEFT JOIN media_metadata mm O
 	_ = json.Unmarshal([]byte(castJSON), &d.Cast)
 	_ = json.Unmarshal([]byte(directorsJSON), &d.Directors)
 
-	candidates, err := s.List(ctx, 0, "", 500, 0, allowedLibraryIDs)
+	candidates, err := s.relatedCatalogCandidates(ctx, allowedLibraryIDs, 500)
 	if err == nil {
 		type scored struct {
 			item  Item

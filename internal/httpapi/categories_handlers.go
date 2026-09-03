@@ -118,13 +118,13 @@ func (s *server) browseCategory(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if manualSection || c.Kind != "series" {
-		items, listErr := s.media.List(r.Context(), 0, "", 500, 0, ids)
+		items, listErr := s.media.CatalogList(r.Context(), 0, "", 500, 0, ids)
 		if listErr != nil {
 			writeError(w, http.StatusInternalServerError, listErr)
 			return
 		}
 		for _, item := range items {
-			if item.EpisodeNumber > 0 || item.MediaType == "series" {
+			if item.EntityType == "series" || item.EpisodeNumber > 0 || item.MediaType == "series" {
 				continue
 			}
 			if !manualSection {

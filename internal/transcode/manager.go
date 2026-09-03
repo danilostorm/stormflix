@@ -95,6 +95,8 @@ type SessionInfo struct {
 	Reason            string  `json:"reason"`
 	FPS               float64 `json:"fps"`
 	Speed             float64 `json:"speed"`
+	ProcessID         int     `json:"process_id,omitempty"`
+	ResourceWaitMS    int64   `json:"resource_wait_ms"`
 	CacheBytes        int64   `json:"cache_bytes"`
 	Running           bool    `json:"running"`
 	LastError         string  `json:"last_error,omitempty"`
@@ -113,21 +115,23 @@ type worker struct {
 type session struct {
 	mu sync.Mutex
 
-	ID        string
-	UserID    int64
-	MediaID   int64
-	Source    string
-	Spec      Spec
-	Dir       string
-	StartedAt time.Time
-	LastTouch time.Time
-	Closed    bool
-	Worker    *worker
-	Encoder   string
-	Hardware  string
-	FPS       float64
-	Speed     float64
-	LastError string
+	ID           string
+	UserID       int64
+	MediaID      int64
+	Source       string
+	Spec         Spec
+	Dir          string
+	StartedAt    time.Time
+	LastTouch    time.Time
+	Closed       bool
+	Worker       *worker
+	Encoder      string
+	Hardware     string
+	FPS          float64
+	Speed        float64
+	ProcessID    int
+	ResourceWait time.Duration
+	LastError    string
 }
 
 type Manager struct {
@@ -157,7 +161,9 @@ func SessionID(raw string) string {
 	return sessionPrefix + raw
 }
 
-func IsSessionID(value string) bool { return strings.HasPrefix(strings.TrimSpace(value), sessionPrefix) }
+func IsSessionID(value string) bool {
+	return strings.HasPrefix(strings.TrimSpace(value), sessionPrefix)
+}
 
 func ForDataDir(dataDir string) (*Manager, error) {
 	root := filepath.Join(filepath.Clean(dataDir), "transcode-cache")
@@ -583,17 +589,34 @@ func (m *Manager) encoderCandidates(codec string, toneMap bool) []encoderCandida
 			out = append(out, encoderCandidate{name: name, hardware: hardware, vaapi: vaapi})
 		}
 	}
-	// Tone mapping currently uses the reliable software zscale/tonemap chain.
-	// Hardware tone-map surfaces differ significantly between drivers; normal
-	// SDR transcodes still use hardware first with automatic CPU fallback.
-	if !toneMap {
-		switch codec {
-		case "h264":
-			add("h264_nvenc", "nvidia", false); add("h264_qsv", "qsv", false); if m.engine.VAAPIDevice != "" { add("h264_vaapi", "vaapi", true) }
-		case "hevc":
-			add("hevc_nvenc", "nvidia", false); add("hevc_qsv", "qsv", false); if m.engine.VAAPIDevice != "" { add("hevc_vaapi", "vaapi", true) }
-		case "av1":
-			add("av1_nvenc", "nvidia", false); add("av1_qsv", "qsv", false); if m.engine.VAAPIDevice != "" { add("av1_vaapi", "vaapi", true) }
+	// Tone mapping stays on the reliable software zscale chain, but NVENC can
+	// safely encode its ordinary yuv420p output. That still removes the encoding
+	// half of a 4K HDR fallback from the CPU. QSV/VAAPI tone-map surfaces vary by
+	// driver, so they remain SDR-only until a capability probe proves the path.
+	switch codec {
+	case "h264":
+		add("h264_nvenc", "nvidia", false)
+		if !toneMap {
+			add("h264_qsv", "qsv", false)
+			if m.engine.VAAPIDevice != "" {
+				add("h264_vaapi", "vaapi", true)
+			}
+		}
+	case "hevc":
+		add("hevc_nvenc", "nvidia", false)
+		if !toneMap {
+			add("hevc_qsv", "qsv", false)
+			if m.engine.VAAPIDevice != "" {
+				add("hevc_vaapi", "vaapi", true)
+			}
+		}
+	case "av1":
+		add("av1_nvenc", "nvidia", false)
+		if !toneMap {
+			add("av1_qsv", "qsv", false)
+			if m.engine.VAAPIDevice != "" {
+				add("av1_vaapi", "vaapi", true)
+			}
 		}
 	}
 	switch codec {
@@ -602,12 +625,23 @@ func (m *Manager) encoderCandidates(codec string, toneMap bool) []encoderCandida
 	case "hevc":
 		add("libx265", "cpu", false)
 	case "av1":
-		add("libsvtav1", "cpu", false); add("librav1e", "cpu", false); add("libaom-av1", "cpu", false)
+		add("libsvtav1", "cpu", false)
+		add("librav1e", "cpu", false)
+		add("libaom-av1", "cpu", false)
 	}
 	return out
 }
 
 func (m *Manager) runCandidate(ctx context.Context, ffmpeg string, s *session, batchStart, batchEnd int, candidate encoderCandidate) error {
+	release, waited, err := AcquireProcess(ctx, true)
+	if err != nil {
+		return fmt.Errorf("wait for video transcode capacity: %w", err)
+	}
+	defer release()
+	s.mu.Lock()
+	s.ResourceWait += waited
+	s.mu.Unlock()
+
 	segmentSeconds := m.policy.SegmentDuration.Seconds()
 	start := float64(batchStart) * segmentSeconds
 	end := math.Min(s.Spec.DurationSeconds, float64(batchEnd)*segmentSeconds)
@@ -616,6 +650,8 @@ func (m *Manager) runCandidate(ctx context.Context, ffmpeg string, s *session, b
 	initName := fmt.Sprintf("init-%06d.mp4", batchStart)
 	segmentPattern := filepath.Join(s.Dir, "seg-%06d.m4s")
 	args := []string{"-nostdin", "-hide_banner", "-loglevel", "warning", "-nostats", "-progress", "pipe:1"}
+	threads := strconv.Itoa(CPUThreadLimit())
+	args = append(args, "-filter_threads", threads, "-filter_complex_threads", threads, "-threads", threads)
 	if candidate.vaapi {
 		args = append(args, "-vaapi_device", m.engine.VAAPIDevice)
 	}
@@ -659,6 +695,16 @@ func (m *Manager) runCandidate(ctx context.Context, ffmpeg string, s *session, b
 	if err := cmd.Start(); err != nil {
 		return err
 	}
+	s.mu.Lock()
+	s.ProcessID = cmd.Process.Pid
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		if s.ProcessID == cmd.Process.Pid {
+			s.ProcessID = 0
+		}
+		s.mu.Unlock()
+	}()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -710,9 +756,9 @@ func encoderArgs(candidate encoderCandidate, spec Spec) []string {
 	case strings.HasSuffix(candidate.name, "_vaapi"):
 		return []string{"-c:v", candidate.name, "-b:v", b, "-maxrate", b, "-bufsize", buf}
 	case candidate.name == "libx264":
-		return []string{"-c:v", "libx264", "-preset", "veryfast", "-profile:v", "high", "-crf", "21", "-maxrate", b, "-bufsize", buf, "-pix_fmt", "yuv420p"}
+		return []string{"-c:v", "libx264", "-threads", strconv.Itoa(CPUThreadLimit()), "-preset", "veryfast", "-profile:v", "high", "-crf", "21", "-maxrate", b, "-bufsize", buf, "-pix_fmt", "yuv420p"}
 	case candidate.name == "libx265":
-		return []string{"-c:v", "libx265", "-preset", "fast", "-crf", "24", "-maxrate", b, "-bufsize", buf, "-pix_fmt", "yuv420p"}
+		return []string{"-c:v", "libx265", "-threads", strconv.Itoa(CPUThreadLimit()), "-x265-params", "pools=" + strconv.Itoa(CPUThreadLimit()), "-preset", "fast", "-crf", "24", "-maxrate", b, "-bufsize", buf, "-pix_fmt", "yuv420p"}
 	case candidate.name == "libsvtav1":
 		return []string{"-c:v", "libsvtav1", "-preset", "8", "-crf", "30", "-b:v", b, "-pix_fmt", "yuv420p"}
 	default:
@@ -845,7 +891,7 @@ func (m *Manager) Sessions() []SessionInfo {
 			ID: s.ID, UserID: s.UserID, MediaID: s.MediaID, VideoCodec: s.Spec.TargetVideoCodec, SourceVideoCodec: s.Spec.SourceVideoCodec,
 			AudioCodec: s.Spec.TargetAudioCodec, TargetWidth: s.Spec.TargetWidth, TargetHeight: s.Spec.TargetHeight, TargetBitrateKbps: s.Spec.TargetBitrateKbps,
 			Encoder: s.Encoder, Hardware: s.Hardware, ToneMap: s.Spec.ToneMap, Quality: s.Spec.Quality, Reason: s.Spec.Reason,
-			FPS: s.FPS, Speed: s.Speed, CacheBytes: dirSize(s.Dir), Running: s.Worker != nil, LastError: s.LastError,
+			FPS: s.FPS, Speed: s.Speed, ProcessID: s.ProcessID, ResourceWaitMS: s.ResourceWait.Milliseconds(), CacheBytes: dirSize(s.Dir), Running: s.Worker != nil, LastError: s.LastError,
 			StartedAt: s.StartedAt.UTC().Format(time.RFC3339), LastTouch: s.LastTouch.UTC().Format(time.RFC3339),
 		}
 		s.mu.Unlock()

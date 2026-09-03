@@ -22,24 +22,43 @@ func (s *server) startMovieCollectionIndexer() {
 	go func() {
 		// The first Home is latency-sensitive. Give its catalog/profile queries a
 		// clean head start before collection enrichment begins using SQLite/TMDB.
-		time.Sleep(4 * time.Second)
+		if !waitCollectionIndexer(s.lifecycle, 4*time.Second) {
+			return
+		}
 		for {
 			if !s.metadata.TMDBReady() {
-				time.Sleep(5 * time.Minute)
+				if !waitCollectionIndexer(s.lifecycle, 5*time.Minute) {
+					return
+				}
 				continue
 			}
-			worked, err := s.indexOneMovieCollection(context.Background())
+			worked, err := s.indexOneMovieCollection(s.lifecycle)
+			var delay time.Duration
 			switch {
 			case err != nil:
-				time.Sleep(30 * time.Second)
+				delay = 30 * time.Second
 			case worked:
 				// One title at a time and deliberately below metadata/scan priority.
-				time.Sleep(900 * time.Millisecond)
+				delay = 900 * time.Millisecond
 			default:
-				time.Sleep(5 * time.Minute)
+				delay = 5 * time.Minute
+			}
+			if !waitCollectionIndexer(s.lifecycle, delay) {
+				return
 			}
 		}
 	}()
+}
+
+func waitCollectionIndexer(ctx context.Context, delay time.Duration) bool {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
 }
 
 func (s *server) indexOneMovieCollection(ctx context.Context) (bool, error) {

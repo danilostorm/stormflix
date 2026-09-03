@@ -9,40 +9,40 @@
   <link rel="stylesheet" href="/ux-v2.css">
   <link rel="stylesheet" href="/ux-v3.css">
   <link rel="stylesheet" href="/series-ui.css">
-  <link rel="stylesheet" href="/detail-page.css">
+  <link rel="stylesheet" href="/detail-page.css" media="print" onload="this.media='all'">
   <link rel="stylesheet" href="/profiles.css">
-  <link rel="stylesheet" href="/profile-trakt.css">
-  <link rel="stylesheet" href="/profile-hub.css">
+  <link rel="stylesheet" href="/profile-trakt.css" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="/profile-hub.css" media="print" onload="this.media='all'">
   <link rel="stylesheet" href="/ratings-ui.css">
-  <link rel="stylesheet" href="/music.css">
-  <link rel="stylesheet" href="/music-v2.css">
-  <link rel="stylesheet" href="/games.css">
-  <link rel="stylesheet" href="/games-g3.css">
-  <link rel="stylesheet" href="/games-g4.css?v=g43">
-  <link rel="stylesheet" href="/games-native-shell.css">
-  <link rel="stylesheet" href="/games-g4-polish.css?v=g43">
-  <link rel="stylesheet" href="/games-g42.css?v=g42">
-  <link rel="stylesheet" href="/games-g43.css?v=g43">
-  <link rel="stylesheet" href="/games-g44.css?v=g44">
-  <link rel="stylesheet" href="/games-g48-home.css?v=g48">
-  <link rel="stylesheet" href="/games-g49-collections.css?v=g49">
-  <link rel="stylesheet" href="/source-selector.css?v=2">
-  <link rel="stylesheet" href="/person-ui.css">
+  <link rel="stylesheet" href="/music.css" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="/music-v2.css" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="/games.css" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="/games-g3.css" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="/games-g4.css?v=g43" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="/games-native-shell.css" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="/games-g4-polish.css?v=g43" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="/games-g42.css?v=g42" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="/games-g43.css?v=g43" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="/games-g44.css?v=g44" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="/games-g48-home.css?v=g48" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="/games-g49-collections.css?v=g49" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="/source-selector.css?v=2" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="/person-ui.css" media="print" onload="this.media='all'">
   <link rel="stylesheet" href="/continue-watching.css">
   <link rel="stylesheet" href="/category-nav.css">
   <link rel="stylesheet" href="/mobile-v2.css">
   <link rel="stylesheet" href="/rail-nav-v2.css">
-  <link rel="stylesheet" href="/player-v4.css">
-  <link rel="stylesheet" href="/player-v5.css">
-  <link rel="stylesheet" href="/player-audio-v53.css">
-  <link rel="stylesheet" href="/player-screen-v54.css">
+  <link rel="stylesheet" href="/player-v4.css" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="/player-v5.css" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="/player-audio-v53.css" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="/player-screen-v54.css" media="print" onload="this.media='all'">
 </head>
 <body>
 <div id="login" class="login-overlay hidden">
   <div class="login-backdrop"></div>
   <form id="login-form" class="login-card">
     <div class="brand brand-large">STORM<span>FLIX</span></div>
-    <p class="login-kicker">Direct Play First · Playback Engine v5</p>
+    <p class="login-kicker">Direct Play First · Playback Engine v6</p>
     <h1>Entrar</h1>
     <input id="login-user" placeholder="Usuário" autocomplete="username" required>
     <input id="login-pass" type="password" required placeholder="Senha" autocomplete="current-password">
@@ -138,7 +138,7 @@
               <div><span>Direção</span><b id="detail-directors">—</b></div>
               <div><span>Gêneros</span><b id="detail-genres">—</b></div>
               <div><span>Biblioteca</span><b id="detail-library">—</b></div>
-              <div><span>Formato</span><b id="detail-format">Playback Engine v5.4</b></div>
+              <div><span>Formato</span><b id="detail-format">Playback Engine v6</b></div>
               <div id="theme-info-wrap" class="hidden"><span>Abertura</span><b id="theme-info"></b></div>
             </aside>
           </div>
@@ -167,7 +167,7 @@
 })();
 </script>
 <script src="/app.js" defer></script>
-<script src="/catalog-performance.js?v=2" defer></script>
+<script src="/catalog-performance.js?v=3" defer></script>
 <script src="/ratings-ui.js" defer></script>
 <script src="/series-ui.js" defer></script>
 <script src="/series-rules.js" defer></script>
@@ -193,7 +193,7 @@
 <script src="/ux-v3.js" defer></script>
 <script src="/source-selector.js?v=3" defer></script>
 <script src="/person-ui.js" defer></script>
-<!-- Web v5.4 keeps v5.3 continuous sessions and adds presentation-only screen modes. -->
+<!-- Web v6 keeps the v5.3 continuous session and v5.4 presentation controls. -->
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.7.1/dist/hls.min.js" defer></script>
 <script src="/playback-core-v53.js" defer></script>
 <script src="/player-v4.js" defer></script>

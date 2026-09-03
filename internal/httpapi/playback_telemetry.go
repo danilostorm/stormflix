@@ -5,22 +5,23 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/danilostorm/stormflix/internal/streaming"
 	"github.com/danilostorm/stormflix/internal/transcode"
 )
 
 type playbackTelemetryInput struct {
-	PlaybackSessionID  string                   `json:"playback_session_id"`
-	Mode               string                   `json:"mode"`
-	ClientKind         string                   `json:"client_kind"`
-	BitrateKbps        int64                    `json:"bitrate_kbps"`
-	BufferSeconds      float64                  `json:"buffer_seconds"`
-	ReadMbps           float64                  `json:"read_mbps"`
-	VideoCodec         string                   `json:"video_codec"`
-	AudioCodec         string                   `json:"audio_codec"`
-	LastError          string                   `json:"last_error"`
-	Operation          string                   `json:"operation,omitempty"`
+	PlaybackSessionID   string                   `json:"playback_session_id"`
+	Mode                string                   `json:"mode"`
+	ClientKind          string                   `json:"client_kind"`
+	BitrateKbps         int64                    `json:"bitrate_kbps"`
+	BufferSeconds       float64                  `json:"buffer_seconds"`
+	ReadMbps            float64                  `json:"read_mbps"`
+	VideoCodec          string                   `json:"video_codec"`
+	AudioCodec          string                   `json:"audio_codec"`
+	LastError           string                   `json:"last_error"`
+	Operation           string                   `json:"operation,omitempty"`
 	PlaybackPreferences *playbackPreferenceState `json:"playback_preferences,omitempty"`
-	Marker             *playbackMarkerState     `json:"marker,omitempty"`
+	Marker              *playbackMarkerState     `json:"marker,omitempty"`
 }
 
 func (s *server) playbackTelemetry(w http.ResponseWriter, r *http.Request) {
@@ -74,7 +75,18 @@ func (s *server) playbackTelemetry(w http.ResponseWriter, r *http.Request) {
 	cacheBytes := int64(0)
 	ahead := 0
 	if in.PlaybackSessionID != "" && in.Mode != "direct_play" {
-		if transcode.IsSessionID(in.PlaybackSessionID) {
+		if streaming.IsSessionID(in.PlaybackSessionID) {
+			if manager, managerErr := streaming.ForDataDir(s.config.DataDir); managerErr == nil {
+				manager.Touch(u.ID, in.PlaybackSessionID)
+				for _, info := range manager.Sessions() {
+					if info.ID == in.PlaybackSessionID && info.UserID == u.ID {
+						cacheBytes = info.CacheBytes
+						ahead = info.AheadSegments
+						break
+					}
+				}
+			}
+		} else if transcode.IsSessionID(in.PlaybackSessionID) {
 			if manager, managerErr := transcode.ForDataDir(s.config.DataDir); managerErr == nil {
 				manager.Touch(u.ID, in.PlaybackSessionID)
 				for _, info := range manager.Sessions() {
@@ -102,9 +114,15 @@ ON CONFLICT(user_id,media_id,device) DO UPDATE SET
 
 func (s *server) playbackDiagnostics(w http.ResponseWriter, r *http.Request) {
 	transcodeBySession := map[string]transcode.SessionInfo{}
+	streamBySession := map[string]streaming.SessionInfo{}
 	if manager, managerErr := transcode.ForDataDir(s.config.DataDir); managerErr == nil {
 		for _, info := range manager.Sessions() {
 			transcodeBySession[info.ID] = info
+		}
+	}
+	if manager, managerErr := streaming.ForDataDir(s.config.DataDir); managerErr == nil {
+		for _, info := range manager.Sessions() {
+			streamBySession[info.ID] = info
 		}
 	}
 	rows, err := s.db.QueryContext(r.Context(), `SELECT p.id,p.user_id,u.username,u.display_name,p.media_id,m.title,p.device,p.ip,p.started_at,p.last_seen_at,
@@ -142,6 +160,15 @@ WHERE p.last_seen_at>=datetime('now','-2 minutes') ORDER BY p.last_seen_at DESC`
 			item["target_width"] = trans.TargetWidth
 			item["target_height"] = trans.TargetHeight
 			item["target_bitrate_kbps"] = trans.TargetBitrateKbps
+		} else if stream, ok := streamBySession[sessionID]; ok {
+			item["stream"] = stream
+			item["cache_bytes"] = stream.CacheBytes
+			item["encoder"] = stream.Encoder
+			item["hardware"] = stream.Hardware
+			item["process_id"] = stream.ProcessID
+			item["worker_paused"] = stream.WorkerPaused
+			item["ahead_segments"] = stream.AheadSegments
+			item["server_route"] = stream.Route
 		}
 		out = append(out, item)
 	}
@@ -158,5 +185,7 @@ func containsInt64(values []int64, wanted int64) bool {
 }
 
 var errForbidden = &httpErrorText{"library access denied"}
+
 type httpErrorText struct{ text string }
+
 func (e *httpErrorText) Error() string { return e.text }

@@ -1,4 +1,5 @@
 /* StormFlix UX v3 */
+.content-row{content-visibility:auto;contain-intrinsic-size:auto 390px}
 .content-row.has-overflow>.row-nav:not(:disabled){opacity:.96!important;pointer-events:auto!important}
 .row-nav{width:64px!important;top:44px!important;bottom:18px!important}
 .row-nav.left{left:0!important}

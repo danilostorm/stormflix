@@ -17,8 +17,16 @@ const (
 
 type groupedHomeCacheEntry struct {
 	feed       HomeFeed
+	revision   int64
 	freshUntil time.Time
 	staleUntil time.Time
+}
+
+type HomeCacheStatus struct {
+	State      string
+	Revision   int64
+	BuildTime  time.Duration
+	Refreshing bool
 }
 
 var groupedHomeCache = struct {
@@ -33,30 +41,51 @@ var groupedHomeCache = struct {
 // background refresh rebuilds it. This prevents an ordinary Home navigation
 // from synchronously paying for full media/series regrouping every few seconds.
 func (s *Service) HomeGroupedCached(ctx context.Context, allowedLibraryIDs []int64, heroMode, serverName string, themeEnabled bool, themeVolume int, themeAutoplay bool) (HomeFeed, error) {
+	feed, _, err := s.HomeGroupedCachedWithStatus(ctx, allowedLibraryIDs, heroMode, serverName, themeEnabled, themeVolume, themeAutoplay)
+	return feed, err
+}
+
+// HomeGroupedCachedWithStatus exposes cache telemetry without changing the
+// public Home payload contract used by older clients.
+func (s *Service) HomeGroupedCachedWithStatus(ctx context.Context, allowedLibraryIDs []int64, heroMode, serverName string, themeEnabled bool, themeVolume int, themeAutoplay bool) (HomeFeed, HomeCacheStatus, error) {
 	key := groupedHomeKey(s, allowedLibraryIDs, heroMode, serverName, themeEnabled, themeVolume, themeAutoplay)
 	now := time.Now()
 	groupedHomeCache.RLock()
 	entry, ok := groupedHomeCache.items[key]
+	refreshing := groupedHomeCache.refreshing[key]
 	groupedHomeCache.RUnlock()
-	if ok && now.Before(entry.freshUntil) {
-		return cloneHomeFeed(entry.feed), nil
+	projection, projectionErr := s.ensureCatalogProjection(ctx)
+	if projectionErr != nil {
+		if ok {
+			return cloneHomeFeed(entry.feed), HomeCacheStatus{State: "fallback", Revision: entry.revision}, nil
+		}
+		return HomeFeed{}, HomeCacheStatus{State: "error"}, projectionErr
+	}
+	revision := projection.BuiltRevision
+	if ok && entry.revision == revision && now.Before(entry.freshUntil) {
+		return cloneHomeFeed(entry.feed), HomeCacheStatus{State: "hit", Revision: revision, Refreshing: projection.Refreshing || refreshing}, nil
 	}
 	if ok && now.Before(entry.staleUntil) {
 		s.startGroupedHomeRefresh(key, allowedLibraryIDs, heroMode, serverName, themeEnabled, themeVolume, themeAutoplay)
-		return cloneHomeFeed(entry.feed), nil
+		return cloneHomeFeed(entry.feed), HomeCacheStatus{State: "stale", Revision: entry.revision, Refreshing: true}, nil
 	}
 
+	started := time.Now()
 	feed, err := s.HomeGrouped(ctx, allowedLibraryIDs, heroMode, serverName, themeEnabled, themeVolume, themeAutoplay)
 	if err != nil {
 		// If a refresh failed during a transient DB/mount condition but we still
 		// have an older snapshot, prefer a slightly stale Home over a blank UI.
 		if ok {
-			return cloneHomeFeed(entry.feed), nil
+			return cloneHomeFeed(entry.feed), HomeCacheStatus{State: "fallback", Revision: entry.revision, BuildTime: time.Since(started)}, nil
 		}
-		return HomeFeed{}, err
+		return HomeFeed{}, HomeCacheStatus{State: "error", BuildTime: time.Since(started)}, err
 	}
-	storeGroupedHome(key, feed, now)
-	return feed, nil
+	if latest, statusErr := s.CatalogProjectionStatus(ctx); statusErr == nil {
+		revision = latest.BuiltRevision
+	}
+	feed.CacheRevision = revision
+	storeGroupedHome(key, feed, revision, time.Now())
+	return feed, HomeCacheStatus{State: "miss", Revision: revision, BuildTime: time.Since(started)}, nil
 }
 
 func (s *Service) startGroupedHomeRefresh(key string, allowedLibraryIDs []int64, heroMode, serverName string, themeEnabled bool, themeVolume int, themeAutoplay bool) {
@@ -77,17 +106,22 @@ func (s *Service) startGroupedHomeRefresh(key string, allowedLibraryIDs []int64,
 			delete(groupedHomeCache.refreshing, key)
 			groupedHomeCache.Unlock()
 		}()
-		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		ctx, cancel := context.WithTimeout(s.lifecycle, 90*time.Second)
 		defer cancel()
 		feed, err := s.HomeGrouped(ctx, ids, heroMode, serverName, themeEnabled, themeVolume, themeAutoplay)
 		if err != nil {
 			return
 		}
-		storeGroupedHome(key, feed, time.Now())
+		revision := int64(0)
+		if projection, statusErr := s.CatalogProjectionStatus(ctx); statusErr == nil {
+			revision = projection.BuiltRevision
+		}
+		feed.CacheRevision = revision
+		storeGroupedHome(key, feed, revision, time.Now())
 	}()
 }
 
-func storeGroupedHome(key string, feed HomeFeed, now time.Time) {
+func storeGroupedHome(key string, feed HomeFeed, revision int64, now time.Time) {
 	groupedHomeCache.Lock()
 	defer groupedHomeCache.Unlock()
 	if len(groupedHomeCache.items) > 64 {
@@ -101,7 +135,7 @@ func storeGroupedHome(key string, feed HomeFeed, now time.Time) {
 		}
 	}
 	groupedHomeCache.items[key] = groupedHomeCacheEntry{
-		feed: cloneHomeFeed(feed), freshUntil: now.Add(groupedHomeCacheFreshTTL), staleUntil: now.Add(groupedHomeCacheStaleTTL),
+		feed: cloneHomeFeed(feed), revision: revision, freshUntil: now.Add(groupedHomeCacheFreshTTL), staleUntil: now.Add(groupedHomeCacheStaleTTL),
 	}
 }
 

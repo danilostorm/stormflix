@@ -9,7 +9,7 @@ func TestPlaybackAnywhereDetailActionIsFirstClass(t *testing.T) {
 	index, err := Static.ReadFile("static/index.html")
 	if err != nil { t.Fatalf("read index.html: %v", err) }
 	for _, required := range [][]byte{
-		[]byte(`id="detail-anywhere"`), []byte(`Reproduzir em`), []byte(`/playback-anywhere.js?v=4`), []byte(`/source-selector.js?v=3`), []byte(`/catalog-performance.js?v=2`),
+		[]byte(`id="detail-anywhere"`), []byte(`Reproduzir em`), []byte(`/playback-anywhere.js?v=4`), []byte(`/source-selector.js?v=3`), []byte(`/catalog-performance.js?v=3`),
 	} {
 		if !bytes.Contains(index, required) { t.Fatalf("detail Playback Anywhere missing %q", required) }
 	}

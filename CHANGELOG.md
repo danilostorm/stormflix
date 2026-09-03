@@ -4,6 +4,21 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 
 ## 2026-09-03
 
+### Performance Foundation v2 — fast Home, bounded FFmpeg and measured SQLite
+
+- Added Phase 24's durable schema migration ledger/checksum baseline and Phase 25's rebuildable logical catalog projection. Home/category/series/discovery reads no longer regroup every physical episode, duplicate source and artwork row on each request.
+- Catalog-source triggers advance a revision counter; readers keep the previous committed projection while one background refresh atomically publishes the new revision.
+- Home cache entries are revision-aware and retain two-minute fresh plus ten-minute stale-while-revalidate behavior. Recent/next-episode rails now use bounded SQL window queries.
+- Added Home `Server-Timing`, cache/revision headers and a bounded Admin p50/p95/p99/cache-state telemetry window.
+- Hardened SQLite for pooled production use: connection-local WAL/foreign-key/synchronous/busy-timeout pragmas, four-connection limit, URL-safe DSN, startup ping and Admin DB/WAL/schema/pool diagnostics.
+- Kept SQLite as the production choice for the current single-server writer. PostgreSQL is deferred until multi-writer/replication requirements or measured sustained lock/latency pressure justify it.
+- Added a global FFmpeg scheduler, independent expensive-video limit and per-process CPU/filter thread ceiling. Continuous Web streams now bound ahead/behind cache, stop/resume workers from playback state and expire abandoned work.
+- Added an optional NVIDIA Compose overlay. NVENC may encode the safe software HDR→SDR filter output, with automatic CPU fallback; QSV/VAAPI HDR remains gated pending driver-specific proof.
+- Added gzip for textual API/static responses, deterministic weak ETags/cache headers, non-blocking secondary CSS, offscreen row containment and a permission/profile-scoped ten-minute instant Home snapshot.
+- Future TMDB artwork downloads are display-sized (`w1280` backdrop, `w500` logo, `w780` episode still) without destructively rewriting existing originals.
+- Reviewed the proposed browser/WASM projects. No experimental/general FFmpeg player was bundled into the production hot path; `libmedia` is retained as an isolated future lab candidate. See `docs/PERFORMANCE_FOUNDATION_V2.md`.
+- Updated stale health/system metadata to report Playback Engine v6 and actual FFmpeg availability; server code line is now `0.26.0-performance-foundation`.
+
 ### Playback Engine v6 — adaptive local HEVC decode
 
 - Added a new PlaybackPlan `local_decode` route between native Direct Play and server video transcoding. Direct Play remains the first and preferred route.

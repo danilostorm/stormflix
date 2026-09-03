@@ -26,7 +26,7 @@ func (s *server) previewSmartCategory(w http.ResponseWriter, r *http.Request) {
 	if roleLevel(currentUser(r).Role) < 2 {
 		ids = intersectIDs(ids, currentUser(r).LibraryIDs)
 	}
-	items, err := s.media.List(r.Context(), 0, "", 500, 0, ids)
+	items, err := s.media.CatalogList(r.Context(), 0, "", 500, 0, ids)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -56,7 +56,7 @@ func (s *server) previewSmartCategory(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	for _, item := range items {
-		if item.EpisodeNumber > 0 || item.MediaType == "series" {
+		if item.EntityType == "series" || item.EpisodeNumber > 0 || item.MediaType == "series" {
 			continue
 		}
 		if s.smartItemMatches(r.Context(), item.ID, item.MediaType, item.Year, item.Rating, item.Genres, item.ModifiedUnix, item.MetadataStatus, in.Rules, in.RuleMode, &pending) {
