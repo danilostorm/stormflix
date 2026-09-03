@@ -1,8 +1,10 @@
 package database
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 
@@ -17,7 +19,11 @@ func Open(path string) (*sql.DB, error) {
 		return nil, fmt.Errorf("apply staged database restore: %w", err)
 	}
 
-	db, err := sql.Open("sqlite", path)
+	dsn, err := sqliteDSN(path)
+	if err != nil {
+		return nil, err
+	}
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -26,19 +32,16 @@ func Open(path string) (*sql.DB, error) {
 	// competing SQLite writers while WAL still lets readers continue during
 	// scans, progress heartbeats and metadata updates.
 	db.SetMaxOpenConns(4)
-	db.SetMaxIdleConns(2)
+	db.SetMaxIdleConns(4)
 
-	for _, pragma := range []string{
-		"PRAGMA journal_mode=WAL;",
-		"PRAGMA synchronous=NORMAL;",
-		"PRAGMA foreign_keys=ON;",
-		"PRAGMA busy_timeout=5000;",
-		"PRAGMA wal_autocheckpoint=1000;",
-	} {
-		if _, err := db.Exec(pragma); err != nil {
-			db.Close()
-			return nil, fmt.Errorf("apply sqlite pragma: %w", err)
-		}
+	// modernc applies _pragma parameters whenever database/sql creates a new
+	// physical connection. This is required for foreign_keys, busy_timeout and
+	// synchronous, which are connection-local SQLite settings. Executing these
+	// once through db.Exec only configured whichever pooled connection happened
+	// to service that call.
+	if err := db.PingContext(context.Background()); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("open sqlite database: %w", err)
 	}
 
 	if err := migrate(db); err != nil {
@@ -84,6 +87,26 @@ func Open(path string) (*sql.DB, error) {
 	// Refresh planner statistics opportunistically after schema/index changes.
 	_, _ = db.Exec("PRAGMA optimize;")
 	return db, nil
+}
+
+func sqliteDSN(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve sqlite path: %w", err)
+	}
+	u := url.URL{Scheme: "file", Path: filepath.ToSlash(abs)}
+	query := url.Values{}
+	for _, pragma := range []string{
+		"journal_mode(WAL)",
+		"synchronous(NORMAL)",
+		"foreign_keys(ON)",
+		"busy_timeout(5000)",
+		"wal_autocheckpoint(1000)",
+	} {
+		query.Add("_pragma", pragma)
+	}
+	u.RawQuery = query.Encode()
+	return u.String(), nil
 }
 
 func migrate(db *sql.DB) error {

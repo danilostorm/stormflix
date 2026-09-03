@@ -17,7 +17,7 @@ func migratePhase23(db *sql.DB) error {
 		return fmt.Errorf("inspect phase23 game_saves schema: %w", err)
 	}
 	if strings.Contains(currentSchema, "'preview'") {
-		return nil
+		return migratePhase24(db)
 	}
 
 	tx, err := db.Begin()
@@ -63,5 +63,5 @@ CREATE INDEX idx_game_saves_game
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("migrate phase23 commit: %w", err)
 	}
-	return nil
+	return migratePhase24(db)
 }
