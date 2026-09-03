@@ -12,11 +12,13 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 - Incompatible muxed audio may be converted to AAC independently; the server still does not re-encode video on a local-decode plan.
 - Explicit lower quality, bitrate/device limits, unproven HDR local handling, non-Web clients and insufficient local capability continue through the existing server PlaybackPlan routes instead of forcing WASM.
 - Local runtime initialization/playback failure automatically disables the local route for that runtime session and replans to the mature server transcode fallback.
-- Browser local-decode budget is conservative: low-power clients cap at 720p, stronger clients at 1080p and 4K is advertised only for high-core/high-memory clients when automatic local 4K is enabled.
+- Browser local-decode budget is conservative: low-power clients cap at 720p, stronger clients at 1080p and 4K is advertised only for high-core/high-memory desktops after explicit per-browser opt-in.
 - Player diagnostics now distinguish `WASM LOCAL DECODE` from Direct Play and server transcode, including local processing speed and separate audio-only compatibility.
-- Player settings and Admin expose controls for local HEVC decode and automatic 4K local eligibility. HDR local decode remains intentionally disabled until its color pipeline is proven.
+- Player settings and Admin expose controls for local HEVC decode and opt-in 4K local eligibility. HDR local decode remains intentionally disabled until its color pipeline is proven.
 - The first local-decode use still downloads pinned hevc.js assets from public package CDNs; if they are unavailable, the server route remains the fallback. See `docs/PLAYBACK_ENGINE_V6.md` and `THIRD_PARTY_NOTICES.md`.
 - Added Go decision tests and Web static wiring tests; existing Direct Play/Remux/AAC/transcode tests remain authoritative for fallback behavior.
+- Hardened local-decode client detection so Android/WebView, mobile Web and Tizen/webOS/TV clients retain native/server playback routes instead of advertising the desktop WASM engine.
+- Made 4K local decode an explicit per-browser opt-in, off by default, and synchronized the Admin status/button with the Player policy; 720p/1080p desktop eligibility remains automatic within the conservative CPU/RAM budget.
 
 ## 2026-09-01
 

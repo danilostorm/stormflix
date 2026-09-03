@@ -8,7 +8,19 @@
   function rate(value){const n=Number(value||0);return n?`${(n/1000).toFixed(n>=10000?0:1)} Mb/s`:'—'}
   function engineName(engine){return engine?.hardware_summary||'CPU'}
   function localEnabled(){return localStorage.getItem('stormflix.player.local_decode')!=='off'}
-  function local4K(){return localStorage.getItem('stormflix.player.local_decode_4k')!=='off'}
+  function local4K(){return localStorage.getItem('stormflix.player.local_decode_4k')==='on'}
+
+  function localDecodeClientKind(){
+    const ua=String(navigator.userAgent||'').toLowerCase();
+    if(ua.includes('android')||ua.includes('; wv')||window.NativePlaybackAnywhere)return'android_webview';
+    if(/tizen|web0s|webos|smart-tv|smarttv|hbbtv|netcast/.test(ua))return'tv';
+    if(navigator.userAgentData?.mobile||/iphone|ipad|ipod|mobile/.test(ua)||(/macintosh/.test(ua)&&Number(navigator.maxTouchPoints||0)>1))return'mobile_web';
+    return'web';
+  }
+
+  function localClientLabel(kind){
+    return({web:'navegador desktop',android_webview:'Android / WebView',mobile_web:'navegador móvel',tv:'TV / navegador de TV'})[kind]||kind;
+  }
 
   function ensureRoot(){
     const page=document.querySelector('#automation');
@@ -34,7 +46,8 @@
     const secure=Boolean(window.isSecureContext||location.hostname==='localhost'||location.hostname==='127.0.0.1');
     const webcodecs=typeof VideoEncoder==='function'&&typeof VideoDecoder==='function';
     const wasm=typeof WebAssembly==='object'&&typeof Worker==='function';
-    return{secure,webcodecs,wasm,cores:Number(navigator.hardwareConcurrency||0),memory:Number(navigator.deviceMemory||0)};
+    const kind=localDecodeClientKind();
+    return{kind,desktop:kind==='web',secure,webcodecs,wasm,cores:Number(navigator.hardwareConcurrency||0),memory:Number(navigator.deviceMemory||0)};
   }
 
   async function refresh(){
@@ -49,16 +62,16 @@
       const body=root.querySelector('[data-transcode-body]');if(!body)return;
       body.innerHTML=`
         <div class="technical-meter">
-          <div><b>${localEnabled()?'ATIVO':'DESLIGADO'}</b><span>WASM local neste navegador</span></div>
-          <div><b>${local.secure&&local.webcodecs&&local.wasm?'PRONTO':'FALLBACK'}</b><span>WebCodecs / contexto seguro</span></div>
+          <div><b>${local.desktop?(localEnabled()?'ATIVO':'DESLIGADO'):'FALLBACK'}</b><span>WASM local neste navegador</span></div>
+          <div><b>${local.desktop&&local.secure&&local.webcodecs&&local.wasm?'PRONTO':'FALLBACK'}</b><span>Desktop / WebCodecs / HTTPS</span></div>
           <div><b>${html(engineName(engine))}</b><span>Aceleração do servidor</span></div>
           <div><b>${sessions.length}</b><span>Transcodes de vídeo</span></div>
         </div>
         <div class="games-admin-actions" style="margin:12px 0;display:flex;gap:8px;flex-wrap:wrap">
-          <button type="button" data-v6-local>${localEnabled()?'Desativar':'Ativar'} decode local WASM</button>
-          <button type="button" data-v6-local-4k>${local4K()?'Desativar':'Ativar'} 4K local automático</button>
+          <button type="button" data-v6-local ${local.desktop?'':'disabled'}>${localEnabled()?'Desativar':'Ativar'} decode local WASM</button>
+          <button type="button" data-v6-local-4k ${local.desktop?'':'disabled'}>${local4K()?'Desativar':'Ativar'} 4K local (opt-in)</button>
         </div>
-        <p class="phase2-hint">Cliente: ${local.cores||'—'} threads · ${local.memory?local.memory+' GB RAM estimada':'RAM não informada'} · HTTPS/contexto seguro: ${local.secure?'sim':'não'} · WebCodecs: ${local.webcodecs?'sim':'não'}. HDR local permanece conservador/desativado; HDR incompatível continua no caminho seguro de tone mapping do servidor.</p>
+        <p class="phase2-hint">Cliente: ${html(localClientLabel(local.kind))} · ${local.cores||'—'} threads · ${local.memory?local.memory+' GB RAM estimada':'RAM não informada'} · HTTPS/contexto seguro: ${local.secure?'sim':'não'} · WebCodecs: ${local.webcodecs?'sim':'não'}. Decode HEVC local fica restrito ao navegador desktop; 4K local começa desligado e exige opt-in neste navegador. HDR local permanece conservador/desativado; HDR incompatível continua no caminho seguro de tone mapping do servidor.</p>
         <div class="technical-meter">
           <div><b>${html(engine.preferred_h264||'—')}</b><span>Encoder H.264 servidor</span></div>
           <div><b>${html(engine.ffmpeg_version||'não detectado')}</b><span>FFmpeg</span></div>

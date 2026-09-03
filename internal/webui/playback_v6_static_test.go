@@ -26,6 +26,32 @@ func TestPlaybackV6LocalDecodeWiring(t *testing.T) {
 	}
 }
 
+func TestPlaybackV6LocalDecodeClientSafety(t *testing.T) {
+	core, err := os.ReadFile("static/playback-core-v53.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(core)
+	for _, want := range []string{
+		"function localDecodeClientKind()",
+		"window.NativePlaybackAnywhere",
+		"return'android_webview'",
+		"return'mobile_web'",
+		"return'tv'",
+		"navigator.userAgentData?.mobile",
+		"navigator.maxTouchPoints",
+		"kind==='web'",
+		"local_decode_4k')==='on'",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("Playback v6 client safety missing %q", want)
+		}
+	}
+	if strings.Contains(text, "local_decode_4k')!=='off'") {
+		t.Fatal("Playback v6 must keep 4K local decode opt-in instead of enabled by default")
+	}
+}
+
 func TestPlaybackV6PlayerExposesLocalDecodeStatus(t *testing.T) {
 	player, err := os.ReadFile("static/player-v5.js")
 	if err != nil {
@@ -45,9 +71,23 @@ func TestPlaybackV6AdminExplainsAdaptiveOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(admin)
-	for _, want := range []string{"Playback Engine v6", "Direct Play", "WASM", "servidor transcodifica vídeo somente"} {
+	for _, want := range []string{
+		"Playback Engine v6",
+		"Direct Play",
+		"WASM",
+		"servidor transcodifica vídeo somente",
+		"function localDecodeClientKind()",
+		"navigator.userAgentData?.mobile",
+		"navigator.maxTouchPoints",
+		"local_decode_4k')==='on'",
+		"local.desktop&&local.secure&&local.webcodecs&&local.wasm",
+		"4K local (opt-in)",
+	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("Playback v6 admin missing %q", want)
 		}
+	}
+	if strings.Contains(text, "local_decode_4k')!=='off'") {
+		t.Fatal("Playback v6 Admin must mirror the opt-in 4K default used by the player")
 	}
 }

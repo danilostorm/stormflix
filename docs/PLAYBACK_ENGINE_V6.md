@@ -40,7 +40,7 @@ Local HEVC is selected only when all of the following are true:
 - source HDR is not requested unless a future engine explicitly advertises safe HDR handling;
 - the incompatibility reason is the video codec itself, not an explicit bandwidth/resolution/device limit.
 
-The browser estimates a conservative budget from `hardwareConcurrency` and `deviceMemory`: low devices cap at 720p, stronger clients at 1080p, and 4K is only advertised for high-core/high-memory clients when the 4K local policy is enabled.
+The desktop browser estimates a conservative budget from `hardwareConcurrency` and `deviceMemory`: low devices cap at 720p and stronger clients at 1080p. Local 4K is **off by default** and is advertised only after explicit per-browser opt-in on a high-core/high-memory desktop. Android/WebView, mobile Web and Tizen/webOS/TV clients never advertise this browser-local engine and retain their native/server fallback routes.
 
 ## What still goes to server transcode
 
@@ -71,7 +71,7 @@ The player shows `WASM LOCAL DECODE` as a distinct mode and exposes:
 - server video hardware as “not used for video” on a local plan;
 - any audio-only AAC conversion separately.
 
-The quality menu includes a local-decode toggle. Admin → Reprodução/Transcodificação exposes the local Web-client capability state and toggles for local decode and automatic 4K local decode.
+The quality menu includes a local-decode toggle. Admin → Reprodução/Transcodificação exposes the local desktop Web-client capability state and toggles for local decode and opt-in 4K local eligibility. The Admin and Player use the same local browser preference, with 4K disabled when no preference has been stored.
 
 These toggles are browser/client preferences stored locally on that browser. They do not force WASM onto Android/TV clients.
 
