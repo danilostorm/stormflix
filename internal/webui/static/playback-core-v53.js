@@ -98,8 +98,6 @@
     try{const c=document.createElement('canvas');return Boolean(c.getContext('webgl2')||c.getContext('webgl'))}catch{return false}
   }
 
-  function localDecodeEnabled(){return localStorage.getItem('stormflix.player.local_decode')!=='off'}
-
   function localDecodeClientKind(){
     const ua=String(navigator.userAgent||'').toLowerCase();
     if(ua.includes('android')||ua.includes('; wv')||window.NativePlaybackAnywhere)return'android_webview';
@@ -115,13 +113,13 @@
     const secure=Boolean(window.isSecureContext||location.hostname==='localhost'||location.hostname==='127.0.0.1');
     const cores=Math.max(1,Number(navigator.hardwareConcurrency||2));
     const memory=Math.max(0,Number(navigator.deviceMemory||0));
-    const allow4K=localStorage.getItem('stormflix.player.local_decode_4k')==='on';
     const kind=localDecodeClientKind();
+    const automatic4K=cores>=12&&(memory===0||memory>=8);
     let maxHeight=720;
     if(cores>=6)maxHeight=1080;
-    if(allow4K&&cores>=12&&(memory===0||memory>=8))maxHeight=2160;
+    if(automatic4K)maxHeight=2160;
     const maxWidth=maxHeight>=2160?3840:maxHeight>=1080?1920:1280;
-    const enabled=localDecodeEnabled()&&!localDecodeRuntimeFailed&&kind==='web';
+    const enabled=!localDecodeRuntimeFailed&&kind==='web';
     return{
       kind,enabled,wasm,worker,webgl:hasWebGL(),webgpu:Boolean(navigator.gpu),webcodecs,secure_context:secure,
       hevc_wasm:enabled&&wasm&&worker&&webcodecs&&secure&&'MediaSource'in window,av1_wasm:false,hdr:false,
@@ -377,12 +375,6 @@
     return start({...activeItem},{resumePosition:position,autoplay,sessionID:session,quality:preferredQuality,audioStream:index});
   }
 
-  function setLocalDecodeEnabled(enabled){
-    localStorage.setItem('stormflix.player.local_decode',enabled?'on':'off');
-    localDecodeRuntimeFailed=false;
-    return browserLocalDecodeCapabilities();
-  }
-
   async function playPlanned(item){
     stopTheme();if(typeof sfBuildPlayer==='function')sfBuildPlayer();if(typeof sfCurrentMedia!=='undefined')sfCurrentMedia={...item};
     activeAudioStream=null;
@@ -405,5 +397,5 @@
 
   window.sfEnsureWebAudioCompatibility=function(){return Promise.resolve(activePlan)};
   window.sfTogglePictureInPicture=togglePictureInPicture;
-  window.sfPlaybackCore={start,capabilities:browserCapabilities,localDecodeCapabilities:browserLocalDecodeCapabilities,currentPlan:()=>activePlan,sessionID:()=>String(activePlan?.playback_session_id||''),currentQuality:()=>effectiveQuality(activePlan,preferredQuality),preferredQuality:()=>preferredQuality,availableQualities:()=>availableQualities(activePlan),currentAudioStream:()=>activeAudioStream,setQuality,setAudioStream,setLocalDecodeEnabled,togglePictureInPicture};
+  window.sfPlaybackCore={start,capabilities:browserCapabilities,localDecodeCapabilities:browserLocalDecodeCapabilities,currentPlan:()=>activePlan,sessionID:()=>String(activePlan?.playback_session_id||''),currentQuality:()=>effectiveQuality(activePlan,preferredQuality),preferredQuality:()=>preferredQuality,availableQualities:()=>availableQualities(activePlan),currentAudioStream:()=>activeAudioStream,setQuality,setAudioStream,togglePictureInPicture};
 })();

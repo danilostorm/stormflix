@@ -78,7 +78,8 @@ Client behavior:
 - HEVC is decoded with WebAssembly and converted to a browser-consumable stream through WebCodecs on the client;
 - only desktop Web browsers advertise this local engine; Android/WebView, mobile Web and Tizen/webOS/TV clients retain their native/server fallback routes;
 - compute-aware statistics are exposed in Player diagnostics;
-- local budget is conservative (720p/1080p based on reported CPU/RAM); 4K local eligibility is disabled by default and requires an explicit per-browser opt-in on a high-core/high-memory desktop;
+- local routing is internal and automatic, with no user-facing enable/disable control;
+- local budget is capability-based: low-power desktops cap at 720p, stronger desktops at 1080p and high-core/high-memory desktops advertise up to 3840×2160 automatically;
 - local runtime failure is remembered for the active runtime session and the player requests a fresh PlaybackPlan, naturally falling back to server transcode rather than looping.
 
 Intentional limits in the first v6 delivery:
@@ -105,7 +106,7 @@ See `docs/PLAYBACK_ENGINE_V6.md` and `THIRD_PARTY_NOTICES.md`.
 
 The browser is the reference video implementation. Compatible files use HTTP Range Direct Play. Compatibility playback keeps a stable long-running Web session instead of exposing technical retry loops to users. Quality/audio/source changes preserve progress.
 
-Player diagnostics distinguish native Direct Play, WASM local decode, Direct Stream/AAC and server video transcode. The quality panel provides a local-decode toggle, while Admin → Reprodução shows desktop-client eligibility plus the WASM/WebCodecs/secure-context requirements. Its 4K control mirrors the Player's opt-in policy and is off until explicitly enabled in that browser.
+Player diagnostics distinguish native Direct Play, WASM local decode, Direct Stream/AAC and server video transcode. Local decode is a hidden automatic PlaybackPlan decision rather than a user preference: the quality panel has no decode control, and Admin → Reprodução is read-only for desktop-client eligibility, automatic resolution budget and WASM/WebCodecs/secure-context requirements.
 
 Android/Fire/Android TV and the Tizen/webOS shells retain their device-native playback capability paths. `tv-remote.js` normalizes remote/media keys while hardware volume stays OS-owned.
 

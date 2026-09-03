@@ -31,6 +31,18 @@ func TestHEVCUsesLocalDecodeBeforeServerVideoTranscode(t *testing.T) {
 	}
 }
 
+func TestUltrawide4KHEVCUsesAutomaticLocalDecodeBeforeServerVideoTranscode(t *testing.T) {
+	req := localDecodeRequest()
+	source := Source{Container: "mkv", BitrateKbps: 24000, Streams: []Stream{
+		{Index: 0, Type: "video", Codec: "hevc", Width: 3840, Height: 1600, FrameRate: 24},
+		{Index: 1, Type: "audio", Codec: "aac"},
+	}}
+	plan := Decide(source, req)
+	if !plan.Available || plan.Mode != ModeLocalDecode || !plan.LocalDecode || plan.VideoTranscode || plan.VideoWidth != 3840 || plan.VideoHeight != 1600 {
+		t.Fatalf("expected 3840x1600 HEVC to use client-local decode, got %+v", plan)
+	}
+}
+
 func TestLocalDecodeKeepsVideoCopyButCanConvertAudio(t *testing.T) {
 	req := localDecodeRequest()
 	source := Source{Container: "mkv", Streams: []Stream{

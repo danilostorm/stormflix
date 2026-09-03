@@ -41,14 +41,18 @@ func TestPlaybackV6LocalDecodeClientSafety(t *testing.T) {
 		"navigator.userAgentData?.mobile",
 		"navigator.maxTouchPoints",
 		"kind==='web'",
-		"local_decode_4k')==='on'",
+		"const automatic4K=cores>=12&&(memory===0||memory>=8)",
+		"if(automatic4K)maxHeight=2160",
+		"const enabled=!localDecodeRuntimeFailed&&kind==='web'",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("Playback v6 client safety missing %q", want)
 		}
 	}
-	if strings.Contains(text, "local_decode_4k')!=='off'") {
-		t.Fatal("Playback v6 must keep 4K local decode opt-in instead of enabled by default")
+	for _, forbidden := range []string{"stormflix.player.local_decode", "setLocalDecodeEnabled"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("Playback v6 automatic policy must not expose stored user control %q", forbidden)
+		}
 	}
 }
 
@@ -58,9 +62,14 @@ func TestPlaybackV6PlayerExposesLocalDecodeStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(player)
-	for _, want := range []string{"WASM LOCAL DECODE", "Playback Engine v6", "data-v6-local-toggle", "sfLocalDecodeStats"} {
+	for _, want := range []string{"WASM LOCAL DECODE", "Playback Engine v6", "sfLocalDecodeStats"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("Playback v6 player missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{"data-v6-local-toggle", "sf-v6-local-row", "Decode local ativado", "setLocalDecodeEnabled"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("Playback v6 player must keep local-decode policy internal; found %q", forbidden)
 		}
 	}
 }
@@ -79,15 +88,18 @@ func TestPlaybackV6AdminExplainsAdaptiveOrder(t *testing.T) {
 		"function localDecodeClientKind()",
 		"navigator.userAgentData?.mobile",
 		"navigator.maxTouchPoints",
-		"local_decode_4k')==='on'",
 		"local.desktop&&local.secure&&local.webcodecs&&local.wasm",
-		"4K local (opt-in)",
+		"AUTOMÁTICO",
+		"Limite local automático",
+		"A rota é automática e não possui controle de usuário",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("Playback v6 admin missing %q", want)
 		}
 	}
-	if strings.Contains(text, "local_decode_4k')!=='off'") {
-		t.Fatal("Playback v6 Admin must mirror the opt-in 4K default used by the player")
+	for _, forbidden := range []string{"data-v6-local", "stormflix.player.local_decode", "4K local (opt-in)"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("Playback v6 Admin must be diagnostic-only; found user control %q", forbidden)
+		}
 	}
 }
