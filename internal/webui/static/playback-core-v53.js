@@ -104,7 +104,7 @@
     const ua=String(navigator.userAgent||'').toLowerCase();
     if(ua.includes('android')||ua.includes('; wv')||window.NativePlaybackAnywhere)return'android_webview';
     if(/tizen|web0s|webos|smart-tv|smarttv|hbbtv|netcast/.test(ua))return'tv';
-    if(/iphone|ipad|ipod/.test(ua))return'mobile_web';
+    if(navigator.userAgentData?.mobile||/iphone|ipad|ipod|mobile/.test(ua)||(/macintosh/.test(ua)&&Number(navigator.maxTouchPoints||0)>1))return'mobile_web';
     return'web';
   }
 
