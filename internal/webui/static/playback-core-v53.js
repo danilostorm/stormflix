@@ -107,9 +107,10 @@
     const secure=Boolean(window.isSecureContext||location.hostname==='localhost'||location.hostname==='127.0.0.1');
     const cores=Math.max(1,Number(navigator.hardwareConcurrency||2));
     const memory=Math.max(0,Number(navigator.deviceMemory||0));
+    const allow4K=localStorage.getItem('stormflix.player.local_decode_4k')!=='off';
     let maxHeight=720;
     if(cores>=6)maxHeight=1080;
-    if(cores>=12&&(memory===0||memory>=8))maxHeight=2160;
+    if(allow4K&&cores>=12&&(memory===0||memory>=8))maxHeight=2160;
     const maxWidth=maxHeight>=2160?3840:maxHeight>=1080?1920:1280;
     const enabled=localDecodeEnabled()&&!localDecodeRuntimeFailed;
     return{
