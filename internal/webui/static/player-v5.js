@@ -23,7 +23,7 @@
 
   const qualityMenu=document.createElement('div');
   qualityMenu.id='sf-v5-quality-menu';qualityMenu.className='sf-v5-popover hidden';
-  qualityMenu.innerHTML='<header><div><b>Qualidade</b><small>Mostramos somente resoluções compatíveis com a fonte.</small></div><button type="button" data-v5-close>×</button></header><div class="sf-v5-quality-list"></div><div class="sf-v6-local-row"><div><b>Decode local</b><small>HEVC no navegador por WebAssembly quando Direct Play nativo não for possível.</small></div><button type="button" data-v6-local-toggle></button></div>';
+  qualityMenu.innerHTML='<header><div><b>Qualidade</b><small>Mostramos somente resoluções compatíveis com a fonte.</small></div><button type="button" data-v5-close>×</button></header><div class="sf-v5-quality-list"></div>';
   modal.appendChild(qualityMenu);
 
   const diagnostics=document.createElement('aside');
@@ -62,17 +62,6 @@
     return fallbackAvailableQualities();
   }
 
-  function refreshLocalToggle(){
-    const button=qualityMenu.querySelector('[data-v6-local-toggle]');if(!button)return;
-    const caps=window.sfPlaybackCore?.localDecodeCapabilities?.()||{};
-    const enabled=localStorage.getItem('stormflix.player.local_decode')!=='off';
-    button.textContent=enabled?'Ligado':'Desligado';
-    button.classList.toggle('active',enabled);
-    const row=button.closest('.sf-v6-local-row');
-    row?.classList.toggle('unavailable',!caps.wasm||!caps.webcodecs||!caps.secure_context);
-    button.title=!caps.secure_context?'Requer HTTPS ou localhost':!caps.webcodecs?'WebCodecs indisponível neste navegador':'';
-  }
-
   function renderQualityOptions(){
     const list=qualityMenu.querySelector('.sf-v5-quality-list');if(!list)return;
     const allowed=new Set(availableQualities().map(String));
@@ -80,7 +69,7 @@
   }
 
   function refreshQuality(){
-    renderQualityOptions();refreshLocalToggle();
+    renderQualityOptions();
     const current=window.sfPlaybackCore?.currentQuality?.()||'auto';
     const value=qualityButton.querySelector('.sf-v5-quality-value');if(value)value.textContent=qualityLabel(current).toUpperCase();
     qualityMenu.querySelectorAll('[data-v5-quality]').forEach(btn=>btn.classList.toggle('active',btn.dataset.v5Quality===current));
@@ -143,15 +132,6 @@
   diagnosticsButton.addEventListener('click',e=>{e.stopPropagation();toggleDiagnostics()});
   qualityMenu.querySelector('[data-v5-close]').onclick=()=>toggleQuality(false);
   diagnostics.querySelector('[data-v5-diag-close]').onclick=()=>toggleDiagnostics(false);
-  qualityMenu.querySelector('[data-v6-local-toggle]').onclick=async()=>{
-    const enabled=localStorage.getItem('stormflix.player.local_decode')==='off';
-    window.sfPlaybackCore?.setLocalDecodeEnabled?.(enabled);refreshLocalToggle();
-    if(typeof sfToast==='function')sfToast(enabled?'Decode local ativado':'Decode local desativado');
-    const p=plan();if(p?.media_id&&window.sfPlaybackCore?.start&&typeof sfCurrentMedia!=='undefined'){
-      const position=Number.isFinite(video.currentTime)?video.currentTime:0,autoplay=!video.paused;
-      await window.sfPlaybackCore.start(sfCurrentMedia,{resumePosition:position,autoplay,quality:window.sfPlaybackCore.preferredQuality?.()||'auto',audioStream:window.sfPlaybackCore.currentAudioStream?.()});
-    }
-  };
   qualityMenu.addEventListener('click',async event=>{
     const button=event.target.closest?.('[data-v5-quality]');if(!button)return;
     const value=button.dataset.v5Quality;

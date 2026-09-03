@@ -30,7 +30,7 @@ This is intentionally different from Direct Play: CPU/GPU work still happens, bu
 Local HEVC is selected only when all of the following are true:
 
 - client kind is Web/desktop;
-- local decode is enabled;
+- the internal automatic local-decode policy considers the client eligible;
 - WebAssembly is available;
 - Worker is available;
 - WebCodecs `VideoDecoder` and `VideoEncoder` are available;
@@ -40,7 +40,7 @@ Local HEVC is selected only when all of the following are true:
 - source HDR is not requested unless a future engine explicitly advertises safe HDR handling;
 - the incompatibility reason is the video codec itself, not an explicit bandwidth/resolution/device limit.
 
-The desktop browser estimates a conservative budget from `hardwareConcurrency` and `deviceMemory`: low devices cap at 720p and stronger clients at 1080p. Local 4K is **off by default** and is advertised only after explicit per-browser opt-in on a high-core/high-memory desktop. Android/WebView, mobile Web and Tizen/webOS/TV clients never advertise this browser-local engine and retain their native/server fallback routes.
+The desktop browser estimates a conservative automatic budget from `hardwareConcurrency` and `deviceMemory`: low-power desktops cap at 720p, stronger clients at 1080p and high-core/high-memory desktops advertise up to 3840×2160 automatically. There is no user-facing decode or 4K switch. Android/WebView, mobile Web and Tizen/webOS/TV clients never advertise this browser-local engine and retain their native/server fallback routes.
 
 ## What still goes to server transcode
 
@@ -71,9 +71,7 @@ The player shows `WASM LOCAL DECODE` as a distinct mode and exposes:
 - server video hardware as “not used for video” on a local plan;
 - any audio-only AAC conversion separately.
 
-The quality menu includes a local-decode toggle. Admin → Reprodução/Transcodificação exposes the local desktop Web-client capability state and toggles for local decode and opt-in 4K local eligibility. The Admin and Player use the same local browser preference, with 4K disabled when no preference has been stored.
-
-These toggles are browser/client preferences stored locally on that browser. They do not force WASM onto Android/TV clients.
+The quality menu does not expose local-decode controls. Admin → Reprodução/Transcodificação shows the local desktop Web-client capability state and automatic resolution budget as read-only diagnostics. PlaybackPlan owns the route so a normal user cannot disable, force or misconfigure WASM.
 
 ## Third-party runtime delivery
 

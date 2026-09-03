@@ -7,8 +7,6 @@
   function bytes(value){const n=Number(value||0);if(!n)return'0 B';const units=['B','KiB','MiB','GiB','TiB'];const i=Math.min(units.length-1,Math.floor(Math.log(n)/Math.log(1024)));return`${(n/Math.pow(1024,i)).toFixed(i?1:0)} ${units[i]}`}
   function rate(value){const n=Number(value||0);return n?`${(n/1000).toFixed(n>=10000?0:1)} Mb/s`:'—'}
   function engineName(engine){return engine?.hardware_summary||'CPU'}
-  function localEnabled(){return localStorage.getItem('stormflix.player.local_decode')!=='off'}
-  function local4K(){return localStorage.getItem('stormflix.player.local_decode_4k')==='on'}
 
   function localDecodeClientKind(){
     const ua=String(navigator.userAgent||'').toLowerCase();
@@ -33,12 +31,6 @@
     const playback=document.querySelector('#automation-playbacks')?.closest('section.panel');
     if(playback?.parentElement)playback.parentElement.insertBefore(section,playback);
     else page.appendChild(section);
-    section.addEventListener('click',event=>{
-      const local=event.target.closest?.('[data-v6-local]');
-      if(local){localStorage.setItem('stormflix.player.local_decode',localEnabled()?'off':'on');refresh();return}
-      const four=event.target.closest?.('[data-v6-local-4k]');
-      if(four){localStorage.setItem('stormflix.player.local_decode_4k',local4K()?'off':'on');refresh()}
-    });
     return section;
   }
 
@@ -47,7 +39,10 @@
     const webcodecs=typeof VideoEncoder==='function'&&typeof VideoDecoder==='function';
     const wasm=typeof WebAssembly==='object'&&typeof Worker==='function';
     const kind=localDecodeClientKind();
-    return{kind,desktop:kind==='web',secure,webcodecs,wasm,cores:Number(navigator.hardwareConcurrency||0),memory:Number(navigator.deviceMemory||0)};
+    const cores=Math.max(1,Number(navigator.hardwareConcurrency||2));
+    const memory=Math.max(0,Number(navigator.deviceMemory||0));
+    const maxHeight=cores>=12&&(memory===0||memory>=8)?2160:cores>=6?1080:720;
+    return{kind,desktop:kind==='web',secure,webcodecs,wasm,cores,memory,maxHeight};
   }
 
   async function refresh(){
@@ -62,16 +57,12 @@
       const body=root.querySelector('[data-transcode-body]');if(!body)return;
       body.innerHTML=`
         <div class="technical-meter">
-          <div><b>${local.desktop?(localEnabled()?'ATIVO':'DESLIGADO'):'FALLBACK'}</b><span>WASM local neste navegador</span></div>
+          <div><b>${local.desktop?'AUTOMÁTICO':'FALLBACK'}</b><span>Decisão local interna</span></div>
           <div><b>${local.desktop&&local.secure&&local.webcodecs&&local.wasm?'PRONTO':'FALLBACK'}</b><span>Desktop / WebCodecs / HTTPS</span></div>
+          <div><b>${local.desktop?local.maxHeight+'p':'NATIVO'}</b><span>Limite local automático</span></div>
           <div><b>${html(engineName(engine))}</b><span>Aceleração do servidor</span></div>
-          <div><b>${sessions.length}</b><span>Transcodes de vídeo</span></div>
         </div>
-        <div class="games-admin-actions" style="margin:12px 0;display:flex;gap:8px;flex-wrap:wrap">
-          <button type="button" data-v6-local ${local.desktop?'':'disabled'}>${localEnabled()?'Desativar':'Ativar'} decode local WASM</button>
-          <button type="button" data-v6-local-4k ${local.desktop?'':'disabled'}>${local4K()?'Desativar':'Ativar'} 4K local (opt-in)</button>
-        </div>
-        <p class="phase2-hint">Cliente: ${html(localClientLabel(local.kind))} · ${local.cores||'—'} threads · ${local.memory?local.memory+' GB RAM estimada':'RAM não informada'} · HTTPS/contexto seguro: ${local.secure?'sim':'não'} · WebCodecs: ${local.webcodecs?'sim':'não'}. Decode HEVC local fica restrito ao navegador desktop; 4K local começa desligado e exige opt-in neste navegador. HDR local permanece conservador/desativado; HDR incompatível continua no caminho seguro de tone mapping do servidor.</p>
+        <p class="phase2-hint">Cliente: ${html(localClientLabel(local.kind))} · ${local.cores||'—'} threads · ${local.memory?local.memory+' GB RAM estimada':'RAM não informada'} · HTTPS/contexto seguro: ${local.secure?'sim':'não'} · WebCodecs: ${local.webcodecs?'sim':'não'}. A rota é automática e não possui controle de usuário: Direct Play vem primeiro e um desktop capaz tenta HEVC local, inclusive até 3840×2160, antes do transcode de vídeo. HDR local permanece conservador/desativado; HDR incompatível continua no caminho seguro de tone mapping do servidor.</p>
         <div class="technical-meter">
           <div><b>${html(engine.preferred_h264||'—')}</b><span>Encoder H.264 servidor</span></div>
           <div><b>${html(engine.ffmpeg_version||'não detectado')}</b><span>FFmpeg</span></div>
