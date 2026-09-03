@@ -46,6 +46,9 @@ func Decide(source Source, request Request) Plan {
 	}
 
 	if code, reason := videoCompatibilityIssue(source, video, request); code != "" {
+		if local, ok := localDecodePlan(plan, source, video, request, code, reason); ok {
+			return local
+		}
 		return videoTranscodeOrUnsupported(plan, request, code, reason)
 	}
 
@@ -99,10 +102,56 @@ func Decide(source Source, request Request) Plan {
 	return plan
 }
 
+func localDecodePlan(plan Plan, source Source, video Stream, request Request, code, reason string) (Plan, bool) {
+	// v6 local decode is intentionally a codec fallback, not a way to ignore an
+	// explicit quality/bitrate/device limit. Those still require server-side
+	// adaptation through the normal PlaybackPlan transcode path.
+	if code != "video_codec_unsupported" {
+		return plan, false
+	}
+	codec := normalizeCodec(video.Codec)
+	if codec != "hevc" && codec != "av1" {
+		return plan, false
+	}
+	if qh := qualityHeight(request.Quality); qh > 0 && video.Height > qh {
+		return plan, false
+	}
+	if request.Capabilities.DirectPlayMaxBitrateKbps > 0 && source.BitrateKbps > request.Capabilities.DirectPlayMaxBitrateKbps {
+		return plan, false
+	}
+	if !request.LocalDecode.SupportsLocalDecode(codec, video.Width, video.Height, video.HDR) {
+		return plan, false
+	}
+
+	plan.Available = true
+	plan.Mode = ModeLocalDecode
+	plan.Container = "mp4"
+	plan.LocalDecode = true
+	plan.LocalDecodeCodec = codec
+	plan.LocalDecodeEngine = "stormflix-v6-wasm"
+	plan.VideoTranscode = false
+	plan.VideoCodec = codec
+	plan.ReasonCode = "local_decode_" + codec
+	plan.Reason = reason + "; StormFlix will keep the source video bitstream and decode it on this device"
+
+	// The current HEVC WASM/HLS pipeline only guarantees AAC pass-through for
+	// muxed audio. Convert audio only when required; video always stays copy.
+	if plan.AudioStream >= 0 && plan.SourceAudioCodec != "aac" {
+		if request.Capabilities.AllowAudioCompatibility && supports(request.Capabilities.AudioCodecs, "aac", normalizeCodec) {
+			plan.AudioCodec = "aac"
+			plan.AudioTranscode = true
+			plan.TranscodeReasons = append(plan.TranscodeReasons, "audio_aac_compatibility")
+		} else {
+			return Plan{}, false
+		}
+	}
+	return plan, true
+}
+
 func videoCompatibilityIssue(source Source, video Stream, request Request) (string, string) {
 	codec := normalizeCodec(video.Codec)
 	if !supports(request.Capabilities.VideoCodecs, codec, normalizeCodec) {
-		return "video_codec_unsupported", "video codec " + codec + " is not supported by this client"
+		return "video_codec_unsupported", "video codec " + codec + " is not supported natively by this client"
 	}
 	if profile, exists := videoProfileFor(request.Capabilities.VideoProfiles, codec); exists {
 		if profile.MaxWidth > 0 && video.Width > profile.MaxWidth {
@@ -261,9 +310,6 @@ func shouldToneMap(sourceHDR, targetCodec string, profile VideoProfile) bool {
 	if profile.HDRKnown && containsNormalized(profile.HDRTypes, hdr) {
 		return false
 	}
-	// H.264 is our universal SDR fallback. When the client cannot explicitly
-	// prove it supports the source HDR mode, convert HDR to SDR instead of
-	// producing washed-out colors.
 	return normalizeCodec(targetCodec) == "h264" || profile.HDRKnown
 }
 
