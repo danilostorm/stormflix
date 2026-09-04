@@ -104,8 +104,10 @@ type Plan struct {
 	AudioTranscode        bool     `json:"audio_transcode"`
 	VideoTranscode        bool     `json:"video_transcode"`
 	LocalDecode           bool     `json:"local_decode,omitempty"`
+	LocalOrigin           bool     `json:"local_origin,omitempty"`
 	LocalDecodeEngine     string   `json:"local_decode_engine,omitempty"`
 	LocalDecodeCodec      string   `json:"local_decode_codec,omitempty"`
+	Transport             string   `json:"transport,omitempty"`
 	ClientSelectsAudio    bool     `json:"client_selects_audio"`
 	URL                   string   `json:"url,omitempty"`
 	PrepareURL            string   `json:"prepare_url,omitempty"`

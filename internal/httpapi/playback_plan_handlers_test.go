@@ -24,6 +24,21 @@ func TestPlaybackExecutionDirectPlayHasNoCompatibilityQuery(t *testing.T) {
 	}
 }
 
+func TestPlaybackExecutionLocalOriginUsesOriginalRangeURL(t *testing.T) {
+	mediaURL, prepareURL := playbackExecutionURLs(9, playback.Plan{Mode: playback.ModeLocalDecode, LocalOrigin: true, Transport: "original_range", AudioStream: 4})
+	// The web plan handler deliberately normalizes this to the authenticated
+	// source endpoint; no compatibility query or prepare job may be introduced.
+	if strings.Contains(mediaURL, "audio=") || strings.Contains(mediaURL, "prepare") || strings.Contains(prepareURL, "prepare") {
+		t.Fatalf("local-origin route must not request server processing: media=%q prepare=%q", mediaURL, prepareURL)
+	}
+	if !webPlanUsesOriginalTransport(playback.Plan{Mode: playback.ModeLocalDecode, LocalOrigin: true, Transport: "original_range"}) {
+		t.Fatal("local-origin plan would fall through to the FFmpeg web-session branch")
+	}
+	if webPlanUsesOriginalTransport(playback.Plan{Mode: playback.ModeLocalDecode, LocalOrigin: true}) {
+		t.Fatal("an incomplete local-decode plan must not bypass the compatibility engine")
+	}
+}
+
 func TestNativeStormFlixClientsUseDynamicHLSCompatibility(t *testing.T) {
 	for _, kind := range []string{"web", "android", "tv", "android_tv", "firetv", "fire_tv", " Android "} {
 		if !clientUsesDynamicHLS(kind) {

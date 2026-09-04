@@ -79,13 +79,19 @@ func TestHandlerRejectsUnsupportedMethods(t *testing.T) {
 }
 
 func TestHandlerUsesImmutableCacheForContentAddressedBundlesAndVendorRuntime(t *testing.T) {
-	for _, target := range []string{"/vendor-hls-1.7.1.min.js", "/bundles/music.2789193a0a5510c2.js"} {
+	for _, target := range []string{"/vendor-hls-1.7.1.min.js", "/vendor-libmedia/avplayer.js", "/vendor-libmedia/hevc-simd.wasm", "/bundles/music.2789193a0a5510c2.js"} {
 		request := httptest.NewRequest(http.MethodGet, target, nil)
 		response := httptest.NewRecorder()
 		Handler().ServeHTTP(response, request)
 		if response.Code != http.StatusOK || response.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
 			t.Fatalf("GET %s status=%d cache=%q", target, response.Code, response.Header().Get("Cache-Control"))
 		}
+	}
+	wasmRequest := httptest.NewRequest(http.MethodGet, "/vendor-libmedia/hevc-simd.wasm", nil)
+	wasmResponse := httptest.NewRecorder()
+	Handler().ServeHTTP(wasmResponse, wasmRequest)
+	if wasmResponse.Header().Get("Content-Type") != "application/wasm" {
+		t.Fatalf("libmedia wasm Content-Type=%q", wasmResponse.Header().Get("Content-Type"))
 	}
 	request := httptest.NewRequest(http.MethodGet, "/bundles/manifest.json", nil)
 	response := httptest.NewRecorder()

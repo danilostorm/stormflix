@@ -17,12 +17,45 @@ type ClientCapabilities struct {
 	SecureContext       bool     `json:"secure_context"`
 	HEVCWASM            bool     `json:"hevc_wasm"`
 	AV1WASM             bool     `json:"av1_wasm"`
+	OriginalFile        bool     `json:"original_file"`
+	WASMSIMD            bool     `json:"wasm_simd"`
 	HDR                 bool     `json:"hdr"`
 	MaxWidth            int      `json:"max_width,omitempty"`
 	MaxHeight           int      `json:"max_height,omitempty"`
 	HardwareConcurrency int      `json:"hardware_concurrency,omitempty"`
 	DeviceMemoryGB      float64  `json:"device_memory_gb,omitempty"`
 	Codecs              []string `json:"codecs,omitempty"`
+	Containers          []string `json:"containers,omitempty"`
+	AudioCodecs         []string `json:"audio_codecs,omitempty"`
+	SubtitleFormats     []string `json:"subtitle_formats,omitempty"`
+}
+
+// SupportsLocalOrigin reports whether the client can consume the original
+// file with HTTP Range, demux it and render it locally. This is deliberately
+// stricter than the v6 HLS-assisted decoder: only modern desktop browsers with
+// WebAssembly SIMD and an explicitly advertised source matrix enter the path.
+func (c ClientCapabilities) SupportsLocalOrigin(container, videoCodec, audioCodec string, width, height int, hdr string) bool {
+	if !c.Enabled || !c.OriginalFile || !c.WASM || !c.WASMSIMD || !c.Worker || !c.WebGL || !c.SecureContext {
+		return false
+	}
+	kind := strings.ToLower(strings.TrimSpace(c.Kind))
+	if kind != "web" && kind != "desktop" {
+		return false
+	}
+	if !supports(c.Containers, container, normalizeContainer) || !supports(c.Codecs, videoCodec, normalizeCodec) {
+		return false
+	}
+	if strings.TrimSpace(audioCodec) != "" && !supports(c.AudioCodecs, audioCodec, normalizeCodec) {
+		return false
+	}
+	if c.MaxWidth > 0 && width > c.MaxWidth {
+		return false
+	}
+	if c.MaxHeight > 0 && height > c.MaxHeight {
+		return false
+	}
+	hdr = strings.ToLower(strings.TrimSpace(hdr))
+	return hdr == "" || hdr == "sdr" || c.HDR
 }
 
 // SupportsLocalDecode reports whether this client can decode the requested

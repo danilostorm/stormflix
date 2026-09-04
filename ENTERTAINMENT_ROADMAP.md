@@ -56,6 +56,13 @@ Production acceptance still requires observing cached p95 below 500 ms on the re
 
 ## P1 — Playback delight
 
+### Playback Engine v7 local-origin — delivered foundation
+
+- Original authenticated MKV/MP4/WebM delivery with HTTP Range and no server FFmpeg/HLS job is implemented for eligible secure desktop browsers.
+- Client-side demux, WebCodecs-first decode, SIMD WASM fallback, audio/subtitle selection, seek, bounded preload, telemetry and transparent v6/server fallback are implemented.
+- Policy is internal and automatic; no user-facing decode switch exists.
+- HDR stays on the verified server path. Promotion across the wider device matrix still depends on long real-device Main/Main10/4K/HDR/memory/seek/dropped-frame observations.
+
 ### Skip Intro / Skip Credits
 
 Architecture:

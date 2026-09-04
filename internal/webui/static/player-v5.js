@@ -1,4 +1,4 @@
-/* StormFlix Player v6 — cinematic UX over adaptive Playback Core. */
+/* StormFlix Player v7 — cinematic UX over adaptive Playback Core. */
 (function(){
   const modal=document.querySelector('#player-modal');
   const video=document.querySelector('#player');
@@ -28,7 +28,7 @@
 
   const diagnostics=document.createElement('aside');
   diagnostics.id='sf-v5-diagnostics';diagnostics.className='sf-v5-diagnostics hidden';
-  diagnostics.innerHTML='<header><div><b>Diagnóstico de reprodução</b><small>Playback Engine v6</small></div><button type="button" data-v5-diag-close>×</button></header><div id="sf-v5-diag-body"></div>';
+  diagnostics.innerHTML='<header><div><b>Diagnóstico de reprodução</b><small>Playback Engine v7</small></div><button type="button" data-v5-diag-close>×</button></header><div id="sf-v5-diag-body"></div>';
   modal.appendChild(diagnostics);
 
   const ambient=document.createElement('div');ambient.className='sf-v5-ambient';modal.insertBefore(ambient,modal.firstChild);
@@ -40,10 +40,11 @@
   function qualityLabel(value){return qualityLabels[String(value||'auto')]||'Auto'}
   function plan(){return window.sfLastPlaybackPlan||window.sfPlaybackCore?.currentPlan?.()||{}}
   function modeLabel(mode,p=plan()){
+    if(p?.local_origin)return'DECODE LOCAL · ORIGINAL';
     if(p?.local_decode)return'WASM LOCAL DECODE';
     return({direct_play:'DIRECT PLAY',local_decode:'WASM LOCAL DECODE',remux:'DIRECT STREAM · REMUX',audio_compatibility:'DIRECT STREAM · AAC',video_transcode:'VIDEO TRANSCODE',unsupported:'SEM ROTA'})[mode]||String(mode||'STORMFLIX').replaceAll('_',' ').toUpperCase();
   }
-  function transportLabel(value){return({hls:'HLS sob demanda',progressive_mp4:'MP4 seekable'})[String(value||'')]||'Automático'}
+  function transportLabel(value){return({hls:'HLS sob demanda',progressive_mp4:'MP4 seekable',original_range:'Arquivo original · HTTP Range'})[String(value||'')]||'Automático'}
   function escapeHtml(value){return String(value??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
   function formatRate(kbps){const n=Number(kbps||0);return n?`${(n/1000).toFixed(n>=10000?0:1)} Mb/s`:'—'}
   function yesNo(v){return v?'Sim':'Não'}
@@ -105,8 +106,9 @@
         ${diag('Bitrate alvo',p.local_decode?'Original':formatRate(p.target_bitrate_kbps))}
         ${diag('Áudio',`${escapeHtml(String(p.source_audio_codec||p.audio_codec||'—').toUpperCase())}${p.audio_transcode?' → '+escapeHtml(String(p.audio_codec||'AAC').toUpperCase()):''}`)}
         ${diag('Decoder',p.local_decode?escapeHtml(p.local_decode_engine||'stormflix-v6-wasm'):escapeHtml(p.encoder||'Nativo / copy'))}
-        ${diag('Local speed',p.local_decode&&Number(local.speed_x)>0?`${Number(local.speed_x).toFixed(2)}x`:'—')}
-        ${diag('Hardware servidor',p.local_decode?'Não usado para vídeo':escapeHtml(p.hardware_acceleration||'Auto'))}
+        ${diag('Buffer local',p.local_origin?`${Number(local.buffer_seconds||0).toFixed(1)} s`:p.local_decode&&Number(local.speed_x)>0?`${Number(local.speed_x).toFixed(2)}x`:'—')}
+        ${diag('Frames perdidos',p.local_origin?String(Number(local.dropped_frames||0)):'—')}
+        ${diag('CPU/GPU servidor',p.local_decode?'Não usados para decodificar vídeo':escapeHtml(p.hardware_acceleration||'Auto'))}
         ${diag('Tone mapping',yesNo(p.tone_map))}
         ${diag('Qualidade',escapeHtml(qualityLabel(activeQuality)))}
         ${diag('Sessão',escapeHtml(p.playback_session_id||'—'))}

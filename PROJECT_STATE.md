@@ -11,21 +11,26 @@ Primary deployment is an Unraid checkout:
 ```bash
 cd /mnt/user/appdata/stormflix
 git pull --ff-only origin main
-docker compose -f docker-compose.yml -f docker-compose.nvidia.yml down
-docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up -d --build
-curl -s http://127.0.0.1:8090/healthz
+docker compose down
+docker compose up -d --build
+sleep 15
+git rev-parse HEAD
+docker compose ps
+curl -sS http://127.0.0.1:8090/healthz
 echo
 ```
 
-The primary RTX/Unraid host requires NVIDIA Container Toolkit. Portable hosts
-without NVIDIA use only `docker-compose.yml`.
+The primary StormFlix Unraid server is **CPU-only** and uses only
+`docker-compose.yml`. `docker-compose.nvidia.yml` is an optional overlay for
+other installations with NVIDIA Container Toolkit; it is not part of the
+canonical deployment command above.
 
 Server HTTP port: **8090**, normally behind an HTTPS reverse proxy.
 
 ## Current clients
 
-- Server code line: **`0.27.0-performance-foundation-v3`**.
-- Web Player: **Playback Engine v6**, retaining the v5.3 continuous Web session and v5.4 presentation controls, with adaptive local HEVC decode before server video transcode.
+- Server code line: **`0.28.0-playback-engine-v7`**.
+- Web Player: **Playback Engine v7**, retaining the v5.3 session and v5.4 controls. Native Direct Play remains first; eligible desktop browsers can demux and decode the authenticated original file locally before the v6/server fallbacks.
 - Games Web Player: G2 browser/WASM runtime plus G2.5 dedicated Admin/metadata and RomMix-inspired browsing; G3 adds virtual mobile controls, TV/gamepad focus/menu behavior and profile-owned save-state previews. Games metadata uses Metadata Stack v2.
 - Android package: `cloud.stormflix.app`, **0.6.5 / versionCode 23**, minSdk 23, targetSdk 36, Java 17.
 - Android phone/tablet, Android TV and Fire TV keep native StormFlix catalog/navigation and their native/device playback capability paths. Browser WASM local video decode is not forced onto native Android/TV/Cast/DLNA routes.
@@ -53,16 +58,18 @@ Server HTTP port: **8090**, normally behind an HTTPS reverse proxy.
 
 ```text
 1. Direct Play
-   ↓ only if native video compatibility is missing
-2. Local decode (Web HEVC; video remains server stream-copy)
+   ↓ when the browser cannot consume the original natively
+2. Local origin (original HTTP Range; demux/decode on desktop client)
+   ↓ when local-origin is unavailable/ineligible or fails
+3. v6 local HEVC compatibility (server video copy + client decode)
    ↓ when local decode is unavailable/ineligible
-3. Direct Stream / Remux
+4. Direct Stream / Remux
    ↓ only if selected audio alone is incompatible
-4. Audio compatibility: video copy + selected audio → AAC-LC
+5. Audio compatibility: video copy + selected audio → AAC-LC
    ↓ only if video/device/quality/HDR/bitrate requires it
-5. Video transcode (GPU preferred, CPU fallback)
+6. Video transcode (CPU on the primary server; optional GPU elsewhere)
    ↓ if no safe route exists
-6. Unsupported
+7. Unsupported
 ```
 
 Plan modes are `direct_play`, `local_decode`, `remux`, `audio_compatibility`, `video_transcode` and `unsupported`.
@@ -94,6 +101,36 @@ Intentional limits in the first v6 delivery:
 
 See `docs/PLAYBACK_ENGINE_V6.md` and `THIRD_PARTY_NOTICES.md`.
 
+### Playback Engine v7 local-origin
+
+For an eligible secure desktop browser, PlaybackPlan can return the existing
+`local_decode` mode with `local_origin=true` and `transport=original_range`.
+The URL is the same authenticated `/api/v1/media/{id}/stream` endpoint used by
+Direct Play, including permission checks and byte-range responses. The Web plan
+handler exits before FFmpeg/HLS setup, so server CPU is used only for normal Go
+HTTP delivery.
+
+The self-hosted libmedia runtime demuxes MKV/MP4/WebM, tries WebCodecs first and
+loads a pinned SIMD WASM decoder only when needed. It owns local audio selection,
+subtitles, seek and rendering; existing StormFlix controls see a compatibility
+adapter and remain unchanged. Preload is bounded and closing/changing sources
+destroys the runtime, workers and canvas.
+
+Eligibility is automatic and not exposed as a preference: desktop Web, secure
+context, Worker, WebGL, WebAssembly SIMD, supported source matrix and the
+existing resolution budget are required. Explicit lower quality/bitrate/device
+limits and HDR remain on the verified server path. On initialization, decode or
+render failure, the browser disables only local-origin for that runtime session
+and requests one new plan, allowing the mature v6/server route to take over.
+
+CI verifies routing, no-FFmpeg selection, fallback, static wiring, vendored
+checksums and teardown calls. Long HEVC Main/Main10, 4K, seek, memory, dropped
+frame and HDR color validation remains real-device acceptance work and is
+observable through Player diagnostics/telemetry; CI cannot replace it.
+
+See `docs/PLAYBACK_ENGINE_V7.md`, `docs/PLAYBACK_ENGINE_V6.md` and
+`THIRD_PARTY_NOTICES.md`.
+
 ### UHD / transcode cost policy
 
 - Compatible UHD stays original-resolution Direct Play.
@@ -102,7 +139,7 @@ See `docs/PLAYBACK_ENGINE_V6.md` and `THIRD_PARTY_NOTICES.md`.
 - If an UHD source is incompatible and server video encoding is unavoidable under Auto/Original, automatic compatibility transcode is capped at **1080p / 8 Mbps** instead of 4K→4K.
 - Explicit 2160p is an intentional user request and is not silently replaced by the automatic guard.
 - Dedicated UHD smart shelves use device resolution/codec hints; normal catalog/search keeps UHD titles visible because PlaybackPlan may provide a safe compatibility route.
-- Hardware encoders exposed to the container/FFmpeg (NVENC/QSV/VAAPI) are preferred; CPU remains the reliability fallback.
+- The primary CPU-only server uses software encoding only when every direct/local/copy route is unavailable. Other installations may expose NVENC/QSV/VAAPI as an optional acceleration path.
 - CPU H.264 live fallback uses the lower-cost `superfast` preset and UHD→1080 uses a low-latency scaler.
 - All FFmpeg work shares global process/video semaphores; software/filter threads are capped per process and reported with active/waiting counts in Admin.
 - HDR→SDR keeps the reliable software color filter but may pass its normal YUV output to NVENC. `docker-compose.nvidia.yml` exposes NVIDIA devices only on hosts that opt into the overlay.
@@ -112,7 +149,7 @@ See `docs/PLAYBACK_ENGINE_V6.md` and `THIRD_PARTY_NOTICES.md`.
 
 The browser is the reference video implementation. Compatible files use HTTP Range Direct Play. Compatibility playback keeps a stable long-running Web session instead of exposing technical retry loops to users. Quality/audio/source changes preserve progress.
 
-Player diagnostics distinguish native Direct Play, WASM local decode, Direct Stream/AAC and server video transcode. Local decode is a hidden automatic PlaybackPlan decision rather than a user preference: the quality panel has no decode control, and Admin → Reprodução is read-only for desktop-client eligibility, automatic resolution budget and WASM/WebCodecs/secure-context requirements.
+Player diagnostics distinguish native Direct Play, original-file local decode, v6 WASM local compatibility, Direct Stream/AAC and server video transcode. Local decode is a hidden automatic PlaybackPlan decision rather than a user preference: the quality panel has no decode control, and Admin → Reprodução is read-only.
 
 Android/Fire/Android TV and the Tizen/webOS shells retain their device-native playback capability paths. `tv-remote.js` normalizes remote/media keys while hardware volume stays OS-owned.
 
@@ -185,7 +222,7 @@ Dynamic/profile-sensitive rails such as Continue Watching remain outside the sta
 
 Target documented in `ENTERTAINMENT_ROADMAP.md`: cached Home server response p95 below 500 ms on a representative large catalog. Timing/cache diagnostics and mutation-driven projection invalidation are implemented; acceptance still requires observing that SLO on the real Unraid/rclone deployment.
 
-See `docs/PERFORMANCE_FOUNDATION_V2.md` for SQLite migration thresholds, resource budgets, the NVIDIA deployment overlay and the reviewed browser/WASM projects.
+See `docs/PERFORMANCE_FOUNDATION_V3.md` for SQLite migration thresholds and resource budgets. The optional NVIDIA overlay is not used by the primary CPU-only server.
 
 ### Profile avatars
 
@@ -365,7 +402,7 @@ RetroAssembly (MIT) remains an architectural reference for browser retro emulati
 
 ## Entertainment roadmap
 
-`ENTERTAINMENT_ROADMAP.md` is the executable product roadmap. Games G1/G2/G2.5/G3, Metadata Stack v2, Playback Anywhere v4, Playback Engine v6 local HEVC decode, Performance Foundation v2 and automatic intro/credit foundations are implemented. Remaining major roadmap work includes Smart Downloads, smart playlists, Watch Party, improved editions/versions/extras, OIDC/optional stronger authentication, reuse of expensive media analysis, specialized long-tail Games providers, no-rehash scanning, BIOS/ROMset diagnostics and the G4 rich Games ecosystem.
+`ENTERTAINMENT_ROADMAP.md` is the executable product roadmap. Games G1/G2/G2.5/G3, Metadata Stack v2, Playback Anywhere v4, Playback Engine v7 guarded local-origin decode, Performance Foundation v3 and automatic intro/credit foundations are implemented. Remaining major roadmap work includes Smart Downloads, smart playlists, Watch Party, improved editions/versions/extras, OIDC/optional stronger authentication, reuse of expensive media analysis, specialized long-tail Games providers, no-rehash scanning, BIOS/ROMset diagnostics and the G4 rich Games ecosystem.
 
 ## Jellyfin compatibility
 

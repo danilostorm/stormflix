@@ -30,6 +30,7 @@ O projeto já possui, entre outros:
 - posters, backdrops, logos, elenco, classificação, trailers e metadata de episódios;
 - Continue Watching por perfil e progresso ordenado por sessão;
 - HTTP Range/206 e Direct Play;
+- Playback Engine v7 com demux/decode do arquivo original no desktop cliente, automaticamente e sem FFmpeg no servidor quando elegível;
 - fallback de compatibilidade que mantém vídeo original e converte apenas áudio incompatível para AAC;
 - frontend web e painel administrativo;
 - Android mobile/TV baseado em Media3;
@@ -84,13 +85,16 @@ Uma instalação Unraid existente normalmente é atualizada com:
 ```bash
 cd /mnt/user/appdata/stormflix
 git pull --ff-only origin main
-docker compose -f docker-compose.yml -f docker-compose.nvidia.yml down
-docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up -d --build
-curl -s http://127.0.0.1:8090/healthz
+docker compose down
+docker compose up -d --build
+sleep 15
+git rev-parse HEAD
+docker compose ps
+curl -sS http://127.0.0.1:8090/healthz
 echo
 ```
 
-Instalações sem NVIDIA continuam usando apenas `docker-compose.yml`. A decisão de manter SQLite, os gatilhos objetivos para uma futura migração PostgreSQL e a avaliação dos players WASM estão em [`docs/PERFORMANCE_FOUNDATION_V2.md`](docs/PERFORMANCE_FOUNDATION_V2.md).
+O servidor Unraid principal é somente CPU e usa apenas `docker-compose.yml`. O overlay NVIDIA é opcional para outras instalações. A decisão de manter SQLite e os gatilhos objetivos para uma futura migração PostgreSQL estão em [`docs/PERFORMANCE_FOUNDATION_V3.md`](docs/PERFORMANCE_FOUNDATION_V3.md).
 
 ## Direct Play e compatibilidade
 

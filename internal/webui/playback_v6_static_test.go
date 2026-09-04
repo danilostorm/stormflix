@@ -56,13 +56,13 @@ func TestPlaybackV6LocalDecodeClientSafety(t *testing.T) {
 	}
 }
 
-func TestPlaybackV6PlayerExposesLocalDecodeStatus(t *testing.T) {
+func TestPlaybackV7PlayerExposesLocalDecodeStatus(t *testing.T) {
 	player, err := os.ReadFile("static/player-v5.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(player)
-	for _, want := range []string{"WASM LOCAL DECODE", "Playback Engine v6", "sfLocalDecodeStats"} {
+	for _, want := range []string{"WASM LOCAL DECODE", "DECODE LOCAL · ORIGINAL", "Playback Engine v7", "sfLocalDecodeStats"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("Playback v6 player missing %q", want)
 		}
@@ -74,17 +74,17 @@ func TestPlaybackV6PlayerExposesLocalDecodeStatus(t *testing.T) {
 	}
 }
 
-func TestPlaybackV6AdminExplainsAdaptiveOrder(t *testing.T) {
+func TestPlaybackV7AdminExplainsAdaptiveOrder(t *testing.T) {
 	admin, err := os.ReadFile("static/admin/admin-transcode.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(admin)
 	for _, want := range []string{
-		"Playback Engine v6",
+		"Playback Engine v7",
 		"Direct Play",
-		"WASM",
-		"servidor transcodifica vídeo somente",
+		"HTTP Range",
+		"servidor só usa FFmpeg no fallback",
 		"function localDecodeClientKind()",
 		"navigator.userAgentData?.mobile",
 		"navigator.maxTouchPoints",
