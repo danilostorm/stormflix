@@ -25,6 +25,10 @@ func TestHomeQueryV2FiftyThousandColdAndWarmSLO(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	genreStatement, err := tx.Prepare(`INSERT INTO catalog_entity_genres(entity_key,genre,library_id,modified_unix) VALUES(?,?,?,?)`)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for index := 1; index <= 50000; index++ {
 		kind := "media"
 		if index%7 == 0 {
@@ -33,8 +37,14 @@ func TestHomeQueryV2FiftyThousandColdAndWarmSLO(t *testing.T) {
 		if _, err := statement.Exec(fmt.Sprintf("item:%d", index), kind, index, 1, "Biblioteca", fmt.Sprintf("Título %05d", index), index, `["Drama","Ação"]`, float64(index%90)/10, "/assets/backdrops/example.jpg"); err != nil {
 			t.Fatal(err)
 		}
+		for _, genre := range []string{"Drama", "Ação"} {
+			if _, err := genreStatement.Exec(fmt.Sprintf("item:%d", index), genre, 1, index); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 	_ = statement.Close()
+	_ = genreStatement.Close()
 	if _, err := tx.Exec(`UPDATE catalog_projection_state SET source_revision=1,built_revision=1,built_at=CURRENT_TIMESTAMP WHERE id=1`); err != nil {
 		t.Fatal(err)
 	}
@@ -84,6 +94,7 @@ func TestHomeQueryV2FiftyThousandColdAndWarmSLO(t *testing.T) {
 		t.Fatalf("cached Home p95=%s exceeds 500ms target; samples=%v", warmP95, warmSamples)
 	}
 	t.Logf("50k Home SLO: cold p95=%s, cached p95=%s", coldP95, warmP95)
+	t.Logf("50k SQL timings: %+v", database.QueryTelemetrySnapshot())
 	for _, row := range feed.Rows {
 		if len(row.Items) > homeItemsPerRow {
 			t.Fatalf("row %s returned %d cards; cold Home is not bounded", row.ID, len(row.Items))

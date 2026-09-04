@@ -33,7 +33,7 @@ Server HTTP port: **8090**, normally behind an HTTPS reverse proxy.
 - LG webOS: `apps/webos` 0.1.0 thin shell; CI can package the Developer Mode IPK.
 - Playback Anywhere v4 includes native DLNA/UPnP discovery/control across Web/server and Android, plus Jellyfin Play To compatibility.
 - Jellyfin compatibility facade remains isolated from native `/api/v1` state.
-- SQLite with WAL remains the production database. Phase 24 provides an audited migration ledger, Phase 25 a persistent logical catalog projection and Phase 26 client-observed playback startup/stall telemetry. PostgreSQL is justified only by measured multi-writer/replication or sustained lock-latency requirements, not catalog size alone.
+- SQLite with WAL remains the production database. Phase 24 provides an audited migration ledger, Phase 25 a persistent logical catalog projection and Phase 26 client-observed playback startup/stall telemetry plus the indexed genre read model. PostgreSQL is justified only by measured multi-writer/replication or sustained lock-latency requirements, not catalog size alone.
 
 ## Non-negotiable invariants
 
@@ -171,13 +171,13 @@ Current architecture:
 - static/grouped Home uses a **2-minute fresh + 10-minute stale-while-revalidate** cache;
 - stale valid Home can return immediately while a single background refresh rebuilds the grouped catalog;
 - Phase 25 maintains a persistent logical `catalog_entities` projection (one movie/version group or series card) with mutation-driven source/built revisions and atomic rebuilds;
-- Home Query v2 performs bounded SQLite window queries and one batched card fetch: at most 24 cards per rail, 12 library rails and 8 genre rails, so a cold Home no longer materializes the full catalog in Go;
+- Home Query v2 performs bounded SQLite window queries, indexed genre probes and one batched card fetch: at most 24 cards per rail, 12 library rails and 8 genre rails, so a cold Home no longer materializes or parses the full catalog in Go;
 - Home, series/category galleries, releases, trending resolution and related candidates read the logical projection rather than walking every physical episode/source;
 - recent/next-episode rails use bounded SQL window queries instead of rebuilding every series in Go;
 - API/static text responses use gzip; embedded assets use ETags/cache headers; Music/Games are content-addressed screen bundles with one non-cacheable manifest and one-year immutable bundle caching;
 - authenticated local artwork supports bounded responsive 240/360/500/780/1280 variants, AVIF/WebP negotiation and source-fingerprint invalidation; variant FFmpeg work shares the global scheduler and is skipped during playback;
 - `/api/v1/home` exposes cache/revision and `Server-Timing` headers, while Admin stores bounded server p50/p95/p99/cache-state, SQL-label and client first-content/response/render telemetry;
-- Phase 26 stores plan, first-frame, total startup and stall observations on active playback sessions;
+- Phase 26 stores plan, first-frame, total startup and stall observations on active playback sessions and adds the rebuildable indexed genre projection;
 - all catalog-heavy workers (video/music/game scans, metadata, subtitles, collections, technical/marker/credit analysis and projection refresh) yield while video or game playback is active, with pause counters visible in Admin;
 - Phase 15 covering indexes remain in place and Phase 25 adds projection indexes for library/title/recent/rating/release reads.
 

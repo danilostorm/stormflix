@@ -3,6 +3,7 @@ package media
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -164,26 +165,63 @@ ORDER BY row_order,item_order`, filter, homeItemsPerRow, homeLibraryRows, homeIt
 
 func (s *Service) homeGenreAssociations(ctx context.Context, allowedLibraryIDs []int64) ([]homeAssociation, error) {
 	filter, args := homeLibraryFilter(allowedLibraryIDs)
-	query := fmt.Sprintf(`WITH permitted AS (
-  SELECT ce.* FROM catalog_entities ce WHERE 1=1 %s
-), genre_items AS (
-  SELECT DISTINCT ce.entity_key,trim(j.value) genre,ce.modified_unix
-  FROM permitted ce,json_each(CASE WHEN json_valid(ce.genres_json) THEN ce.genres_json ELSE '[]' END) j
-  WHERE trim(j.value)<>''
-), top_genres AS (
-  SELECT genre,COUNT(*) item_count,
-         ROW_NUMBER() OVER (ORDER BY COUNT(*) DESC,genre COLLATE NOCASE) genre_order
-  FROM genre_items GROUP BY genre HAVING COUNT(*)>=2
-  ORDER BY item_count DESC,genre COLLATE NOCASE LIMIT %d
-), ranked AS (
-  SELECT gi.entity_key,'genre-' || lower(hex(gi.genre)) row_id,gi.genre row_title,
-         500+tg.genre_order row_order,
-         ROW_NUMBER() OVER (PARTITION BY gi.genre ORDER BY gi.modified_unix DESC,gi.entity_key) item_order
-  FROM genre_items gi JOIN top_genres tg ON tg.genre=gi.genre
-)
-SELECT row_id,row_title,row_order,item_order,entity_key FROM ranked
-WHERE item_order<=%d ORDER BY row_order,item_order`, filter, homeGenreRows, homeItemsPerRow)
-	return queryHomeAssociations(ctx, s.db, query, args...)
+	filter = strings.ReplaceAll(filter, "ce.", "ceg.")
+	query := `SELECT genre,COUNT(*) item_count
+FROM catalog_entity_genres ceg WHERE 1=1 ` + filter + `
+GROUP BY genre COLLATE NOCASE HAVING COUNT(*)>=2
+ORDER BY item_count DESC,genre COLLATE NOCASE LIMIT ?`
+	topArgs := append(append([]any(nil), args...), homeGenreRows)
+	rows, err := s.db.QueryContext(ctx, query, topArgs...)
+	if err != nil {
+		return nil, err
+	}
+	topGenres := make([]string, 0, homeGenreRows)
+	for rows.Next() {
+		var genre string
+		var count int
+		if err := rows.Scan(&genre, &count); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		topGenres = append(topGenres, genre)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+
+	// Each top genre is an indexed, bounded probe. This avoids parsing every
+	// genres_json value and sorting the full catalog on every cold Home request.
+	out := make([]homeAssociation, 0, len(topGenres)*homeItemsPerRow)
+	for genreOrder, genre := range topGenres {
+		genreArgs := make([]any, 0, len(args)+2)
+		genreArgs = append(genreArgs, genre)
+		genreArgs = append(genreArgs, args...)
+		genreArgs = append(genreArgs, homeItemsPerRow)
+		genreRows, err := s.db.QueryContext(ctx, `SELECT entity_key
+FROM catalog_entity_genres ceg
+WHERE genre=? COLLATE NOCASE `+filter+`
+ORDER BY modified_unix DESC,entity_key LIMIT ?`, genreArgs...)
+		if err != nil {
+			return nil, err
+		}
+		itemOrder := 0
+		for genreRows.Next() {
+			var entityKey string
+			if err := genreRows.Scan(&entityKey); err != nil {
+				genreRows.Close()
+				return nil, err
+			}
+			itemOrder++
+			out = append(out, homeAssociation{
+				rowID: "genre-" + hex.EncodeToString([]byte(genre)), rowTitle: genre,
+				rowOrder: 500 + genreOrder + 1, itemOrder: itemOrder, entityKey: entityKey,
+			})
+		}
+		if err := genreRows.Close(); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 func queryHomeAssociations(ctx context.Context, db queryContext, query string, args ...any) ([]homeAssociation, error) {

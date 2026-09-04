@@ -138,7 +138,7 @@ func (s *Service) RebuildCatalogProjection(ctx context.Context) error {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM catalog_entity_members; DELETE FROM catalog_entities;`); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM catalog_entity_members; DELETE FROM catalog_entity_genres; DELETE FROM catalog_entities;`); err != nil {
 		return fmt.Errorf("clear catalog projection: %w", err)
 	}
 	entityStmt, err := tx.PrepareContext(ctx, `INSERT INTO catalog_entities(
@@ -153,6 +153,11 @@ VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
 		return err
 	}
 	defer memberStmt.Close()
+	genreStmt, err := tx.PrepareContext(ctx, `INSERT OR IGNORE INTO catalog_entity_genres(entity_key,genre,library_id,modified_unix) VALUES(?,?,?,?)`)
+	if err != nil {
+		return err
+	}
+	defer genreStmt.Close()
 	keys := make([]string, 0, len(entities))
 	for key := range entities {
 		keys = append(keys, key)
@@ -174,6 +179,15 @@ VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
 		for _, mediaID := range entity.members {
 			if _, err := memberStmt.ExecContext(ctx, mediaID, entity.key, entity.item.LibraryID); err != nil {
 				return fmt.Errorf("insert catalog member %d: %w", mediaID, err)
+			}
+		}
+		for _, genre := range entity.item.Genres {
+			genre = strings.TrimSpace(genre)
+			if genre == "" {
+				continue
+			}
+			if _, err := genreStmt.ExecContext(ctx, entity.key, genre, entity.item.LibraryID, entity.item.ModifiedUnix); err != nil {
+				return fmt.Errorf("insert catalog genre %s/%s: %w", entity.key, genre, err)
 			}
 		}
 	}

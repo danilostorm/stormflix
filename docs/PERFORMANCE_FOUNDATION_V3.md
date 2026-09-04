@@ -10,7 +10,7 @@ All FFmpeg playback work remains globally bounded. Responsive artwork conversion
 
 ## Home Query v2
 
-The cold grouped Home no longer calls `catalogEntities` for the whole catalog. SQLite selects only visible row membership using window functions, caps every rail at 24 cards, caps library rails at 12 and genre rails at 8, then resolves all distinct cards in one `IN` batch. Dynamic profile rails remain parallel and outside the static snapshot.
+The cold grouped Home no longer calls `catalogEntities` for the whole catalog. SQLite selects only visible row membership using bounded window queries, uses an indexed rebuildable genre projection instead of parsing and sorting every `genres_json`, caps every rail at 24 cards, caps library rails at 12 and genre rails at 8, then resolves all distinct cards in one `IN` batch. Dynamic profile rails remain parallel and outside the static snapshot.
 
 The automated 50,000-title test fails if a cold synthetic Home exceeds 1.5 seconds or a cache hit exceeds 500 milliseconds on the CI runner. Browser first-content p95 is measured in production because network, device rendering and artwork cache state cannot be proven by a server-only unit test.
 
