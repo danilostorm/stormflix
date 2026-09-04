@@ -85,6 +85,7 @@ jobs:
           node --check internal/webui/static/webcompat.js
           node --check internal/webui/static/playback-core.js
           node --check internal/webui/static/playback-core-v53.js
+          node --check internal/webui/static/local-origin-player.js
           node --check internal/webui/static/player-v3.js
           node --check internal/webui/static/player-v4.js
           node --check internal/webui/static/player-v5.js

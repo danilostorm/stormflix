@@ -4,6 +4,17 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 
 ## 2026-09-04
 
+### Playback Engine v7 — Pacote 3, arquivo original no cliente
+
+- Added a guarded `local_origin` PlaybackPlan route after native Direct Play and before server compatibility. Eligible desktop browsers receive the authenticated original MKV/MP4/WebM endpoint with HTTP Range; the plan creates no HLS session and invokes no server FFmpeg process.
+- Integrated the pinned `@libmedia/avplayer` 1.3.1 runtime for client-side demux, WebCodecs-first decoding and SIMD WebAssembly fallback. H.264, HEVC and AV1 video plus AAC/AC3/EAC3/DTS/MP3/Opus/FLAC/Vorbis audio decoder modules are self-hosted; no encoder module is distributed.
+- Kept routing fully automatic and hidden. Runtime failure is remembered in the browser session and triggers one transparent re-plan to the existing v6 HLS/local-decode or server compatibility/transcode engine.
+- Added client-side seek, bounded prebuffer, progress/first-frame/stall telemetry, embedded/external subtitle handling, audio-track switching and explicit teardown of workers/canvas/runtime memory.
+- Preserved conservative boundaries: explicit lower quality/bitrate limits and HDR sources continue through the verified server path; mobile/WebView/Tizen/webOS/TV clients do not advertise the browser-only engine.
+- Pinned the LGPL runtime with its full license, upstream source/commit, npm integrity and SHA-256 manifest. Static tests verify every vendored asset and ensure no user enable/disable control exists.
+- Corrected the canonical Unraid deployment instructions to the actual CPU-only server. NVIDIA Compose remains optional documentation for other hosts, not the primary StormFlix deployment.
+- Server code line is now `0.28.0-playback-engine-v7`. See `docs/PLAYBACK_ENGINE_V7.md`.
+
 ### Performance Foundation v3 — Pacotes 1 e 2 completos
 
 - Replaced full-catalog cold Home materialization with Home Query v2: bounded SQL window queries, an indexed genre projection, 24 cards per rail, capped library/genre rails and one batched logical-card lookup. A deterministic 50,000-title regression test enforces cold-under-1.5s and cached-under-500ms targets in CI.

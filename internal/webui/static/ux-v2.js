@@ -156,10 +156,12 @@ function sfAudioTracks(){try{return player.audioTracks?[...player.audioTracks]:[
 function sfSelectAudio(index){const tracks=sfAudioTracks();tracks.forEach((track,i)=>track.enabled=i===index);sfRenderSettings();sfToast(tracks[index]?.label||`Áudio ${index+1}`)}
 
 function sfActiveSubtitleID(){
+  if(window.sfLocalOrigin?.isActive?.())return Number(window.sfLocalSubtitleID||0);
   const tracks=[...player.querySelectorAll('track[data-subtitle-id]')];
   const active=tracks.find(t=>t.track?.mode==='showing');return active?Number(active.dataset.subtitleId):0;
 }
 function sfSelectSubtitle(id){
+  if(window.sfLocalOrigin?.isActive?.()){window.sfLocalOrigin.selectSubtitle(id).catch(()=>sfToast('Não foi possível trocar a legenda'));sfRenderSettings();sfToast(id?'Legendas ativadas':'Legendas desativadas');return}
   [...player.textTracks].forEach(t=>t.mode='disabled');
   if(id){const el=player.querySelector(`track[data-subtitle-id="${id}"]`);if(el?.track)el.track.mode='showing'}
   sfRenderSettings();sfToast(id?'Legendas ativadas':'Legendas desativadas');

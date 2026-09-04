@@ -30,7 +30,7 @@
   <div class="login-backdrop"></div>
   <form id="login-form" class="login-card">
     <div class="brand brand-large">STORM<span>FLIX</span></div>
-    <p class="login-kicker">Direct Play First · Playback Engine v6</p>
+    <p class="login-kicker">Direct Play First · Playback Engine v7</p>
     <h1>Entrar</h1>
     <input id="login-user" placeholder="Usuário" autocomplete="username" required>
     <input id="login-pass" type="password" required placeholder="Senha" autocomplete="current-password">
@@ -126,7 +126,7 @@
               <div><span>Direção</span><b id="detail-directors">—</b></div>
               <div><span>Gêneros</span><b id="detail-genres">—</b></div>
               <div><span>Biblioteca</span><b id="detail-library">—</b></div>
-              <div><span>Formato</span><b id="detail-format">Playback Engine v6</b></div>
+              <div><span>Formato</span><b id="detail-format">Playback Engine v7</b></div>
               <div id="theme-info-wrap" class="hidden"><span>Abertura</span><b id="theme-info"></b></div>
             </aside>
           </div>
@@ -141,6 +141,7 @@
 <div id="player-modal" class="player-modal hidden" role="dialog" aria-label="Player StormFlix">
   <div class="player-bar"><strong id="player-title"></strong><div class="player-top-actions"><button id="player-settings-top" class="player-top-settings" type="button" aria-label="Configurações do player">⚙</button><button id="player-close" aria-label="Fechar player">✕</button></div></div>
   <video id="player" controls playsinline preload="metadata"></video>
+  <div id="sf-local-origin-surface" class="sf-local-origin-surface" hidden aria-label="Vídeo decodificado localmente"></div>
   <div id="player-help" class="player-help hidden">O StormFlix vai escolher Direct Play, Direct Stream ou transcodificação automaticamente.</div>
 </div>
 
@@ -169,8 +170,9 @@
 <script src="/ux-v3.js" defer></script>
 <script src="/source-selector.js?v=3" defer></script>
 <script src="/person-ui.js" defer></script>
-<!-- Web v6 keeps the v5.3 continuous session and v5.4 presentation controls.
+<!-- Web v7 keeps the v5.3 continuous session and v5.4 presentation controls.
      hls.js and the optional HEVC runtime are self-hosted and loaded on demand. -->
+<script src="/local-origin-player.js" defer></script>
 <script src="/playback-core-v53.js" defer></script>
 <script src="/player-v4.js" defer></script>
 <script src="/player-v5.js" defer></script>

@@ -46,6 +46,9 @@ func Decide(source Source, request Request) Plan {
 	}
 
 	if code, reason := videoCompatibilityIssue(source, video, request); code != "" {
+		if local, ok := localOriginPlan(plan, source, video, request, code, reason); ok {
+			return local
+		}
 		if local, ok := localDecodePlan(plan, source, video, request, code, reason); ok {
 			return local
 		}
@@ -62,6 +65,10 @@ func Decide(source Source, request Request) Plan {
 		plan.ReasonCode = "direct_play_supported"
 		plan.Reason = "container, video and selected audio are supported by this client"
 		return plan
+	}
+
+	if local, ok := localOriginPlan(plan, source, video, request, "native_source_unsupported", "the original container, audio track or native track selection is not supported by this browser"); ok {
+		return local
 	}
 
 	if !audioSupported {
@@ -100,6 +107,37 @@ func Decide(source Source, request Request) Plan {
 	plan.ReasonCode = "container_unsupported"
 	plan.Reason = "container " + plan.SourceContainer + " is not supported by this client and remux is unavailable"
 	return plan
+}
+
+func localOriginPlan(plan Plan, source Source, video Stream, request Request, code, reason string) (Plan, bool) {
+	// Local-origin playback preserves the original quality. Explicit bandwidth,
+	// resolution or HDR adaptation still belongs to the server transcode route.
+	if code == "quality_limit" || code == "direct_play_bitrate_limit" || code == "video_resolution_unsupported" || code == "video_framerate_unsupported" || code == "video_hdr_unsupported" {
+		return plan, false
+	}
+	if qh := qualityHeight(request.Quality); qh > 0 && video.Height > qh {
+		return plan, false
+	}
+	if request.Capabilities.DirectPlayMaxBitrateKbps > 0 && source.BitrateKbps > request.Capabilities.DirectPlayMaxBitrateKbps {
+		return plan, false
+	}
+	if !request.LocalDecode.SupportsLocalOrigin(plan.SourceContainer, plan.SourceVideoCodec, plan.SourceAudioCodec, video.Width, video.Height, video.HDR) {
+		return plan, false
+	}
+	plan.Available = true
+	plan.Mode = ModeLocalDecode
+	plan.Container = plan.SourceContainer
+	plan.LocalDecode = true
+	plan.LocalOrigin = true
+	plan.LocalDecodeCodec = plan.SourceVideoCodec
+	plan.LocalDecodeEngine = "libmedia-1.3.1"
+	plan.Transport = "original_range"
+	plan.VideoTranscode = false
+	plan.AudioTranscode = false
+	plan.ClientSelectsAudio = true
+	plan.ReasonCode = "local_origin_" + plan.SourceVideoCodec
+	plan.Reason = reason + "; the original file will be demuxed and decoded on this device without FFmpeg on the server"
+	return plan, true
 }
 
 func localDecodePlan(plan Plan, source Source, video Stream, request Request, code, reason string) (Plan, bool) {

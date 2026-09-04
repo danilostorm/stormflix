@@ -97,7 +97,6 @@ See `THIRD_PARTY_NOTICES.md` for the hevc.js MIT license notice.
 
 The broader browser-video research (`ffmpeg.wasm`, `libmedia`, WasmVideoPlayer,
 h265web.js, EasyPlayer.js, wasp-hls and the other evaluated repositories) is
-recorded in `PERFORMANCE_FOUNDATION_V2.md`. None is bundled merely to replace a
-working native/NVENC path; `libmedia` is the strongest isolated future lab
-candidate once HDR color, seek, audio/subtitles, memory and COOP/COEP effects
-are proven.
+recorded in `PERFORMANCE_FOUNDATION_V2.md`. Playback Engine v7 later promoted a
+pinned subset of `libmedia` as a guarded original-file route while keeping this
+v6 engine as its transparent fallback; see `PLAYBACK_ENGINE_V7.md`.

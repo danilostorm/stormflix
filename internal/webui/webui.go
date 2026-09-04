@@ -124,6 +124,9 @@ func (h *staticHandler) asset(name string) (cachedAsset, error) {
 }
 
 func immutableAssetName(name string) bool {
+	if strings.HasPrefix(name, "vendor-libmedia/") {
+		return true
+	}
 	base := path.Base(name)
 	if strings.HasPrefix(base, "vendor-") {
 		return true

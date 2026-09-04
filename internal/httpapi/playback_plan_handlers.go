@@ -105,10 +105,15 @@ func (s *server) playbackPlan(w http.ResponseWriter, r *http.Request) {
 	// long-running FFmpeg job for the playback session instead of one process per
 	// HLS batch. Android/TV deliberately stay on the existing transport for now.
 	if webContinuous {
-		if plan.Mode == playback.ModeDirectPlay {
+		if webPlanUsesOriginalTransport(plan) {
 			s.closePlaybackTransport(u.ID, previousSession)
 			plan.PlaybackSessionID = newPlaybackSessionID()
 			plan.URL, plan.PrepareURL = playbackExecutionURLs(id, plan)
+			if plan.LocalOrigin {
+				plan.URL = fmt.Sprintf("/api/v1/media/%d/stream", id)
+				plan.PrepareURL = ""
+				plan.Transport = "original_range"
+			}
 			plan.FallbackURL = ""
 			plan.FallbackPrepareURL = ""
 			writeJSON(w, http.StatusOK, plan)
@@ -286,6 +291,10 @@ func (s *server) playbackPlan(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, plan)
 }
 
+func webPlanUsesOriginalTransport(plan playback.Plan) bool {
+	return plan.Mode == playback.ModeDirectPlay || (plan.Mode == playback.ModeLocalDecode && plan.LocalOrigin && plan.Transport == "original_range")
+}
+
 func (s *server) closePlaybackTransport(userID int64, session string) {
 	session = normalizePlaybackSessionID(session)
 	if session == "" {
@@ -342,7 +351,7 @@ func clientUsesDynamicHLS(kind string) bool {
 }
 
 func playbackExecutionURLs(id int64, plan playback.Plan) (string, string) {
-	if plan.Mode == playback.ModeDirectPlay {
+	if webPlanUsesOriginalTransport(plan) {
 		return fmt.Sprintf("/api/v1/media/%d/stream", id), ""
 	}
 	values := url.Values{}

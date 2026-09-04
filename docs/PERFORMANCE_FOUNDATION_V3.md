@@ -35,4 +35,7 @@ Active playback diagnostics include `plan_ms`, `first_frame_ms`, `startup_ms`, `
 
 ## Scope boundary
 
-This release does not promote the proposed `libmedia` Package 3 experiment into production. A true original-file client demux/WebCodecs engine remains an isolated future PoC and must pass long-duration memory, seek, HDR, audio/subtitle and real-device tests before replacing any mature route.
+Performance Foundation v3 itself did not promote `libmedia`. Playback Engine v7
+subsequently added it as a guarded original-file route without replacing any
+mature fallback; see `PLAYBACK_ENGINE_V7.md`. Long-duration memory, seek, HDR,
+audio/subtitle and real-device observations remain the acceptance boundary.

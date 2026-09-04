@@ -64,6 +64,19 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+## libmedia
+
+StormFlix Playback Engine v7 self-hosts the `@libmedia/avplayer` 1.3.1 UMD
+distribution and a limited set of decoder/resampler WebAssembly modules from
+`zhaohappy/libmedia` commit `152f629d3021fd8013efa464fcb7b55f9fbe7753`.
+They implement client-side demux and decode of an authenticated HTTP Range
+source. No libmedia encoder module is shipped. libmedia is licensed under the
+GNU Lesser General Public License 3.0 or later. The complete license,
+corresponding-source reference, package integrity and per-file checksums are
+embedded in `static/vendor-libmedia/`.
+
+Source project: `zhaohappy/libmedia`
+
 ## RomM
 
 RomM is used as a product/architecture research reference for metadata-provider breadth, library-management concepts, BIOS/save workflows and community feature requests. RomM is AGPL-3.0; StormFlix does **not** copy RomM implementation source into its native Games module. Concepts are reimplemented behind StormFlix-owned Go/SQLite/Web interfaces.

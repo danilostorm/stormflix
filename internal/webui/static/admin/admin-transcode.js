@@ -1,4 +1,4 @@
-/* StormFlix Admin: Playback Engine v6 / adaptive decode diagnostics. */
+/* StormFlix Admin: Playback Engine v7 / adaptive local-origin diagnostics. */
 (function(){
   let timer=null;
   let observer=null;
@@ -27,7 +27,7 @@
     if(root)return root;
     const section=document.createElement('section');
     section.className='panel';section.id='automation-transcode-v5';
-    section.innerHTML='<div class="panel-head"><div><h2>Reprodução · Playback Engine v6</h2><p>Direct Play vem primeiro. HEVC incompatível pode ser decodificado localmente no navegador por WASM/WebCodecs; o servidor transcodifica vídeo somente quando as rotas anteriores não servem.</p></div><span class="mode-chip">carregando</span></div><div data-transcode-body><small>Lendo capacidades, FFmpeg, hardware e sessões…</small></div>';
+    section.innerHTML='<div class="panel-head"><div><h2>Reprodução · Playback Engine v7</h2><p>Direct Play vem primeiro. Um desktop compatível recebe o arquivo original por HTTP Range e usa WebCodecs/WASM localmente; o servidor só usa FFmpeg no fallback.</p></div><span class="mode-chip">carregando</span></div><div data-transcode-body><small>Lendo capacidades, FFmpeg e sessões…</small></div>';
     const playback=document.querySelector('#automation-playbacks')?.closest('section.panel');
     if(playback?.parentElement)playback.parentElement.insertBefore(section,playback);
     else page.appendChild(section);
@@ -38,11 +38,13 @@
     const secure=Boolean(window.isSecureContext||location.hostname==='localhost'||location.hostname==='127.0.0.1');
     const webcodecs=typeof VideoEncoder==='function'&&typeof VideoDecoder==='function';
     const wasm=typeof WebAssembly==='object'&&typeof Worker==='function';
+    let simd=false;try{simd=WebAssembly.validate(Uint8Array.from(atob('AGFzbQEAAAABBQFgAAF7AhIBA2VudgZtZW1vcnkCAwGAgAIDAgEACgoBCABBAP0ABAAL'),c=>c.charCodeAt(0)))}catch{}
+    let webgl=false;try{const canvas=document.createElement('canvas');webgl=Boolean(canvas.getContext('webgl2')||canvas.getContext('webgl'))}catch{}
     const kind=localDecodeClientKind();
     const cores=Math.max(1,Number(navigator.hardwareConcurrency||2));
     const memory=Math.max(0,Number(navigator.deviceMemory||0));
     const maxHeight=cores>=12&&(memory===0||memory>=8)?2160:cores>=6?1080:720;
-    return{kind,desktop:kind==='web',secure,webcodecs,wasm,cores,memory,maxHeight};
+    return{kind,desktop:kind==='web',secure,webcodecs,wasm,simd,webgl,cores,memory,maxHeight};
   }
 
   async function refresh(){
@@ -55,16 +57,16 @@
       const playbackBySession=new Map((playbacks||[]).map(p=>[String(p.playback_session_id||''),p]));
       const local=browserLocalSummary();
       const chip=root.querySelector('.mode-chip');
-      if(chip)chip.textContent=`v6 · ${Number(resources.active||0)}/${Number(resources.total_limit||0)} FFmpeg`;
+      if(chip)chip.textContent=`v7 · ${Number(resources.active||0)}/${Number(resources.total_limit||0)} FFmpeg`;
       const body=root.querySelector('[data-transcode-body]');if(!body)return;
       body.innerHTML=`
         <div class="technical-meter">
           <div><b>${local.desktop?'AUTOMÁTICO':'FALLBACK'}</b><span>Decisão local interna</span></div>
-          <div><b>${local.desktop&&local.secure&&local.webcodecs&&local.wasm?'PRONTO':'FALLBACK'}</b><span>Desktop / WebCodecs / HTTPS</span></div>
+          <div><b>${local.desktop&&local.secure&&local.webcodecs&&local.wasm&&local.simd&&local.webgl?'PRONTO':'FALLBACK'}</b><span>Desktop / WebCodecs / SIMD / HTTPS</span></div>
           <div><b>${local.desktop?local.maxHeight+'p':'NATIVO'}</b><span>Limite local automático</span></div>
           <div><b>${html(engineName(engine))}</b><span>Aceleração do servidor</span></div>
         </div>
-        <p class="phase2-hint">Cliente: ${html(localClientLabel(local.kind))} · ${local.cores||'—'} threads · ${local.memory?local.memory+' GB RAM estimada':'RAM não informada'} · HTTPS/contexto seguro: ${local.secure?'sim':'não'} · WebCodecs: ${local.webcodecs?'sim':'não'}. A rota é automática e não possui controle de usuário: Direct Play vem primeiro e um desktop capaz tenta HEVC local, inclusive até 3840×2160, antes do transcode de vídeo. HDR local permanece conservador/desativado; HDR incompatível continua no caminho seguro de tone mapping do servidor.</p>
+        <p class="phase2-hint">Cliente: ${html(localClientLabel(local.kind))} · ${local.cores||'—'} threads · ${local.memory?local.memory+' GB RAM estimada':'RAM não informada'} · HTTPS/contexto seguro: ${local.secure?'sim':'não'} · WebCodecs: ${local.webcodecs?'sim':'não'}. A rota é automática e não possui controle de usuário: Direct Play vem primeiro; depois o desktop capaz tenta demux e decode do arquivo original localmente. HDR continua conservador e usa o fallback seguro até a validação em aparelhos reais.</p>
         <div class="technical-meter">
           <div><b>${html(engine.preferred_h264||'—')}</b><span>Encoder H.264 servidor</span></div>
           <div><b>${html(engine.ffmpeg_version||'não detectado')}</b><span>FFmpeg</span></div>
@@ -77,7 +79,7 @@
           <div><b>${Number(resources.cpu_thread_limit||0)}</b><span>Threads CPU por processo</span></div>
           <div><b>${Number(resources.waiters||0)}</b><span>Sessões aguardando recurso</span></div>
         </div>
-        ${sessions.length||webSessions.length?`<div class="playback-diagnostic-grid">${sessions.map(s=>sessionCard(s,playbackBySession.get(String(s.id||'')))).join('')}${webSessions.map(s=>webSessionCard(s,playbackBySession.get(String(s.id||'')))).join('')}</div>`:'<p><small>Nenhuma sessão FFmpeg ativa. Direct Play nativo não cria processo; uma rota WASM local aparece como vídeo copiado no streaming contínuo.</small></p>'}
+        ${sessions.length||webSessions.length?`<div class="playback-diagnostic-grid">${sessions.map(s=>sessionCard(s,playbackBySession.get(String(s.id||'')))).join('')}${webSessions.map(s=>webSessionCard(s,playbackBySession.get(String(s.id||'')))).join('')}</div>`:'<p><small>Nenhuma sessão FFmpeg ativa. Direct Play e local-origin entregam bytes diretamente e não criam processo no servidor.</small></p>'}
       `;
     }catch(err){const body=root.querySelector('[data-transcode-body]');if(body)body.innerHTML=`<p class="offline">${html(err.message||err)}</p>`}
   }
