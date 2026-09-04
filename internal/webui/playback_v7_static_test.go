@@ -23,7 +23,7 @@ func TestPlaybackV7OriginalFileRuntimeIsAutomaticAndHidden(t *testing.T) {
 			t.Fatalf("Playback v7 core missing %q", want)
 		}
 	}
-	for _, want := range []string{"checkUseMSE:()=>false", "enableWebCodecs:true", "enableWorker:true", "preLoadTime:3", "credentials:'same-origin'", "engine.selectAudio", "engine.selectSubtitle", "engine.destroy"} {
+	for _, want := range []string{"checkUseMSE:()=>false", "enableWebCodecs:true", "enableWorker:true", "preLoadTime:3", "credentials:'same-origin'", "engine.selectAudio", "engine.selectSubtitle", "await old.destroy()"} {
 		if !bytes.Contains(runtime, []byte(want)) {
 			t.Fatalf("Playback v7 local runtime missing %q", want)
 		}
