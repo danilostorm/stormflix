@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "screens": {
+    "music": {
+      "js": "/bundles/music.2789193a0a5510c2.js",
+      "css": "/bundles/music.6308344040def4fd.css"
+    },
+    "games": {
+      "js": "/bundles/games.695c413c99b2676c.js",
+      "css": "/bundles/games.5eb611f32c76a70a.css"
+    }
+  }
+}

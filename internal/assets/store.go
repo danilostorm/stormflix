@@ -2,16 +2,21 @@ package assets
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/danilostorm/stormflix/internal/transcode"
 )
 
 const maxAssetBytes int64 = 25 << 20
@@ -21,6 +26,90 @@ type Store struct {
 	Root          string
 	PublicBaseURL string
 	client        *http.Client
+}
+
+// Variant returns a cached, source-versioned responsive image. Generation is
+// globally bounded so opening Home cannot create an FFmpeg process storm.
+func (s *Store) Variant(ctx context.Context, key string, width int, accept string) (string, string, bool) {
+	width = responsiveWidth(width)
+	format := responsiveFormat(accept)
+	if width == 0 || format == "" {
+		return "", "", false
+	}
+	source, err := s.Resolve(key)
+	if err != nil {
+		return "", "", false
+	}
+	info, err := os.Stat(source)
+	if err != nil || info.IsDir() {
+		return "", "", false
+	}
+	ext := strings.ToLower(filepath.Ext(source))
+	if ext == ".svg" || ext == ".gif" {
+		return "", "", false
+	}
+	root, _ := s.Snapshot()
+	fingerprint := fmt.Sprintf("%s|%d|%d|%d|%s", filepath.ToSlash(key), info.Size(), info.ModTime().UnixNano(), width, format)
+	name := fmt.Sprintf("%x.%s", sha256.Sum256([]byte(fingerprint)), format)
+	target := filepath.Join(root, "_variants", name)
+	if _, err := os.Stat(target); err == nil {
+		return target, "image/" + format, true
+	}
+	release, _, err := transcode.AcquireProcess(ctx, false)
+	if err != nil {
+		return "", "", false
+	}
+	defer release()
+	if _, err := os.Stat(target); err == nil {
+		return target, "image/" + format, true
+	}
+	ffmpeg, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		return "", "", false
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return "", "", false
+	}
+	temporary := target + ".tmp." + strconv.FormatInt(time.Now().UnixNano(), 10) + "." + format
+	args := []string{"-nostdin", "-hide_banner", "-loglevel", "error", "-i", source, "-vf", fmt.Sprintf("scale='min(%d,iw)':-2", width), "-frames:v", "1"}
+	if format == "avif" {
+		args = append(args, "-c:v", "libaom-av1", "-still-picture", "1", "-crf", "34", "-cpu-used", "6")
+	} else {
+		args = append(args, "-c:v", "libwebp", "-quality", "78")
+	}
+	args = append(args, "-y", temporary)
+	if _, err := exec.CommandContext(ctx, ffmpeg, args...).CombinedOutput(); err != nil {
+		_ = os.Remove(temporary)
+		return "", "", false
+	}
+	if err := os.Rename(temporary, target); err != nil {
+		_ = os.Remove(temporary)
+		return "", "", false
+	}
+	return target, "image/" + format, true
+}
+
+func responsiveWidth(value int) int {
+	for _, width := range []int{240, 360, 500, 780, 1280} {
+		if value <= width {
+			if value > 0 {
+				return width
+			}
+			return 0
+		}
+	}
+	return 1280
+}
+
+func responsiveFormat(accept string) string {
+	accept = strings.ToLower(accept)
+	if strings.Contains(accept, "image/avif") {
+		return "avif"
+	}
+	if strings.Contains(accept, "image/webp") {
+		return "webp"
+	}
+	return ""
 }
 
 func New(root, publicBaseURL string) (*Store, error) {

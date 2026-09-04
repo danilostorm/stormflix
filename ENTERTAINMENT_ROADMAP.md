@@ -292,6 +292,8 @@ Música
 
 Every rail remains profile/library permission-aware and must be cheap to render from local cached state.
 
+Performance Foundation v3 completes the Home Query v2 baseline: bounded/batched projection reads, content-addressed optional screen bundles, responsive AVIF/WebP artwork, production first-content telemetry and a 50,000-title CI regression. Real Unraid/browser p95 remains continuously observed in Admin because CI cannot reproduce the deployment's rclone latency and client GPU/rendering path.
+
 # Definition of done for roadmap features
 
 A feature is not considered production-ready until:

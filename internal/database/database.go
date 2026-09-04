@@ -102,6 +102,12 @@ func sqliteDSN(path string) (string, error) {
 		"foreign_keys(ON)",
 		"busy_timeout(5000)",
 		"wal_autocheckpoint(1000)",
+		// Home Query v2 uses bounded window queries. Keep their temporary
+		// B-trees in memory and give each of the four pooled connections a
+		// modest page cache instead of spilling hot catalog pages to disk.
+		"temp_store(MEMORY)",
+		"cache_size(-32768)",
+		"mmap_size(268435456)",
 	} {
 		query.Add("_pragma", pragma)
 	}

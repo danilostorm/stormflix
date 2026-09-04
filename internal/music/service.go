@@ -16,13 +16,16 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/danilostorm/stormflix/internal/workload"
 )
 
 type Service struct {
-	db      *sql.DB
-	client  *http.Client
-	indexMu sync.Mutex
+	db       *sql.DB
+	client   *http.Client
+	indexMu  sync.Mutex
 	indexing bool
+	gate     *workload.Gate
 }
 
 type Track struct {
@@ -93,7 +96,7 @@ type AgentStatus struct {
 }
 
 func NewService(db *sql.DB) *Service {
-	return &Service{db: db, client: &http.Client{Timeout: 20 * time.Second}}
+	return &Service{db: db, client: &http.Client{Timeout: 20 * time.Second}, gate: workload.For(db)}
 }
 
 func (s *Service) Agents() []AgentStatus {
@@ -188,7 +191,9 @@ func (s *Service) Home(ctx context.Context, profileID int64, allowedLibraryIDs [
 	for _, album := range albumMap {
 		out.RecentlyAddedAlbums = append(out.RecentlyAddedAlbums, *album)
 	}
-	sort.SliceStable(out.RecentlyAddedAlbums, func(i, j int) bool { return out.RecentlyAddedAlbums[i].ModifiedUnix > out.RecentlyAddedAlbums[j].ModifiedUnix })
+	sort.SliceStable(out.RecentlyAddedAlbums, func(i, j int) bool {
+		return out.RecentlyAddedAlbums[i].ModifiedUnix > out.RecentlyAddedAlbums[j].ModifiedUnix
+	})
 	if len(out.RecentlyAddedAlbums) > 30 {
 		out.RecentlyAddedAlbums = out.RecentlyAddedAlbums[:30]
 	}
@@ -421,6 +426,9 @@ func (s *Service) indexMissing(ctx context.Context) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		if err := s.gate.Wait(ctx, "music_index", nil); err != nil {
+			return err
+		}
 		probeCtx, cancel := context.WithTimeout(ctx, 35*time.Second)
 		data, probeErr := probeTrack(probeCtx, item.path)
 		cancel()
@@ -452,7 +460,10 @@ func (s *Service) enrichMissingAlbums(ctx context.Context, limit int) error {
 	if err != nil {
 		return err
 	}
-	type candidate struct{ key, title, artist string; year int }
+	type candidate struct {
+		key, title, artist string
+		year               int
+	}
 	seen := map[string]bool{}
 	candidates := []candidate{}
 	for _, track := range tracks {
@@ -478,6 +489,9 @@ func (s *Service) enrichMissingAlbums(ctx context.Context, limit int) error {
 	}
 	for i, candidate := range candidates {
 		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := s.gate.Wait(ctx, "music_enrichment", nil); err != nil {
 			return err
 		}
 		mbid, matchedTitle, matchedArtist, year := s.searchMusicBrainzRelease(ctx, candidate.title, candidate.artist)
@@ -519,9 +533,9 @@ func (s *Service) searchMusicBrainzRelease(ctx context.Context, album, artist st
 	}
 	var result struct {
 		Releases []struct {
-			ID     string `json:"id"`
-			Title  string `json:"title"`
-			Date   string `json:"date"`
+			ID           string `json:"id"`
+			Title        string `json:"title"`
+			Date         string `json:"date"`
 			ArtistCredit []struct {
 				Name string `json:"name"`
 			} `json:"artist-credit"`

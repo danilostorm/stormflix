@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	stormdb "github.com/danilostorm/stormflix/internal/database"
 	"github.com/danilostorm/stormflix/internal/media"
 )
 
@@ -73,6 +74,11 @@ func (s *server) homeFeed(w http.ResponseWriter, r *http.Request) {
 		releasesTime = time.Since(started)
 	}()
 	wg.Wait()
+	stormdb.ObserveQuery("home.catalog", feedTime, feedErr)
+	stormdb.ObserveQuery("home.continue_watching", continueTime, nil)
+	stormdb.ObserveQuery("home.trending_2d", trendingNowTime, nil)
+	stormdb.ObserveQuery("home.trending_7d", trendingWeekTime, nil)
+	stormdb.ObserveQuery("home.releases", releasesTime, nil)
 	observedCacheState = cacheStatus.State
 	if feedErr != nil {
 		writeError(w, http.StatusInternalServerError, feedErr)

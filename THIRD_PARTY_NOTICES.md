@@ -2,6 +2,12 @@
 
 StormFlix is developed independently. This file records third-party source or visual work that is adapted directly enough to require attribution.
 
+## hls.js
+
+StormFlix self-hosts the official hls.js 1.7.1 browser distribution so HLS playback does not depend on a public CDN at runtime. hls.js is licensed under the Apache License 2.0. The unmodified license is shipped as `vendor-hls-LICENSE.txt` beside the embedded web assets.
+
+Source project: `video-dev/hls.js`, release `v1.7.1`
+
 ## RomMix
 
 The StormFlix Games G2.5 browser interface adapts portions of the visual/interaction language of **RomMix**, including its game-home hero, horizontal game rows, controller-oriented navigation cues and settings presentation. StormFlix keeps its own catalog, authorization, browser playback, saves and server APIs.

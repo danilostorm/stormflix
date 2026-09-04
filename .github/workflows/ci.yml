@@ -29,6 +29,8 @@ jobs:
 
       - name: JavaScript syntax
         run: |
+          node scripts/build-web-bundles.mjs --check
+          node --check internal/webui/static/feature-loader.js
           node --check internal/webui/static/admin/admin.js
           node --check internal/webui/static/admin/admin-browser.js
           node --check internal/webui/static/admin/admin-scanner.js

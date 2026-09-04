@@ -36,3 +36,14 @@ func TestHomeTelemetryKeepsBoundedWindow(t *testing.T) {
 		t.Fatalf("telemetry window is not bounded: %+v", snapshot)
 	}
 }
+
+func TestHomeTelemetryReportsClientFirstContent(t *testing.T) {
+	var telemetry homeTelemetry
+	for i := 1; i <= 100; i++ {
+		telemetry.ObserveClient(time.Duration(i)*time.Millisecond, time.Duration(i/2)*time.Millisecond, 10*time.Millisecond)
+	}
+	snapshot := telemetry.Snapshot()
+	if snapshot.Client.Count != 100 || snapshot.Client.WindowSize != 100 || snapshot.Client.FirstContentP95MS < 94 || snapshot.Client.FirstContentP95MS > 96 {
+		t.Fatalf("unexpected client telemetry: %+v", snapshot.Client)
+	}
+}

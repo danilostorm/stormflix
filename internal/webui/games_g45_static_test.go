@@ -10,8 +10,8 @@ func TestGamesG410KeepsNativeHomeAuthoritative(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read index.html: %v", err)
 	}
-	if !bytes.Contains(index, []byte(`/games-g45-home-compat.js?v=g410`)) {
-		t.Fatal("Games G4.10 Home paint gate is not cache-busted/loaded")
+	if !bytes.Contains(index, []byte(`/feature-loader.js`)) {
+		t.Fatal("Games G4.10 screen bundle loader is not loaded")
 	}
 
 	js, err := Static.ReadFile("static/games-g45-home-compat.js")

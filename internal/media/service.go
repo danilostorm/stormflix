@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+
+	"github.com/danilostorm/stormflix/internal/workload"
 )
 
 type Item struct {
@@ -51,6 +53,7 @@ type StreamItem struct {
 type Service struct {
 	db        *sql.DB
 	lifecycle context.Context
+	gate      *workload.Gate
 
 	projectionMu         sync.Mutex
 	projectionRefreshMu  sync.Mutex
@@ -63,7 +66,7 @@ func NewServiceWithContext(lifecycle context.Context, db *sql.DB) *Service {
 	if lifecycle == nil {
 		lifecycle = context.Background()
 	}
-	return &Service{db: db, lifecycle: lifecycle}
+	return &Service{db: db, lifecycle: lifecycle, gate: workload.For(db)}
 }
 
 func (s *Service) List(ctx context.Context, libraryID int64, query string, limit, offset int, allowedLibraryIDs []int64) ([]Item, error) {

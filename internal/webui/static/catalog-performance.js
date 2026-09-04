@@ -11,6 +11,17 @@
   const SNAPSHOT_PREFIX='stormflix.home.snapshot.v3:';
   const SNAPSHOT_TTL=10*60*1000;
   let instantFeed=null;
+  const pageStarted=performance.now();
+  let homeRequestStarted=0,homeResponseMS=0,homeMetricSent=false;
+
+  function reportFirstContent(renderStarted){
+    if(homeMetricSent)return;homeMetricSent=true;
+    requestAnimationFrame(()=>{
+      const firstContent=Math.max(0,performance.now()-pageStarted),render=Math.max(0,performance.now()-renderStarted);
+      if(!baseRequest)return;
+      baseRequest('/telemetry/home',{method:'POST',body:JSON.stringify({first_content_ms:firstContent,response_ms:homeResponseMS,render_ms:render})}).catch(()=>{});
+    });
+  }
 
   cardHTML=function(item,urgent=false){
     let html=baseCardHTML(item);
@@ -95,19 +106,23 @@
 
   function paintSnapshot(value){
     if(!value)return false;
+    const renderStarted=performance.now();
     instantFeed=value;
     document.title=value.server_name||document.title||'StormFlix';
     renderHero(value.hero);
     renderRows(value.rows||[]);
     window.dispatchEvent(new CustomEvent('stormflix:home-snapshot-painted'));
+    reportFirstContent(renderStarted);
     return true;
   }
 
   if(baseRequest){
     request=async function(path,opt={}){
+      const started=path==='/home'?performance.now():0;
       const value=await baseRequest(path,opt);
       const method=String(opt.method||'GET').toUpperCase();
       if(path==='/home'&&method==='GET'){
+        homeResponseMS=Math.max(0,performance.now()-started);
         instantFeed=value;
         storeSnapshot(value);
         window.dispatchEvent(new CustomEvent('stormflix:home-fresh',{detail:{rows:value?.rows?.length||0}}));
@@ -118,9 +133,10 @@
 
   if(baseLoadHome){
     loadHome=async function(){
+      homeRequestStarted=performance.now();
       const cached=readSnapshot();
       if(cached)paintSnapshot(cached);
-      try{return await baseLoadHome()}
+      try{const value=await baseLoadHome();if(!homeMetricSent)reportFirstContent(homeRequestStarted);return value}
       catch(err){if(cached)return cached;throw err}
     };
   }

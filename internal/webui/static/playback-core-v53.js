@@ -13,13 +13,33 @@
   let localDecodeRuntimeFailed=false;
   let hevcSupportPromise=null;
   let hevcSupportHandle=null;
+  let startupMetrics={plan_ms:0,first_frame_ms:0,startup_ms:0,stall_count:0,last_stall_ms:0};
+  let stallStartedAt=0;
   let preferredQuality=normalizeQuality(localStorage.getItem('stormflix.player.quality')||'auto');
 
   const START_TIMEOUT_MS=14000;
-  const HEVC_PLUGIN_URL='https://esm.sh/@hevcjs/hlsjs-plugin@0.1.2';
-  const HEVC_CORE_BASE='https://unpkg.com/@hevcjs/core@1.4.2/dist';
+  const HLS_LOCAL_URL='/vendor-hls-1.7.1.min.js';
+  const HEVC_PLUGIN_URL='/vendor-hevc-hls-plugin-0.1.2.js';
+  const HEVC_WORKER_URL='/vendor-hevc-transcode-worker-1.4.2.js';
+  const HEVC_WASM_GLUE_URL='/vendor-hevc-decode-1.4.2.js';
+  const HEVC_WASM_BINARY_URL='/vendor-hevc-decode-1.4.2.wasm';
 
   function canPlay(mediaType){try{return Boolean(player.canPlayType(mediaType))}catch{return false}}
+
+  function beginStartupMetrics(){
+    startupMetrics={started_at:performance.now(),plan_ms:0,first_frame_ms:0,startup_ms:0,stall_count:0,last_stall_ms:0};
+    window.sfPlaybackStartupMetrics=startupMetrics;
+  }
+  async function finishStartupMetrics(){
+    if(typeof player.requestVideoFrameCallback==='function'){
+      await new Promise(resolve=>{let done=false;const finish=()=>{if(done)return;done=true;resolve()};player.requestVideoFrameCallback(finish);setTimeout(finish,250)});
+    }
+    const elapsed=Math.max(0,performance.now()-Number(startupMetrics.started_at||performance.now()));
+    startupMetrics.first_frame_ms=elapsed;startupMetrics.startup_ms=elapsed;window.sfPlaybackStartupMetrics=startupMetrics;
+  }
+
+  player.addEventListener('waiting',()=>{if(activeItem&&!stallStartedAt)stallStartedAt=performance.now()});
+  player.addEventListener('playing',()=>{if(!stallStartedAt)return;startupMetrics.stall_count=Number(startupMetrics.stall_count||0)+1;startupMetrics.last_stall_ms=Math.max(0,performance.now()-stallStartedAt);stallStartedAt=0;window.sfPlaybackStartupMetrics=startupMetrics});
 
   function normalizeQuality(value){
     value=String(value||'').trim().toLowerCase();
@@ -177,7 +197,7 @@
     if(window.Hls)return Promise.resolve(window.Hls);
     if(hlsLibraryPromise)return hlsLibraryPromise;
     hlsLibraryPromise=new Promise((resolve,reject)=>{
-      const script=document.createElement('script');script.src='https://cdn.jsdelivr.net/npm/hls.js@1.7.1/dist/hls.min.js';script.async=true;script.dataset.stormflixHls='1';
+      const script=document.createElement('script');script.src=HLS_LOCAL_URL;script.async=true;script.dataset.stormflixHls='1';
       script.onload=()=>window.Hls?resolve(window.Hls):reject(new Error('hls.js não inicializou'));script.onerror=()=>reject(new Error('hls.js indisponível'));document.head.appendChild(script);
     }).catch(err=>{hlsLibraryPromise=null;throw err});
     return hlsLibraryPromise;
@@ -188,12 +208,18 @@
     if(hevcSupportPromise)return hevcSupportPromise;
     const caps=browserLocalDecodeCapabilities();
     if(!caps.hevc_wasm)throw new Error('Este navegador não oferece os recursos seguros necessários para decode HEVC local.');
-    hevcSupportPromise=import(HEVC_PLUGIN_URL).then(async mod=>{
+    hevcSupportPromise=new Promise((resolve,reject)=>{
+      if(globalThis.HevcHls)return resolve(globalThis.HevcHls);
+      const script=document.createElement('script');script.src=HEVC_PLUGIN_URL;script.async=true;script.dataset.stormflixHevc='1';
+      script.onload=()=>globalThis.HevcHls?resolve(globalThis.HevcHls):reject(new Error('Runtime HEVC WASM não inicializou'));
+      script.onerror=()=>reject(new Error('Runtime HEVC WASM local indisponível'));
+      document.head.appendChild(script);
+    }).then(async mod=>{
       if(typeof mod?.attachHevcSupport!=='function')throw new Error('Runtime HEVC WASM inválido.');
       const handle=await mod.attachHevcSupport({
-        workerUrl:`${HEVC_CORE_BASE}/transcode-worker.js`,
-        wasmUrl:`${HEVC_CORE_BASE}/wasm/hevc-decode.js`,
-        wasmBinaryUrl:`${HEVC_CORE_BASE}/wasm/hevc-decode.wasm`,
+        workerUrl:HEVC_WORKER_URL,
+        wasmUrl:HEVC_WASM_GLUE_URL,
+        wasmBinaryUrl:HEVC_WASM_BINARY_URL,
         adaptiveCompute:{
           targetSpeedX:1.25,
           onObservation:(stat,avg,capIndex,reason)=>{
@@ -330,10 +356,11 @@
     const previousSession=options.sessionID||activePlan?.playback_session_id||window.sfPlaybackSessionID||'';
     const hasResume=Number.isFinite(options.resumePosition),requestedPosition=hasResume?Number(options.resumePosition):undefined;
     const requestedAudio=Number.isInteger(options.audioStream)?Number(options.audioStream):null;
-    activeItem=item;if(!options.recovery)runtimeRecoveryCount=0;startupInProgress=true;applyPlanState(null);setHelp('',false);window.sfPlaybackLastError='';
+    activeItem=item;if(!options.recovery)runtimeRecoveryCount=0;startupInProgress=true;beginStartupMetrics();stallStartedAt=0;applyPlanState(null);setHelp('',false);window.sfPlaybackLastError='';
     let plan;
     try{
       plan=await request(`/media/${Number(item.id)}/playback/plan`,{method:'POST',body:JSON.stringify(clientRequest(previousSession,options.quality||preferredQuality,requestedPosition,requestedAudio))});
+      startupMetrics.plan_ms=Math.max(0,performance.now()-startupMetrics.started_at);window.sfPlaybackStartupMetrics=startupMetrics;
     }catch(err){
       if(generation!==planGeneration)return null;startupInProgress=false;window.sfPlaybackLastError=String(err?.message||err);visibleFailure('Não foi possível iniciar este vídeo.');return null;
     }
@@ -350,6 +377,7 @@
       return plan;
     }
     if(generation!==planGeneration)return plan;
+    await finishStartupMetrics();
     startupInProgress=false;setHelp('',false);mediaSession(item);ensurePiPControl();bindPlayerErrors();return plan;
   }
 

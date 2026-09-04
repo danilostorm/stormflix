@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/danilostorm/stormflix/internal/markerdetect"
+	"github.com/danilostorm/stormflix/internal/workload"
 )
 
 var markerAnalyzerOnce sync.Once
@@ -24,12 +25,12 @@ var markerAnalyzerKick = make(chan struct{}, 1)
 var mediaAnalysisBudget sync.Mutex
 
 type markerSeason struct {
-	LibraryID  int64
-	Library    string
-	SeriesKey  string
+	LibraryID   int64
+	Library     string
+	SeriesKey   string
 	SeriesTitle string
-	Season     int
-	Size       int
+	Season      int
+	Size        int
 }
 
 type markerEpisode struct {
@@ -104,9 +105,8 @@ func (s *server) kickMarkerAnalyzer() {
 }
 
 func (s *server) markerAnalysisPlaybackBusy(ctx context.Context) bool {
-	var active int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM playback_sessions WHERE last_seen_at>=datetime('now','-90 seconds')`).Scan(&active)
-	return err == nil && active > 0
+	active, err := workload.For(s.db).Active(ctx)
+	return err == nil && active
 }
 
 func (s *server) nextIntroSeason(ctx context.Context) (markerSeason, error) {
@@ -409,16 +409,16 @@ WHERE m.available=1 AND si.series_key<>'' AND si.episode_number>0
 	_ = s.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM marker_analysis_jobs WHERE status='running'`).Scan(&running)
 	_, ffmpegErr := exec.LookPath("ffmpeg")
 	writeJSON(w, http.StatusOK, map[string]any{
-		"automatic": true,
-		"ready": ffmpegErr == nil,
-		"eligible_episodes": eligible,
-		"detected": detected,
-		"no_match": noMatch,
-		"pending": pending,
-		"failed": failed,
-		"running_jobs": running,
+		"automatic":           true,
+		"ready":               ffmpegErr == nil,
+		"eligible_episodes":   eligible,
+		"detected":            detected,
+		"no_match":            noMatch,
+		"pending":             pending,
+		"failed":              failed,
+		"running_jobs":        running,
 		"pauses_for_playback": true,
-		"method": "season_audio_fingerprint",
+		"method":              "season_audio_fingerprint",
 	})
 }
 

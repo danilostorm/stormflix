@@ -77,6 +77,16 @@ func (s *Service) runLibraryErrorJob(jobID, libraryID int64) {
 
 	processed, matched, failed := 0, 0, 0
 	for _, item := range items {
+		if err := s.gate.Wait(ctx, "video_metadata_retry", func(paused bool) {
+			message := item.title
+			if paused {
+				message = "Pausado para priorizar reprodução ativa"
+			}
+			s.updateProgress(ctx, jobID, processed, matched, failed, message)
+		}); err != nil {
+			s.finishJob(ctx, jobID, "failed", err.Error())
+			return
+		}
 		if err := s.RefreshMediaSmart(ctx, item.id); err != nil {
 			failed++
 		} else {

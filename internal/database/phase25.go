@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-const currentSchemaVersion = 25
+const phase25Version = 25
 
 // Phase 25 adds a rebuildable read model for Home cards. Physical media rows
 // remain authoritative; this projection only prevents every Home request from
@@ -143,14 +143,14 @@ END;
 	if _, err := tx.Exec(schema); err != nil {
 		return fmt.Errorf("migrate phase25 catalog projection: %w", err)
 	}
-	if err := recordMigration(tx, currentSchemaVersion, "catalog-home-projection", "phase25-v1"); err != nil {
+	if err := recordMigration(tx, phase25Version, "catalog-home-projection", "phase25-v1"); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version=%d", currentSchemaVersion)); err != nil {
+	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version=%d", phase25Version)); err != nil {
 		return fmt.Errorf("set sqlite user_version: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("migrate phase25 commit: %w", err)
 	}
-	return nil
+	return migratePhase26(db)
 }

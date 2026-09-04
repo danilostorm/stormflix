@@ -128,6 +128,16 @@ WHERE si.library_id=? AND si.series_key=? AND m.available=1 ORDER BY si.season_n
 	}
 	processed, matched, failed := 0, 0, 0
 	for _, item := range items {
+		if err := s.gate.Wait(ctx, "series_metadata", func(paused bool) {
+			message := "reorganizando " + firstNonEmpty(item.SeriesTitle, item.Title)
+			if paused {
+				message = "Pausado para priorizar reprodução ativa"
+			}
+			s.updateProgress(ctx, jobID, processed, matched, failed, message)
+		}); err != nil {
+			s.finishJob(ctx, jobID, "failed", err.Error())
+			return
+		}
 		parsed := item.Parsed()
 		label := fmt.Sprintf("T%02d E%02d", maxInt(parsed.Season, 1), maxInt(parsed.Episode, processed+1))
 		result, lookupErr := tmdb.tv(ctx, tmdbID, parsed)

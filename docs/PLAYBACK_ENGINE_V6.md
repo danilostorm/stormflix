@@ -73,7 +73,7 @@ by `STORMFLIX_MAX_FFMPEG_PROCESSES`, `STORMFLIX_MAX_VIDEO_TRANSCODES` and
 
 ## Runtime failure fallback
 
-If the local runtime cannot initialize, its CDN assets cannot be loaded, hls.js reports a fatal media error, or playback cannot reach the first frame, the Web client marks local decode unavailable for that runtime session and asks PlaybackPlan again. The second plan naturally selects the existing server compatibility/transcode path.
+If the local runtime cannot initialize, its self-hosted assets cannot be loaded, hls.js reports a fatal media error, or playback cannot reach the first frame, the Web client marks local decode unavailable for that runtime session and asks PlaybackPlan again. The second plan naturally selects the existing server compatibility/transcode path.
 
 There is no silent retry loop that continually reselects a known-failed local runtime.
 
@@ -91,7 +91,7 @@ The quality menu does not expose local-decode controls. Admin → Reprodução/T
 
 ## Third-party runtime delivery
 
-The v6 implementation pins exact hevc.js package versions but, in this first delivery, loads the plugin/Worker/WASM assets from public package CDNs on first local-decode use. The normal server transcode path remains available if those assets are unreachable. A later hardening step may cache/self-host these pinned assets similarly to the Games runtime.
+The v6 implementation pins and embeds the exact hls.js/hevc.js plugin, Worker, JavaScript glue and WASM artifacts. CI verifies their SHA-256 checksums and the Web startup path contains no jsDelivr, esm.sh or unpkg dependency. The normal server transcode path remains available if local initialization fails.
 
 See `THIRD_PARTY_NOTICES.md` for the hevc.js MIT license notice.
 

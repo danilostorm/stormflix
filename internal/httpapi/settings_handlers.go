@@ -1,14 +1,18 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/danilostorm/stormflix/internal/assets"
 	"github.com/danilostorm/stormflix/internal/config"
 	"github.com/danilostorm/stormflix/internal/music"
 	appsettings "github.com/danilostorm/stormflix/internal/settings"
+	"github.com/danilostorm/stormflix/internal/workload"
 )
 
 func (s *server) getSettings(w http.ResponseWriter, r *http.Request) {
@@ -98,6 +102,18 @@ func (s *server) serveAsset(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
+	}
+	if width, parseErr := strconv.Atoi(r.URL.Query().Get("w")); parseErr == nil && width > 0 {
+		active, _ := workload.For(s.db).Active(r.Context())
+		if !active {
+			variantContext, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+			defer cancel()
+			if variant, contentType, ok := s.assets.Variant(variantContext, key, width, r.Header.Get("Accept")); ok {
+				path = variant
+				w.Header().Set("Content-Type", contentType)
+				w.Header().Set("Vary", "Accept")
+			}
+		}
 	}
 	// Local /assets is authenticated, so keep shared caches out while allowing
 	// the browser to reuse artwork aggressively. A configured AssetPublicBaseURL

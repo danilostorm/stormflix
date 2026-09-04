@@ -2,6 +2,7 @@ package webui
 
 import (
 	"bytes"
+	"os"
 	"testing"
 )
 
@@ -162,22 +163,22 @@ func TestGamesG4CSSKeepsCanvasContainedAndTouchOverlayNonCropping(t *testing.T) 
 }
 
 func TestGamesG4ReplacesLegacyG3RuntimeInIndex(t *testing.T) {
-	index, err := Static.ReadFile("static/index.html")
+	bundleScript, err := os.ReadFile("../../scripts/build-web-bundles.mjs")
 	if err != nil {
 		t.Fatalf("read index.html: %v", err)
 	}
 	for _, required := range [][]byte{
-		[]byte(`/games-player.js?v=g4`),
-		[]byte(`/games-g4-session.js?v=g4`),
-		[]byte(`/games-g4.js?v=g4`),
-		[]byte(`/games-g4.css?v=g4`),
-		[]byte(`/games-g42.css?v=g42`),
+		[]byte(`'games-player.js'`),
+		[]byte(`'games-g4-session.js'`),
+		[]byte(`'games-g4.js'`),
+		[]byte(`'games-g4.css'`),
+		[]byte(`'games-g42.css'`),
 	} {
-		if !bytes.Contains(index, required) {
+		if !bytes.Contains(bundleScript, required) {
 			t.Fatalf("Games G4 index missing %q", required)
 		}
 	}
-	if bytes.Contains(index, []byte(`/games-g3.js`)) {
+	if bytes.Contains(bundleScript, []byte(`'games-g3.js'`)) {
 		t.Fatal("legacy games-g3.js must not run alongside the G4 input owner")
 	}
 }

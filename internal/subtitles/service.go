@@ -12,6 +12,7 @@ import (
 
 	"github.com/danilostorm/stormflix/internal/assets"
 	"github.com/danilostorm/stormflix/internal/config"
+	"github.com/danilostorm/stormflix/internal/workload"
 )
 
 type Service struct {
@@ -20,6 +21,7 @@ type Service struct {
 	providers []Provider
 	mu        sync.Mutex
 	running   map[int64]bool
+	gate      *workload.Gate
 }
 
 type Job struct {
@@ -53,13 +55,14 @@ type Item struct {
 
 func NewService(db *sql.DB, cfg config.Config, store *assets.Store) *Service {
 	s := &Service{
-		db: db,
+		db:     db,
 		assets: store,
 		providers: []Provider{
 			NewOpenSubtitlesProvider(cfg.OpenSubtitlesAPIKey, cfg.OpenSubtitlesUsername, cfg.OpenSubtitlesPassword, cfg.OpenSubtitlesUserAgent),
 			NewSubDLProvider(cfg.SubDLAPIKey),
 		},
 		running: map[int64]bool{},
+		gate:    workload.For(db),
 	}
 	_, _ = db.Exec(`UPDATE subtitle_jobs SET status='failed',message='server restarted while job was running',finished_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE status IN ('queued','running')`)
 	return s
@@ -143,6 +146,16 @@ func (s *Service) runJob(jobID, libraryID int64, language string) {
 
 	processed, downloaded, failed := 0, 0, 0
 	for _, query := range queries {
+		if err := s.gate.Wait(ctx, "subtitles", func(paused bool) {
+			message := fmt.Sprintf("media %d", query.MediaID)
+			if paused {
+				message = "Pausado para priorizar reprodução ativa"
+			}
+			s.updateProgress(ctx, jobID, processed, downloaded, failed, message)
+		}); err != nil {
+			s.finishJob(ctx, jobID, "failed", err.Error())
+			return
+		}
 		var existing int
 		_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM subtitles WHERE media_id=? AND lower(language) IN (lower(?),lower(?))`, query.MediaID, language, shortLanguage(language)).Scan(&existing)
 		if existing > 0 {

@@ -10,8 +10,8 @@ func TestGamesUsesNativeStormFlixShell(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read index: %v", err)
 	}
-	if !bytes.Contains(index, []byte(`/games-native-shell.css`)) {
-		t.Fatal("Games native-shell stylesheet is not loaded by the StormFlix app")
+	if !bytes.Contains(index, []byte(`/feature-loader.js`)) {
+		t.Fatal("Games native-shell bundle loader is not loaded by the StormFlix app")
 	}
 
 	css, err := Static.ReadFile("static/games-native-shell.css")

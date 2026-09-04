@@ -6,16 +6,16 @@ import (
 )
 
 func TestGamesG44AssetsAreLoaded(t *testing.T) {
-	index, err := Static.ReadFile("static/index.html")
+	manifest, err := Static.ReadFile("static/bundles/manifest.json")
 	if err != nil {
 		t.Fatalf("read index.html: %v", err)
 	}
 	for _, required := range [][]byte{
-		[]byte(`/games-g44.css?v=g44`),
-		[]byte(`/games-g44.js?v=g44`),
+		[]byte(`"games"`),
+		[]byte(`/bundles/games.`),
 	} {
-		if !bytes.Contains(index, required) {
-			t.Fatalf("Games G4.4 index missing %q", required)
+		if !bytes.Contains(manifest, required) {
+			t.Fatalf("Games G4.4 manifest missing %q", required)
 		}
 	}
 }

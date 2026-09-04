@@ -6,15 +6,15 @@ import (
 )
 
 func TestGamesG48HomeDashboardLoaded(t *testing.T) {
-	index, err := Static.ReadFile("static/index.html")
+	manifest, err := Static.ReadFile("static/bundles/manifest.json")
 	if err != nil {
 		t.Fatalf("read index.html: %v", err)
 	}
 	for _, required := range [][]byte{
-		[]byte(`/games-g48-home.css?v=g48`),
-		[]byte(`/games-g48-home.js?v=g48`),
+		[]byte(`"games"`),
+		[]byte(`/bundles/games.`),
 	} {
-		if !bytes.Contains(index, required) {
+		if !bytes.Contains(manifest, required) {
 			t.Fatalf("Games G4.8 asset missing %q", required)
 		}
 	}
