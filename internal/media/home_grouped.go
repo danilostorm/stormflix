@@ -2,7 +2,6 @@ package media
 
 import (
 	"context"
-	"sort"
 	"strconv"
 	"strings"
 )
@@ -15,33 +14,26 @@ func (s *Service) HomeGrouped(ctx context.Context, allowedLibraryIDs []int64, he
 	// physical episode, artwork row and duplicate source on every request.
 	// Projection swaps are atomic, so readers keep receiving the previous good
 	// snapshot while a library scan refreshes the next one in background.
-	items, err := s.catalogEntities(ctx, allowedLibraryIDs)
+	feed, err := s.homeQueryV2(ctx, allowedLibraryIDs, heroMode, serverName, themeEnabled, themeVolume, themeAutoplay)
 	if err != nil {
 		return HomeFeed{}, err
-	}
-	feed := buildHomeFeed(items, heroMode, serverName, themeEnabled, themeVolume, themeAutoplay)
-
-	seriesCards := make([]Item, 0)
-	for _, item := range items {
-		if item.EntityType == "series" {
-			seriesCards = append(seriesCards, item)
-		}
 	}
 	allEpisodes, err := s.recentEpisodesForHome(ctx, allowedLibraryIDs, 24)
 	if err != nil {
 		return HomeFeed{}, err
 	}
 
-	rows := make([]HomeRow, 0, len(feed.Rows)+2)
-	if len(seriesCards) > 0 {
-		sort.SliceStable(seriesCards, func(i, j int) bool { return seriesCards[i].ModifiedUnix > seriesCards[j].ModifiedUnix })
-		rows = append(rows, HomeRow{ID: "series-recent", Title: "Séries adicionadas recentemente", Items: capItems(seriesCards, 24)})
+	rows := make([]HomeRow, 0, len(feed.Rows)+1)
+	for _, row := range feed.Rows {
+		rows = append(rows, row)
+		if row.ID == "series-recent" && len(allEpisodes) > 0 {
+			rows = append(rows, HomeRow{ID: "episode-recent", Title: "Novos episódios", Items: capItems(allEpisodes, 24)})
+			allEpisodes = nil
+		}
 	}
 	if len(allEpisodes) > 0 {
-		sort.SliceStable(allEpisodes, func(i, j int) bool { return allEpisodes[i].ModifiedUnix > allEpisodes[j].ModifiedUnix })
-		rows = append(rows, HomeRow{ID: "episode-recent", Title: "Novos episódios", Items: capItems(allEpisodes, 24)})
+		rows = append([]HomeRow{{ID: "episode-recent", Title: "Novos episódios", Items: capItems(allEpisodes, 24)}}, rows...)
 	}
-	rows = append(rows, feed.Rows...)
 	feed.Rows = dedupeHomeRows(rows)
 	return feed, nil
 }

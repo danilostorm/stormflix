@@ -105,6 +105,10 @@ func (h *staticHandler) asset(name string) (cachedAsset, error) {
 	}
 	if strings.HasSuffix(strings.ToLower(name), ".html") {
 		asset.cache = "no-cache"
+	} else if name == "bundles/manifest.json" {
+		asset.cache = "no-cache"
+	} else if immutableAssetName(name) {
+		asset.cache = "public, max-age=31536000, immutable"
 	}
 	if len(body) >= 1024 && compressibleContentType(asset.contentType) {
 		var compressed bytes.Buffer
@@ -117,6 +121,27 @@ func (h *staticHandler) asset(name string) (cachedAsset, error) {
 	}
 	actual, _ := h.cache.LoadOrStore(name, asset)
 	return actual.(cachedAsset), nil
+}
+
+func immutableAssetName(name string) bool {
+	base := path.Base(name)
+	if strings.HasPrefix(base, "vendor-") {
+		return true
+	}
+	parts := strings.Split(base, ".")
+	if len(parts) < 3 {
+		return false
+	}
+	hash := parts[len(parts)-2]
+	if len(hash) < 12 {
+		return false
+	}
+	for _, value := range hash {
+		if value < '0' || value > '9' && value < 'a' || value > 'f' {
+			return false
+		}
+	}
+	return true
 }
 
 func staticContentType(name string, body []byte) string {

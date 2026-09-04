@@ -337,6 +337,15 @@ func (s *Service) ScanMulti(ctx context.Context, libraryID int64) (MultiScanResu
 	if len(scannedRoots) == 0 {
 		return MultiScanResult{}, errors.New("nenhuma origem respondeu ao scan; catálogo anterior preservado")
 	}
+	if err := s.gate.Wait(ctx, "media_scan_commit", func(paused bool) {
+		message := "salvando catálogo"
+		if paused {
+			message = "Pausado antes de salvar catálogo para priorizar reprodução ativa"
+		}
+		_, _ = s.db.Exec(`UPDATE scan_jobs SET message=?,updated_at=CURRENT_TIMESTAMP WHERE library_id=? AND status IN ('running','cancelling')`, message, libraryID)
+	}); err != nil {
+		return MultiScanResult{}, err
+	}
 
 	_, _ = s.db.ExecContext(ctx, `UPDATE libraries SET last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, fmt.Sprintf("salvando catálogo · %d arquivos encontrados", len(filesByPath)), libraryID)
 	tx, err := s.db.BeginTx(ctx, nil)

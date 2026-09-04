@@ -83,6 +83,9 @@ func (s *Service) startCatalogProjectionRefresh() {
 		}()
 		ctx, cancel := context.WithTimeout(s.lifecycle, 5*time.Minute)
 		defer cancel()
+		if err := s.gate.Wait(ctx, "catalog_projection", nil); err != nil {
+			return
+		}
 		_ = s.RebuildCatalogProjection(ctx)
 	}()
 }

@@ -49,14 +49,24 @@ async function loadHome(){
   renderRows(feed.rows||[]);
 }
 
+function responsiveImageURL(value,width){
+  value=String(value||'');if(!value||!value.startsWith('/assets/'))return value;
+  try{const url=new URL(value,location.origin);url.searchParams.set('w',String(width));url.searchParams.set('format','auto');return url.pathname+url.search}catch{return value}
+}
+
+function responsiveImageSet(value){
+  if(!String(value||'').startsWith('/assets/'))return'';
+  return [240,360,500,780].map(width=>`${responsiveImageURL(value,width)} ${width}w`).join(',');
+}
+
 function renderHero(item){
   const hero=$('#hero');
   if(!item){hero.classList.add('hidden');return}
   hero.classList.remove('hidden');
   const bg=$('#hero-backdrop');
-  bg.style.backgroundImage=item.backdrop_url?`url("${cssURL(item.backdrop_url)}")`:item.poster_url?`url("${cssURL(item.poster_url)}")`:'none';
+  bg.style.backgroundImage=item.backdrop_url?`url("${cssURL(responsiveImageURL(item.backdrop_url,1280))}")`:item.poster_url?`url("${cssURL(responsiveImageURL(item.poster_url,780))}")`:'none';
   const logo=$('#hero-logo');
-  if(item.logo_url){logo.src=item.logo_url;logo.classList.remove('hidden');$('#hero-title').classList.add('title-with-logo')}
+  if(item.logo_url){logo.src=responsiveImageURL(item.logo_url,500);logo.classList.remove('hidden');$('#hero-title').classList.add('title-with-logo')}
   else{logo.classList.add('hidden');$('#hero-title').classList.remove('title-with-logo')}
   $('#hero-title').textContent=item.title;
   $('#hero-eyebrow').textContent=item.library_name||'Destaque StormFlix';
@@ -80,7 +90,8 @@ function renderRows(rows){
 }
 
 function cardHTML(item){
-  const poster=item.poster_url?`<img src="${escapeHTML(item.poster_url)}" alt="${escapeHTML(item.title)}" loading="lazy">`:`<div class="poster-fallback"><span>STORM<span>FLIX</span></span></div>`;
+  const posterURL=responsiveImageURL(item.poster_url,360),posterSet=responsiveImageSet(item.poster_url);
+  const poster=item.poster_url?`<img src="${escapeHTML(posterURL)}"${posterSet?` srcset="${escapeHTML(posterSet)}" sizes="(max-width: 700px) 38vw, 180px"`:''} alt="${escapeHTML(item.title)}" loading="lazy">`:`<div class="poster-fallback"><span>STORM<span>FLIX</span></span></div>`;
   const badge=item.rating?`<span class="rating">★ ${Number(item.rating).toFixed(1)}</span>`:'';
   return `<article class="media-tile" data-media="${item.id}" tabindex="0"><div class="tile-poster">${poster}<div class="tile-shade"></div><button class="tile-play" data-play="${item.id}" aria-label="Assistir">▶</button></div><div class="tile-info"><strong>${escapeHTML(item.title)}</strong><div><span>${item.year||''}</span>${badge}<span>${escapeHTML(typeLabel(item))}</span></div></div></article>`;
 }

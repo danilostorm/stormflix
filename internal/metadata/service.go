@@ -14,6 +14,7 @@ import (
 
 	"github.com/danilostorm/stormflix/internal/assets"
 	"github.com/danilostorm/stormflix/internal/config"
+	"github.com/danilostorm/stormflix/internal/workload"
 )
 
 type Service struct {
@@ -29,6 +30,7 @@ type Service struct {
 	theme      *ThemeProvider
 	mu         sync.Mutex
 	running    map[int64]bool
+	gate       *workload.Gate
 }
 
 type Job struct {
@@ -48,7 +50,7 @@ type Job struct {
 }
 
 func NewService(db *sql.DB, cfg config.Config, store *assets.Store) *Service {
-	s := &Service{db: db, assets: store, running: map[int64]bool{}}
+	s := &Service{db: db, assets: store, running: map[int64]bool{}, gate: workload.For(db)}
 	s.Configure(cfg)
 	return s
 }
@@ -138,6 +140,16 @@ func (s *Service) runJob(jobID, libraryID int64, refresh bool) {
 	}
 	processed, matched, failed := 0, 0, 0
 	for _, item := range items {
+		if err := s.gate.Wait(ctx, "video_metadata", func(paused bool) {
+			message := firstNonEmpty(item.SeriesTitle, item.Title)
+			if paused {
+				message = "Pausado para priorizar reprodução ativa"
+			}
+			s.updateProgress(ctx, jobID, processed, matched, failed, message)
+		}); err != nil {
+			s.finishJob(ctx, jobID, "failed", err.Error())
+			return
+		}
 		var currentStatus string
 		var manualMatch bool
 		metaErr := s.db.QueryRowContext(ctx, `SELECT status,COALESCE(manual_match,0) FROM media_metadata WHERE media_id=?`, item.ID).Scan(&currentStatus, &manualMatch)

@@ -75,18 +75,16 @@ func TestGamesG43ResponsiveShellAndCinemaChrome(t *testing.T) {
 }
 
 func TestGamesG43AssetsAreLoaded(t *testing.T) {
-	index, err := Static.ReadFile("static/index.html")
+	index, err := Static.ReadFile("static/feature-loader.js")
 	if err != nil {
 		t.Fatalf("read index.html: %v", err)
 	}
 	for _, required := range [][]byte{
-		[]byte(`/games-g43.css?v=g43`),
-		[]byte(`/games-player.js?v=g43`),
-		[]byte(`/games-g4-polish.js?v=g43`),
-		[]byte(`/games-g43-ui.js?v=g43`),
+		[]byte(`manifest.json`),
+		[]byte(`load('games')`),
 	} {
 		if !bytes.Contains(index, required) {
-			t.Fatalf("Games G4.3 index missing %q", required)
+			t.Fatalf("Games G4.3 bundle loader missing %q", required)
 		}
 	}
 }

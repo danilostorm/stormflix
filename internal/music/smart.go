@@ -148,32 +148,32 @@ CREATE INDEX IF NOT EXISTS idx_music_match_status ON music_match_attempts(status
 }
 
 type smartCandidate struct {
-	id                    int64
-	path                  string
-	modified              int64
-	title                 string
-	artist                string
-	albumArtist           string
-	album                 string
-	year                  int
-	genre                 string
-	musicBrainzTrackID    string
-	musicBrainzAlbumID    string
-	musicBrainzArtistID   string
+	id                  int64
+	path                string
+	modified            int64
+	title               string
+	artist              string
+	albumArtist         string
+	album               string
+	year                int
+	genre               string
+	musicBrainzTrackID  string
+	musicBrainzAlbumID  string
+	musicBrainzArtistID string
 }
 
 type smartMatch struct {
-	provider              string
-	confidence            int
-	title                 string
-	artist                string
-	album                 string
-	year                  int
-	genre                 string
-	musicBrainzTrackID    string
-	musicBrainzAlbumID    string
-	musicBrainzArtistID   string
-	coverURL              string
+	provider            string
+	confidence          int
+	title               string
+	artist              string
+	album               string
+	year                int
+	genre               string
+	musicBrainzTrackID  string
+	musicBrainzAlbumID  string
+	musicBrainzArtistID string
+	coverURL            string
 }
 
 func (s *Service) identifySmartTracks(ctx context.Context, limit int) error {
@@ -205,6 +205,9 @@ ORDER BY m.id LIMIT ?`, limit)
 
 	for _, item := range items {
 		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := s.gate.Wait(ctx, "music_identification", nil); err != nil {
 			return err
 		}
 		fileArtist, fileTitle := artistTitleFromFilename(item.path)
@@ -357,8 +360,8 @@ func (s *Service) lookupLastFMTrack(ctx context.Context, artist, title string) (
 		Error   int    `json:"error"`
 		Message string `json:"message"`
 		Track   struct {
-			Name string `json:"name"`
-			MBID string `json:"mbid"`
+			Name   string `json:"name"`
+			MBID   string `json:"mbid"`
 			Artist struct {
 				Name string `json:"name"`
 				MBID string `json:"mbid"`
@@ -372,7 +375,9 @@ func (s *Service) lookupLastFMTrack(ctx context.Context, artist, title string) (
 				} `json:"image"`
 			} `json:"album"`
 			TopTags struct {
-				Tag []struct{ Name string `json:"name"` } `json:"tag"`
+				Tag []struct {
+					Name string `json:"name"`
+				} `json:"tag"`
 			} `json:"toptags"`
 		} `json:"track"`
 	}
@@ -414,9 +419,9 @@ func (s *Service) lookupMusicBrainzRecording(ctx context.Context, artist, title 
 	}
 	var result struct {
 		Recordings []struct {
-			ID    string `json:"id"`
-			Score int    `json:"score"`
-			Title string `json:"title"`
+			ID           string `json:"id"`
+			Score        int    `json:"score"`
+			Title        string `json:"title"`
 			ArtistCredit []struct {
 				Name   string `json:"name"`
 				Artist struct {

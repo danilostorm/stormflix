@@ -43,7 +43,8 @@
   async function telemetry(item,currentMode){
     if(!item?.id)return;
     const planned=window.sfLastPlaybackPlan||{};
-    const body={playback_session_id:sessionID(),mode:planned.mode||currentMode,client_kind:'web',bitrate_kbps:Number(planned.source_bitrate_kbps||0),buffer_seconds:bufferSeconds(),read_mbps:estimatedReadMbps(),video_codec:planned.video_codec||technical.video_codec||'',audio_codec:planned.audio_codec||technical.audio_codec||'',last_error:String(window.sfPlaybackLastError||'')};
+    const startup=window.sfPlaybackStartupMetrics||{};
+    const body={playback_session_id:sessionID(),mode:planned.mode||currentMode,client_kind:'web',bitrate_kbps:Number(planned.source_bitrate_kbps||0),buffer_seconds:bufferSeconds(),read_mbps:estimatedReadMbps(),video_codec:planned.video_codec||technical.video_codec||'',audio_codec:planned.audio_codec||technical.audio_codec||'',last_error:String(window.sfPlaybackLastError||''),plan_ms:Number(startup.plan_ms||0),first_frame_ms:Number(startup.first_frame_ms||0),startup_ms:Number(startup.startup_ms||0),stall_count:Number(startup.stall_count||0),last_stall_ms:Number(startup.last_stall_ms||0)};
     try{await request(`/media/${item.id}/playback/telemetry`,{method:'POST',body:JSON.stringify(body)})}catch{}
   }
 
@@ -73,7 +74,8 @@
     const body=JSON.stringify({position_seconds:player.currentTime||0,duration_seconds:player.duration||0,state:state(),mode:mode(),resolution:resolution(),video_codec:technical.video_codec||'',audio_codec:technical.audio_codec||'',source_audio_codec:technical.source_audio_codec||'',audio_language:audioLanguage(),subtitle_language:subtitleLanguage(),...fields});
     fetch(`${api}/media/${item.id}/playback`,{method:'POST',headers:{'Content-Type':'application/json'},body,credentials:'same-origin',keepalive:true}).catch(()=>{});
     const planned=window.sfLastPlaybackPlan||{};
-    fetch(`${api}/media/${item.id}/playback/telemetry`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({playback_session_id:session,mode:planned.mode||mode(),client_kind:'web',bitrate_kbps:Number(planned.source_bitrate_kbps||0),buffer_seconds:bufferSeconds(),read_mbps:estimatedReadMbps(),video_codec:planned.video_codec||technical.video_codec||'',audio_codec:planned.audio_codec||technical.audio_codec||''}),credentials:'same-origin',keepalive:true}).catch(()=>{});
+    const startup=window.sfPlaybackStartupMetrics||{};
+    fetch(`${api}/media/${item.id}/playback/telemetry`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({playback_session_id:session,mode:planned.mode||mode(),client_kind:'web',bitrate_kbps:Number(planned.source_bitrate_kbps||0),buffer_seconds:bufferSeconds(),read_mbps:estimatedReadMbps(),video_codec:planned.video_codec||technical.video_codec||'',audio_codec:planned.audio_codec||technical.audio_codec||'',plan_ms:Number(startup.plan_ms||0),first_frame_ms:Number(startup.first_frame_ms||0),startup_ms:Number(startup.startup_ms||0),stall_count:Number(startup.stall_count||0),last_stall_ms:Number(startup.last_stall_ms||0)}),credentials:'same-origin',keepalive:true}).catch(()=>{});
     if(session)fetch(`${api}/media/${item.id}/playback?session=${encodeURIComponent(session)}`,{method:'DELETE',credentials:'same-origin',keepalive:true}).catch(()=>{});
   });
 })();

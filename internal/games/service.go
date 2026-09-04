@@ -15,7 +15,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
+
+	"github.com/danilostorm/stormflix/internal/workload"
 )
 
 const maxROMBytes int64 = 512 << 20 // G1 is deliberately cartridge-focused.
@@ -25,6 +26,7 @@ type Service struct {
 	mu      sync.Mutex
 	worker  bool
 	cancels map[int64]context.CancelFunc
+	gate    *workload.Gate
 }
 
 type Job struct {
@@ -90,7 +92,7 @@ type sourceScan struct {
 }
 
 func NewService(db *sql.DB) *Service {
-	s := &Service{db: db, cancels: map[int64]context.CancelFunc{}}
+	s := &Service{db: db, cancels: map[int64]context.CancelFunc{}, gate: workload.For(db)}
 	_, _ = db.Exec(`UPDATE game_scan_jobs SET status='error',progress=100,message='scan interrompido por reinício do servidor; execute novamente',finished_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE status IN ('running','cancelling')`)
 	go s.drain()
 	return s
@@ -104,12 +106,12 @@ var platformByExtension = map[string]string{
 }
 
 var platformLabels = map[string]string{
-	"nes": "Nintendo Entertainment System",
-	"snes": "Super Nintendo",
+	"nes":     "Nintendo Entertainment System",
+	"snes":    "Super Nintendo",
 	"genesis": "Mega Drive / Genesis",
-	"gb": "Game Boy",
-	"gbc": "Game Boy Color",
-	"gba": "Game Boy Advance",
+	"gb":      "Game Boy",
+	"gbc":     "Game Boy Color",
+	"gba":     "Game Boy Advance",
 }
 
 func SupportedExtensions() []string {
@@ -297,6 +299,10 @@ func (s *Service) run(jobID, libraryID int64, ctx context.Context) {
 	scans := make([]sourceScan, 0, len(sources))
 	total := 0
 	for _, root := range sources {
+		if err := s.gate.Wait(ctx, "game_scan", nil); err != nil {
+			s.finishCancelled(jobID, libraryID)
+			return
+		}
 		roms, discoverErr := discoverROMs(ctx, root)
 		scans = append(scans, sourceScan{Root: root, ROMs: roms, Error: discoverErr})
 		if discoverErr == nil {
@@ -368,21 +374,12 @@ func (s *Service) run(jobID, libraryID int64, ctx context.Context) {
 }
 
 func (s *Service) waitForPlayback(ctx context.Context, jobID int64, processed, total, matched, failed int) bool {
-	for {
-		var active int
-		err := s.db.QueryRowContext(ctx, `SELECT
- (SELECT COUNT(*) FROM playback_sessions WHERE last_seen_at>=datetime('now','-90 seconds'))+
- (SELECT COUNT(*) FROM game_play_sessions WHERE last_seen_at>=datetime('now','-90 seconds'))`).Scan(&active)
-		if err != nil || active == 0 {
-			return ctx.Err() == nil
+	err := s.gate.Wait(ctx, "game_scan", func(paused bool) {
+		if paused {
+			_, _ = s.db.Exec(`UPDATE game_scan_jobs SET message='Pausado para priorizar uma reprodução ou jogo ativo',processed=?,matched=?,failed=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, processed, matched, failed, jobID)
 		}
-		_, _ = s.db.Exec(`UPDATE game_scan_jobs SET message='Pausado para priorizar uma reprodução ou jogo ativo',processed=?,matched=?,failed=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, processed, matched, failed, jobID)
-		select {
-		case <-ctx.Done():
-			return false
-		case <-time.After(15 * time.Second):
-		}
-	}
+	})
+	return err == nil
 }
 
 func (s *Service) sourceRoots(ctx context.Context, libraryID int64) ([]string, error) {

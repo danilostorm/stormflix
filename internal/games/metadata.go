@@ -263,10 +263,8 @@ func (s *Service) metadataCandidates(ctx context.Context, libraryID int64, refre
 }
 
 func (s *Service) playbackBusy(ctx context.Context) bool {
-	var video, games int
-	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM playback_sessions WHERE last_seen_at>=datetime('now','-90 seconds')`).Scan(&video)
-	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM game_play_sessions WHERE last_seen_at>=datetime('now','-45 seconds')`).Scan(&games)
-	return video+games > 0
+	active, err := s.gate.Active(ctx)
+	return err == nil && active
 }
 
 func (s *Service) enrichGame(ctx context.Context, game metadataGameRow) (string, *gameMetadataCandidate, error) {

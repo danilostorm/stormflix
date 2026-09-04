@@ -13,6 +13,7 @@ import (
 	stormdb "github.com/danilostorm/stormflix/internal/database"
 	"github.com/danilostorm/stormflix/internal/streaming"
 	"github.com/danilostorm/stormflix/internal/transcode"
+	"github.com/danilostorm/stormflix/internal/workload"
 )
 
 func (s *server) adminDashboard(w http.ResponseWriter, r *http.Request) {
@@ -212,5 +213,7 @@ func (s *server) serverInfo(w http.ResponseWriter, r *http.Request) {
 		"catalog_projection": catalogProjection,
 		"sqlite":             stormdb.Inspect(r.Context(), s.db, s.config.DatabasePath()),
 		"home_performance":   s.homeMetrics.Snapshot(),
+		"sql_performance":    stormdb.QueryTelemetrySnapshot(),
+		"background_work":    workload.For(s.db).Snapshot(r.Context()),
 	})
 }

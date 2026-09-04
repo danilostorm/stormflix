@@ -77,3 +77,20 @@ func TestHandlerRejectsUnsupportedMethods(t *testing.T) {
 		t.Fatalf("POST app.js status=%d", response.Code)
 	}
 }
+
+func TestHandlerUsesImmutableCacheForContentAddressedBundlesAndVendorRuntime(t *testing.T) {
+	for _, target := range []string{"/vendor-hls-1.7.1.min.js", "/bundles/music.2789193a0a5510c2.js"} {
+		request := httptest.NewRequest(http.MethodGet, target, nil)
+		response := httptest.NewRecorder()
+		Handler().ServeHTTP(response, request)
+		if response.Code != http.StatusOK || response.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
+			t.Fatalf("GET %s status=%d cache=%q", target, response.Code, response.Header().Get("Cache-Control"))
+		}
+	}
+	request := httptest.NewRequest(http.MethodGet, "/bundles/manifest.json", nil)
+	response := httptest.NewRecorder()
+	Handler().ServeHTTP(response, request)
+	if response.Header().Get("Cache-Control") != "no-cache" {
+		t.Fatalf("manifest cache=%q", response.Header().Get("Cache-Control"))
+	}
+}

@@ -13,8 +13,8 @@ func TestPlaybackV6LocalDecodeWiring(t *testing.T) {
 	}
 	text := string(core)
 	for _, want := range []string{
-		"@hevcjs/hlsjs-plugin@0.1.2",
-		"@hevcjs/core@1.4.2",
+		"/vendor-hevc-hls-plugin-0.1.2.js",
+		"/vendor-hevc-transcode-worker-1.4.2.js",
 		"local_decode:browserLocalDecodeCapabilities()",
 		"hevc_wasm",
 		"localDecodeRuntimeFailed=true",

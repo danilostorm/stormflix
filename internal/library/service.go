@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/danilostorm/stormflix/internal/workload"
 )
 
 type Library struct {
@@ -33,10 +35,11 @@ type Service struct {
 	scanMu     sync.Mutex
 	running    map[int64]bool
 	scanCancel map[int64]context.CancelFunc
+	gate       *workload.Gate
 }
 
 func NewService(db *sql.DB) *Service {
-	s := &Service{db: db, running: map[int64]bool{}, scanCancel: map[int64]context.CancelFunc{}}
+	s := &Service{db: db, running: map[int64]bool{}, scanCancel: map[int64]context.CancelFunc{}, gate: workload.For(db)}
 	_, _ = db.Exec(`UPDATE libraries SET last_scan_status='interrupted',last_error='scan interrupted by server restart',updated_at=CURRENT_TIMESTAMP WHERE last_scan_status IN ('running','cancelling')`)
 	return s
 }
@@ -189,6 +192,16 @@ func (s *Service) discover(ctx context.Context, lib Library, libraryID int64) ([
 	}
 	for len(dirs) > 0 {
 		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if err := s.gate.Wait(ctx, "media_scan", func(paused bool) {
+			message := "retomando scan após reprodução"
+			if paused {
+				message = "Pausado para priorizar reprodução ativa"
+			}
+			_, _ = s.db.Exec(`UPDATE libraries SET last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND last_scan_status IN ('running','cancelling')`, message, libraryID)
+			_, _ = s.db.Exec(`UPDATE scan_jobs SET message=?,updated_at=CURRENT_TIMESTAMP WHERE library_id=? AND status IN ('running','cancelling')`, message, libraryID)
+		}); err != nil {
 			return nil, err
 		}
 		dir := dirs[0]

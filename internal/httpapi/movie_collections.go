@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/danilostorm/stormflix/internal/workload"
 )
 
 var movieCollectionIndexers sync.Map
@@ -26,6 +28,9 @@ func (s *server) startMovieCollectionIndexer() {
 			return
 		}
 		for {
+			if err := workload.For(s.db).Wait(s.lifecycle, "movie_collections", nil); err != nil {
+				return
+			}
 			if !s.metadata.TMDBReady() {
 				if !waitCollectionIndexer(s.lifecycle, 5*time.Minute) {
 					return

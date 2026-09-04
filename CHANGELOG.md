@@ -2,6 +2,19 @@
 
 This file records user-visible and architectural changes. `PROJECT_STATE.md` is the authoritative current-state handoff and `ENTERTAINMENT_ROADMAP.md` tracks planned work.
 
+## 2026-09-04
+
+### Performance Foundation v3 — Pacotes 1 e 2 completos
+
+- Replaced full-catalog cold Home materialization with Home Query v2: bounded SQL window queries, 24 cards per rail, capped library/genre rails and one batched logical-card lookup. A deterministic 50,000-title regression test enforces cold-under-1.5s and cached-under-500ms targets in CI.
+- Added one shared playback workload gate for video and game sessions. Video/music/game scans, metadata jobs, subtitle jobs, collection/projection workers and existing technical/intro/credits workers now yield to playback, with pause state/duration visible in Admin.
+- Added bounded SQL-label telemetry for Home queries, browser first-content/response/render telemetry and Phase 26 playback plan/first-frame/startup/stall fields. Admin now exposes the measurements needed to validate production p95 instead of guessing from server CPU alone.
+- Self-hosted checksum-pinned hls.js 1.7.1 and hevc.js 1.4.2/0.1.2 assets. The Web player no longer requires jsDelivr, esm.sh or unpkg for playback startup.
+- Moved Music and Games into generated content-addressed screen bundles, checked for staleness in CI and served with one-year immutable caching. Optional screens load on navigation or during browser idle time instead of blocking the first Home.
+- Added authenticated responsive artwork URLs with 240/360/500/780/1280 widths, AVIF/WebP content negotiation, source-fingerprint cache invalidation, global FFmpeg scheduling and playback-aware source fallback.
+- Kept SQLite/WAL as the measured single-server database. The migration ledger advances to Phase 26; no PostgreSQL migration is justified by catalog size alone.
+- Server code line is now `0.27.0-performance-foundation-v3`. See `docs/PERFORMANCE_FOUNDATION_V3.md`.
+
 ## 2026-09-03
 
 ### Performance Foundation v2 — fast Home, bounded FFmpeg and measured SQLite

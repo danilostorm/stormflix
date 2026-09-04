@@ -24,7 +24,7 @@ import (
 )
 
 const sessionCookie = "stormflix_session"
-const version = "0.26.0-performance-foundation"
+const version = "0.27.0-performance-foundation-v3"
 
 type contextKey string
 
@@ -143,6 +143,7 @@ func NewWithContext(lifecycle context.Context, db *sql.DB, libraries *library.Se
 	mux.HandleFunc("GET /api/v1/categories/{slug}", s.requireAuth(s.browseCategory))
 	mux.HandleFunc("GET /api/v1/categories/{slug}/smart", s.requireAuth(s.browseSmartCategory))
 	mux.HandleFunc("GET /api/v1/home", s.requireAuth(s.homeFeed))
+	mux.HandleFunc("POST /api/v1/telemetry/home", s.requireAuth(s.homeClientTelemetry))
 	mux.HandleFunc("GET /api/v1/people", s.requireAuth(s.personTitles))
 	mux.HandleFunc("GET /api/v1/series", s.requireAuth(s.listSeries))
 	mux.HandleFunc("GET /api/v1/series/{id}", s.requireAuth(s.seriesDetails))
