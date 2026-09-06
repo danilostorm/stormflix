@@ -20,6 +20,11 @@ func (s *server) listSeries(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	items, err = s.adaptSeriesForClient(r, allowed, items)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
 	if s.selectedProfileRestriction(r, u.ID).Restricted {
 		items = s.filterRestrictedSeries(r, u.ID, items)
 	}
@@ -39,6 +44,14 @@ func (s *server) seriesDetails(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if err := s.adaptSeriesDetailForClient(r, allowed, &item); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if len(item.Seasons) == 0 && clientMediaCapsFromRequest(r).Explicit {
+		writeError(w, http.StatusNotFound, errNoCompatibleMediaVersion)
 		return
 	}
 	if s.selectedProfileRestriction(r, u.ID).Restricted {

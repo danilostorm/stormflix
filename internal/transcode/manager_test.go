@@ -34,6 +34,23 @@ func TestToneMapOffloadsSafeEncodeToNVENCWithCPUFallback(t *testing.T) {
 	}
 }
 
+func TestUHDTranscodeCandidatesNeverIncludeCPU(t *testing.T) {
+	m := &Manager{engine: EngineStatus{VideoEncoders: []string{"h264_nvenc", "libx264"}}}
+	items := m.encoderCandidates("h264", false, true)
+	if len(items) != 1 || items[0].name != "h264_nvenc" {
+		t.Fatalf("UHD candidates must be hardware-only: %#v", items)
+	}
+}
+
+func TestSameSpecIncludesCPUGuard(t *testing.T) {
+	a := Spec{TargetVideoCodec: "h264"}
+	b := a
+	b.ForbidSoftwareVideo = true
+	if sameSpec(a, b) {
+		t.Fatal("a hardware-only request must not reuse an older software-enabled session")
+	}
+}
+
 func TestDefaultPolicyIsSmallBatchAndGloballyBounded(t *testing.T) {
 	policy := DefaultPolicy()
 	if policy.MaxBytes != 5<<30 {

@@ -2,7 +2,7 @@
 
 > **Authoritative continuation note.** Any coding agent/session continuing StormFlix must read this file, `AGENTS.md` and `ENTERTAINMENT_ROADMAP.md` before changing code. Update this document after meaningful architecture, compatibility, schema, playback or deployment changes.
 
-Last architecture update: **2026-09-04**.
+Last architecture update: **2026-09-05**.
 
 ## Deployment
 
@@ -29,10 +29,10 @@ Server HTTP port: **8090**, normally behind an HTTPS reverse proxy.
 
 ## Current clients
 
-- Server code line: **`0.28.0-playback-engine-v7`**.
+- Server code line: **`0.29.0-device-aware-4k`**.
 - Web Player: **Playback Engine v7**, retaining the v5.3 session and v5.4 controls. Native Direct Play remains first; eligible desktop browsers can demux and decode the authenticated original file locally before the v6/server fallbacks.
 - Games Web Player: G2 browser/WASM runtime plus G2.5 dedicated Admin/metadata and RomMix-inspired browsing; G3 adds virtual mobile controls, TV/gamepad focus/menu behavior and profile-owned save-state previews. Games metadata uses Metadata Stack v2.
-- Android package: `cloud.stormflix.app`, **0.6.5 / versionCode 23**, minSdk 23, targetSdk 36, Java 17.
+- Android package: `cloud.stormflix.app`, **0.6.6 / versionCode 24**, minSdk 23, targetSdk 36, Java 17.
 - Android phone/tablet, Android TV and Fire TV keep native StormFlix catalog/navigation and their native/device playback capability paths. Browser WASM local video decode is not forced onto native Android/TV/Cast/DLNA routes.
 - Samsung Tizen: `apps/tizen` 0.1.0 thin shell; final WGT requires the developer's Samsung/Tizen signing profile.
 - LG webOS: `apps/webos` 0.1.0 thin shell; CI can package the Developer Mode IPK.
@@ -67,7 +67,7 @@ Server HTTP port: **8090**, normally behind an HTTPS reverse proxy.
    ↓ only if selected audio alone is incompatible
 5. Audio compatibility: video copy + selected audio → AAC-LC
    ↓ only if video/device/quality/HDR/bitrate requires it
-6. Video transcode (CPU on the primary server; optional GPU elsewhere)
+6. Video transcode (CPU only for sources below 4K; 4K sources require an available hardware encoder)
    ↓ if no safe route exists
 7. Unsupported
 ```
@@ -134,13 +134,15 @@ See `docs/PLAYBACK_ENGINE_V7.md`, `docs/PLAYBACK_ENGINE_V6.md` and
 ### UHD / transcode cost policy
 
 - Compatible UHD stays original-resolution Direct Play.
+- Web and Android attach device resolution/codec hints to Home, search, categories, collections, series, people and Continue Watching. Known incompatible 4K-only cards are hidden; an allowed 1080p physical version of the same logical title/episode replaces the 4K card automatically.
+- Android ignores software-only MediaCodec decoders. Native per-codec resolution profiles constrain the WebView's actual playback capabilities; native-only container/audio support is never copied into the HTML player contract. Web UHD advertising requires both a 4K display budget and `MediaCapabilities.decodingInfo()` reporting supported and smooth decoding; otherwise it is conservatively capped at 1080p. Probes time out after 800 ms and are cached per page.
 - Eligible non-HDR HEVC on a sufficiently strong secure Web client may use local decode without server video encoding.
 - Audio-only incompatibility never becomes a 4K server video encode.
-- If an UHD source is incompatible and server video encoding is unavoidable under Auto/Original, automatic compatibility transcode is capped at **1080p / 8 Mbps** instead of 4K→4K.
-- Explicit 2160p is an intentional user request and is not silently replaced by the automatic guard.
-- Dedicated UHD smart shelves use device resolution/codec hints; normal catalog/search keeps UHD titles visible because PlaybackPlan may provide a safe compatibility route.
-- The primary CPU-only server uses software encoding only when every direct/local/copy route is unavailable. Other installations may expose NVENC/QSV/VAAPI as an optional acceleration path.
-- CPU H.264 live fallback uses the lower-cost `superfast` preset and UHD→1080 uses a low-latency scaler.
+- PlaybackPlan checks allowed 1080p/720p alternates before accepting a video transcode from a 4K source, bounded to eight candidates and five seconds. On plan-level substitution, resume/progress stays attached to the requested media ID while execution, audio/subtitle options and external grants target the selected physical version. Catalog-level substitution retains card metadata and position; universal cross-version history consolidation remains future versions work.
+- If no compatible alternate exists, a 4K source may be transcoded only by a configured NVENC/QSV/VAAPI route with a matching GPU device present. Compiled encoders alone do not establish hardware availability. The primary CPU-only server returns `cpu_4k_transcode_blocked`; both HLS engines forbid software-encoder fallback for 4K input, including cropped 3840×1600 sources. Driver failures may still fail playback, but cannot retry with software encoding.
+- Catalog technical reads are batched, permission-scoped and never invoke ffprobe synchronously. Stale/unknown technical rows are queued for indexing, while known UHD filenames are conservatively hidden on non-UHD clients. Home snapshots are capability-scoped; UHD runtime failures lower the affected codec's budget before retrying. Capability reports remain estimates; real-device playback/HDR validation is still required.
+- Explicit lower qualities cannot override the 4K CPU protection. Dedicated UHD shelves never substitute an HD alternate into a row labelled 4K.
+- CPU H.264 live fallback uses the lower-cost `superfast` preset only for non-4K inputs.
 - All FFmpeg work shares global process/video semaphores; software/filter threads are capped per process and reported with active/waiting counts in Admin.
 - HDR→SDR keeps the reliable software color filter but may pass its normal YUV output to NVENC. `docker-compose.nvidia.yml` exposes NVIDIA devices only on hosts that opt into the overlay.
 - Continuous Web workers stop when sufficiently far ahead, discard old segments behind playback, expire when abandoned and follow player pause/seek heartbeats.

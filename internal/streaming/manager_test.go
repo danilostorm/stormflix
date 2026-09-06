@@ -27,6 +27,24 @@ func TestHDRContinuousStreamUsesNVENCWithCPUFallback(t *testing.T) {
 	}
 }
 
+func TestUHDContinuousStreamNeverFallsBackToCPU(t *testing.T) {
+	m := &Manager{engine: transcode.EngineStatus{VideoEncoders: []string{"h264_nvenc", "libx264"}}}
+	items := m.encoderCandidates(Spec{TargetVideoCodec: "h264", VideoTranscode: true, ForbidSoftwareVideo: true})
+	if len(items) != 1 || items[0].name != "h264_nvenc" {
+		t.Fatalf("UHD candidates must be hardware-only: %#v", items)
+	}
+}
+
+func TestCroppedUHDSourceForbidsCPUWithoutCallerFlag(t *testing.T) {
+	m := &Manager{engine: transcode.EngineStatus{VideoEncoders: []string{"libx264"}}}
+	if got := m.encoderCandidates(Spec{TargetVideoCodec: "h264", VideoTranscode: true, Width: 3840, Height: 1600}); len(got) != 0 {
+		t.Fatalf("cropped UHD CPU fallback: %+v", got)
+	}
+	if got := m.encoderCandidates(Spec{Width: 3840, Height: 1600, AudioTranscode: true}); len(got) != 1 || !got[0].copy {
+		t.Fatalf("audio-only UHD must retain video-copy: %+v", got)
+	}
+}
+
 func TestDefaultPolicyBoundsContinuousWebStreamCache(t *testing.T) {
 	policy := DefaultPolicy()
 	if policy.MaxBytes != 5<<30 || policy.MinFreeBytes < 10<<30 || policy.MinFreePercent < 5 {

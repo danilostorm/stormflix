@@ -99,6 +99,10 @@ func (s *server) homeFeed(w http.ResponseWriter, r *http.Request) {
 		frontRows = append(frontRows, media.HomeRow{ID: "releases", Title: "Lançamentos", Items: releases})
 	}
 	feed.Rows = append(frontRows, feed.Rows...)
+	if err := s.adaptHomeForClient(r, allowed, &feed); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
 
 	if s.selectedProfileRestriction(r, u.ID).Restricted {
 		s.filterRestrictedHome(r, u.ID, &feed)
@@ -139,6 +143,24 @@ func (s *server) mediaDetails(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusForbidden, err)
 			return
 		}
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	compatible, err := s.adaptItemsForClient(r, allowed, []media.Item{detail.Item})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if len(compatible) == 0 {
+		writeError(w, http.StatusNotFound, errNoCompatibleMediaVersion)
+		return
+	}
+	if !s.requireKidsMediaAccess(w, r, u.ID, compatible[0].ID) {
+		return
+	}
+	detail.Item = compatible[0]
+	detail.Related, err = s.adaptItemsForClient(r, allowed, detail.Related)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}

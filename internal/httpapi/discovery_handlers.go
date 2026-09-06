@@ -21,6 +21,11 @@ func (s *server) personTitles(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	result.Items, err = s.adaptItemsForClient(r, allowed, result.Items)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
 	if s.selectedProfileRestriction(r, u.ID).Restricted {
 		result.Items = s.filterRestrictedItems(r, u.ID, result.Items)
 	}
@@ -39,6 +44,11 @@ func (s *server) continueWatching(w http.ResponseWriter, r *http.Request) {
 		allowed = u.LibraryIDs
 	}
 	items, err := s.media.ContinueWatching(r.Context(), profileID, allowed, 50)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	items, err = s.adaptItemsForClient(r, allowed, items)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return

@@ -167,6 +167,19 @@ func (s *server) listMedia(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 500, err)
 			return
 		}
+		adaptedCollections := make([]media.Collection, 0, len(collections))
+		for _, collection := range collections {
+			collection.Items, err = s.adaptItemsForClient(r, allowed, collection.Items)
+			if err != nil {
+				writeError(w, 500, err)
+				return
+			}
+			collection.ItemCount = len(collection.Items)
+			if collection.ItemCount >= minimum {
+				adaptedCollections = append(adaptedCollections, collection)
+			}
+		}
+		collections = adaptedCollections
 		if s.selectedProfileRestriction(r, u.ID).Restricted {
 			visible := make([]media.Collection, 0, len(collections))
 			for _, collection := range collections {
@@ -186,6 +199,11 @@ func (s *server) listMedia(w http.ResponseWriter, r *http.Request) {
 	}
 
 	items, err := s.media.List(r.Context(), libraryID, q, limit, offset, allowed)
+	if err != nil {
+		writeError(w, 500, err)
+		return
+	}
+	items, err = s.adaptItemsForClient(r, allowed, items)
 	if err != nil {
 		writeError(w, 500, err)
 		return

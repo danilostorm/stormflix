@@ -107,8 +107,15 @@
     if(canPlay('audio/mp4; codecs="ec-3"'))audioCodecs.push('eac3');
     if(canPlay('audio/flac')||canPlay('audio/mp4; codecs="fLaC"'))audioCodecs.push('flac');
     if(containers.includes('mp4')&&!audioCodecs.includes('aac'))audioCodecs.push('aac');
+    const device=typeof window.sfDeviceCapabilitySnapshot==='function'?window.sfDeviceCapabilitySnapshot():{max_height:1080,video_codecs:[]};
+    const advertised4K=new Set(device.video_codecs||[]),deviceHeight=Math.max(480,Number(device.max_height||1080));
+    const videoProfiles=[...new Set(videoCodecs)].map(codec=>{
+      const maxHeight=deviceHeight>=2000&&!advertised4K.has(codec)?1080:deviceHeight;
+      return{codec,max_width:maxHeight>=2000?3840:maxHeight>=1300?2560:maxHeight>=900?1920:1280,max_height:maxHeight,hdr_known:false,hdr_types:[]};
+    });
     return{
       containers:[...new Set(containers)],video_codecs:[...new Set(videoCodecs)],audio_codecs:[...new Set(audioCodecs)],subtitle_formats:['vtt'],
+      video_profiles:videoProfiles,
       allow_remux:containers.includes('mp4'),allow_audio_compatibility:containers.includes('mp4')&&audioCodecs.includes('aac'),allow_video_transcode:containers.includes('mp4')&&videoCodecs.includes('h264'),
       max_transcode_bitrate_kbps:estimatedTranscodeBitrate(),native_audio_track_selection:false,server_selects_audio:true,
       picture_in_picture:Boolean(document.pictureInPictureEnabled&&player.requestPictureInPicture),media_session:'mediaSession'in navigator
@@ -155,7 +162,22 @@
   }
 
   function clientRequest(sessionID,quality,startPosition,audioStream){
-    const body={client_kind:'web',client_name:'StormFlix Web',client_version:'0.7.0',playback_session_id:String(sessionID||''),quality:normalizeQuality(quality||preferredQuality),capabilities:browserCapabilities(),local_decode:browserLocalDecodeCapabilities()};
+    const body={client_kind:'web',client_name:'StormFlix Web',client_version:'0.7.0',playback_session_id:String(sessionID||''),capabilities:browserCapabilities(),local_decode:browserLocalDecodeCapabilities()};
+    let native=null;
+    if(typeof window.StormFlixShell?.playbackRequest==='function'){
+      try{native=JSON.parse(String(window.StormFlixShell.playbackRequest(String(sessionID||''))||''))}catch{}
+    }
+    if(typeof window.sfConstrainPlaybackCapabilities==='function')body.capabilities=window.sfConstrainPlaybackCapabilities(body.capabilities,native?.capabilities);
+    const device=window.sfDeviceCapabilitySnapshot?.();
+    if(device){
+      body.local_decode.max_height=Math.min(body.local_decode.max_height,device.max_height||1080);
+      body.local_decode.max_width=Math.min(body.local_decode.max_width,body.local_decode.max_height>=2000?3840:body.local_decode.max_height>=1300?2560:1920);
+      // The v6 engine only supports HEVC. Keep its whole local budget at FHD
+      // when UHD HEVC failed, even if another native UHD codec still works.
+      if(body.local_decode.max_height>=2000&&!device.video_codecs.includes('hevc')){body.local_decode.max_height=1080;body.local_decode.max_width=1920}
+    }
+    if(native){body.client_name='StormFlix Android Web Player';body.client_version=native.client_version;body.preferred_audio_language=native.preferred_audio_language||''}
+    body.quality=normalizeQuality(quality||native?.quality||preferredQuality);
     if(Number.isFinite(startPosition))body.start_position_seconds=Math.max(0,Number(startPosition));
     if(Number.isInteger(audioStream)&&audioStream>=0)body.audio_stream=audioStream;
     return body;
@@ -328,6 +350,7 @@
   async function recoverRuntime(generation,detail){
     if(startupInProgress||generation!==planGeneration||!activeItem)return;
     if(runtimeRecoveryCount>=1){visibleFailure('A reprodução foi interrompida. Tente novamente.');return}
+    if(Number(activePlan?.video_width)>=3200||Number(activePlan?.video_height)>=2000)window.sfRejectUHDCodec?.(activePlan?.source_video_codec);
     runtimeRecoveryCount++;
     const position=Number.isFinite(player.currentTime)?player.currentTime:0,autoplay=!player.paused;
     try{
@@ -378,6 +401,7 @@
     activeItem=item;if(!options.recovery)runtimeRecoveryCount=0;startupInProgress=true;beginStartupMetrics();stallStartedAt=0;applyPlanState(null);setHelp('',false);window.sfPlaybackLastError='';
     let plan;
     try{
+      if(typeof window.sfCatalogCapabilityQuery==='function')await window.sfCatalogCapabilityQuery();
       plan=await request(`/media/${Number(item.id)}/playback/plan`,{method:'POST',body:JSON.stringify(clientRequest(previousSession,options.quality||preferredQuality,requestedPosition,requestedAudio))});
       startupMetrics.plan_ms=Math.max(0,performance.now()-startupMetrics.started_at);window.sfPlaybackStartupMetrics=startupMetrics;
     }catch(err){
@@ -386,12 +410,15 @@
     if(generation!==planGeneration)return plan;
     applyPlanState(plan);
     if(!plan?.available){startupInProgress=false;visibleFailure(plan?.reason||'Este arquivo não possui uma rota compatível.');return plan}
+    if(plan.auto_selected_version&&typeof sfLoadPlayerOptions==='function')await sfLoadPlayerOptions(plan.selected_media_id);
+    if(generation!==planGeneration)return plan;
     const resume=hasResume?requestedPosition:Number(plan.resume_position_seconds||item.position_seconds||0),autoplay=options.autoplay!==false;
     try{
       if(plan?.local_origin)await loadLocalOrigin(plan,resume,autoplay,generation);else if(isHLSSource(plan.url))await loadHls(plan.url,resume,autoplay,generation);else await loadProgressive(plan.url,resume,autoplay,generation);
     }catch(err){
       if(generation!==planGeneration)return plan;startupInProgress=false;window.sfPlaybackLastError=String(err?.message||err);
       if(plan?.local_origin)localOriginRuntimeFailed=true;else if(plan?.local_decode)localDecodeRuntimeFailed=true;
+      if(Number(plan?.video_width)>=3200||Number(plan?.video_height)>=2000)window.sfRejectUHDCodec?.(plan?.source_video_codec);
       if(options.recovery||runtimeRecoveryCount>=1)visibleFailure('Não foi possível iniciar este vídeo.');else{runtimeRecoveryCount++;return start(item,{resumePosition:resume,autoplay,quality:preferredQuality,audioStream:activeAudioStream,recovery:true})}
       return plan;
     }

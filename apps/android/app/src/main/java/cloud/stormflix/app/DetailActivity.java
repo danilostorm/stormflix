@@ -116,13 +116,14 @@ public class DetailActivity extends Activity {
                 caps.put("max_transcode_bitrate_kbps", 18000); caps.put("native_audio_track_selection", false); caps.put("server_selects_audio", true);
 
                 JSONObject request = new JSONObject();
-                request.put("client_kind", "tv"); request.put("client_name", "StormFlix Android Playback Anywhere"); request.put("client_version", "0.6.5");
+                request.put("client_kind", "tv"); request.put("client_name", "StormFlix Android Playback Anywhere"); request.put("client_version", "0.6.6");
                 request.put("quality", "auto"); request.put("start_position_seconds", 0); request.put("capabilities", caps);
 
                 JSONObject plan = new JSONObject(api.post("/media/" + media.id + "/playback/plan", request));
                 if (!plan.optBoolean("available", false) || plan.optString("url", "").trim().isEmpty()) throw new IllegalStateException(plan.optString("reason", "Nenhuma rota compatível ficou disponível."));
                 JSONObject grantRequest = new JSONObject(); grantRequest.put("url", plan.getString("url"));
-                JSONObject grant = new JSONObject(api.post("/media/" + media.id + "/playback/grant", grantRequest));
+                long selectedID = plan.optLong("selected_media_id", media.id);
+                JSONObject grant = new JSONObject(api.post("/media/" + selectedID + "/playback/grant", grantRequest));
                 String url = grant.optString("url", "").trim(); if (url.isEmpty()) throw new IllegalStateException("StormFlix não retornou o link temporário de reprodução.");
                 String mime = remoteMime(plan, url);
                 main.post(() -> {
