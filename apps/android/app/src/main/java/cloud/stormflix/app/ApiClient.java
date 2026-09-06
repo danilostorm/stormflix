@@ -18,7 +18,7 @@ import java.util.Map;
 
 public final class ApiClient {
     private static final String TAG = "StormFlixApi";
-    private static final String VERSION = "0.6.5";
+    private static final String VERSION = "0.6.6";
 
     public static final class ApiException extends IOException {
         public final int status;
@@ -26,8 +26,9 @@ public final class ApiClient {
     }
 
     private final SessionStore store;
+    private final Context context;
 
-    public ApiClient(Context context) { store = new SessionStore(context.getApplicationContext()); }
+    public ApiClient(Context context) { this.context = context.getApplicationContext(); store = new SessionStore(this.context); }
     public SessionStore store() { return store; }
 
     public String apiUrl(String path) {
@@ -41,7 +42,21 @@ public final class ApiClient {
         return store.baseUrl() + (url.startsWith("/") ? url : "/" + url);
     }
 
-    public String get(String path) throws IOException { return request("GET", path, null); }
+    public String get(String path) throws IOException { return request("GET", catalogAwarePath(path), null); }
+
+    private String catalogAwarePath(String path) {
+        if (path == null || path.contains("client_max_height=") || !isCatalogPath(path)) return path;
+        String query = PlaybackCapabilities.catalogQuery(context);
+        if (query == null || query.length() <= 1) return path;
+        return path + (path.contains("?") ? "&" + query.substring(1) : query);
+    }
+
+    private static boolean isCatalogPath(String value) {
+        String path = value == null ? "" : value.split("\\?", 2)[0];
+        return path.equals("/home") || path.equals("/media") || path.startsWith("/media/")
+            || path.equals("/series") || path.startsWith("/series/") || path.equals("/profiles/continue")
+            || path.equals("/people") || path.startsWith("/people/") || path.startsWith("/categories/") || path.startsWith("/collections/");
+    }
 
     public String post(String path, JSONObject body) throws IOException {
         JSONObject payload = body == null ? new JSONObject() : body;

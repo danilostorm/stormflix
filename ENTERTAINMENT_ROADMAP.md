@@ -105,6 +105,8 @@ Acceptance:
 - Keep one logical work card while exposing Director's Cut, Extended, 4K/1080p, alternate audio/containers as versions.
 - Extras (trailers, featurettes, deleted scenes) live under the work rather than polluting the main library.
 - PlaybackPlan chooses among versions without losing progress.
+- Delivered foundation: device-aware catalog projection hides known incompatible 4K-only media and substitutes an allowed 1080p version of the same movie/episode. PlaybackPlan repeats that selection authoritatively and blocks 4K software encoding when no alternate exists.
+- The protection includes cropped UHD and hardware-failure fallback. Device reports are conservative estimates; mixed-library series, HDR and long playback remain real-device acceptance checks. Universal cross-version history consolidation and edition-aware timeline mapping remain separate work.
 
 ## P1 — Smart Downloads
 

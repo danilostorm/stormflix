@@ -56,6 +56,7 @@ jobs:
           node --check internal/webui/static/admin/admin-smooth-operations.js
           node --check internal/webui/static/admin/admin-performance.js
           node --check internal/webui/static/app.js
+          node --check internal/webui/static/device-capabilities.js
           node --check internal/webui/static/main.stormflix.bundle.js
           node --check internal/webui/static/catalog-performance.js
           node --check internal/webui/static/series-ui.js
@@ -99,6 +100,9 @@ jobs:
 
       - name: Test
         run: go test ./...
+
+      - name: Device capability runtime tests
+        run: node scripts/test-device-capabilities.mjs
 
       - name: Race playback and streaming engines
         run: go test -race ./internal/playback ./internal/webcompat ./internal/transcode ./internal/streaming

@@ -92,6 +92,20 @@ func (s *server) browseSmartCategory(w http.ResponseWriter, r *http.Request) {
 			response.Media = append(response.Media, item)
 		}
 	}
+	var allowedVersions []int64
+	if roleLevel(u.Role) < 2 {
+		allowedVersions = u.LibraryIDs
+	}
+	response.Media, err = s.adaptItemsForClient(r, allowedVersions, response.Media)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	response.Series, err = s.adaptSeriesForClient(r, allowedVersions, response.Series)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
 	if technicalPending {
 		s.kickTechnicalIndexer()
 	}

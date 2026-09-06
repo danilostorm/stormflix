@@ -31,6 +31,7 @@ func (s *server) playbackPlan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	requestedID := id
 	u := currentUser(r)
 	if !s.requireKidsMediaAccess(w, r, u.ID, id) {
 		return
@@ -47,6 +48,10 @@ func (s *server) playbackPlan(w http.ResponseWriter, r *http.Request) {
 	if roleLevel(u.Role) < 2 && !media.ContainsLibrary(u.LibraryIDs, item.LibraryID) {
 		writeError(w, http.StatusForbidden, errors.New("library access denied"))
 		return
+	}
+	var allowedLibraryIDs []int64
+	if roleLevel(u.Role) < 2 {
+		allowedLibraryIDs = u.LibraryIDs
 	}
 
 	var in playbackPlanRequest
@@ -85,12 +90,25 @@ func (s *server) playbackPlan(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	plan := playback.DecideForClient(source, in.Request)
+	id, item, source, plan := s.selectPlaybackVersion(r.Context(), requestedID, item, source, in.Request, allowedLibraryIDs, s.selectedProfileRestriction(r, u.ID))
 	if in.AudioStream != nil {
+		label := plan.SelectedVersionLabel
 		plan = playback.ApplyAudioStream(source, in.Request, plan, *in.AudioStream)
+		plan.SelectedVersionLabel = label
 	}
-	plan.MediaID = id
+	plan.MediaID = requestedID
+	if id != requestedID {
+		plan.AutoSelectedVersion = true
+		plan.RequestedMediaID = requestedID
+		plan.SelectedMediaID = id
+	}
+	if source.DurationSeconds > 0 && resumePosition >= source.DurationSeconds {
+		resumePosition = max(0, source.DurationSeconds-2)
+	}
 	plan.ResumePositionSeconds = resumePosition
+	if plan.Available && plan.Mode == playback.ModeVideoTranscode && playback.IsUHD(plan.VideoWidth, plan.VideoHeight) {
+		plan = applyCPU4KTranscodeBlock(plan, transcode.Detect())
+	}
 	if !plan.Available {
 		writeJSON(w, http.StatusOK, plan)
 		return
@@ -139,7 +157,9 @@ func (s *server) playbackPlan(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if plan.Mode == playback.ModeVideoTranscode {
-			plan.Encoder = preferredEncoder(engine, plan.VideoCodec)
+			if plan.Encoder == "" {
+				plan.Encoder = preferredEncoder(engine, plan.VideoCodec)
+			}
 			if plan.Encoder == "" {
 				plan.Available = false
 				plan.Mode = playback.ModeUnsupported
@@ -168,7 +188,8 @@ func (s *server) playbackPlan(w http.ResponseWriter, r *http.Request) {
 			SourceVideoCodec: plan.SourceVideoCodec, TargetVideoCodec: plan.VideoCodec,
 			SourceAudioCodec: plan.SourceAudioCodec, TargetAudioCodec: targetAudioCodec,
 			VideoTranscode: plan.Mode == playback.ModeVideoTranscode, AudioTranscode: audioTranscode,
-			Width: plan.VideoWidth, Height: plan.VideoHeight, TargetWidth: plan.TargetVideoWidth, TargetHeight: plan.TargetVideoHeight,
+			ForbidSoftwareVideo: playback.IsUHD(plan.VideoWidth, plan.VideoHeight),
+			Width:               plan.VideoWidth, Height: plan.VideoHeight, TargetWidth: plan.TargetVideoWidth, TargetHeight: plan.TargetVideoHeight,
 			FrameRate: plan.VideoFrameRate, TargetFrameRate: plan.TargetVideoFrameRate, ToneMap: plan.ToneMap,
 			TargetBitrateKbps: plan.TargetBitrateKbps, DurationSeconds: source.DurationSeconds,
 			StartSeconds: resumePosition, Quality: plan.Quality,
@@ -234,13 +255,16 @@ func (s *server) playbackPlan(w http.ResponseWriter, r *http.Request) {
 			plan.PlaybackSessionID = transcode.SessionID(plan.PlaybackSessionID)
 		}
 		engine := transcoder.EngineStatus()
-		plan.Encoder = preferredEncoder(engine, plan.VideoCodec)
+		if plan.Encoder == "" {
+			plan.Encoder = preferredEncoder(engine, plan.VideoCodec)
+		}
 		plan.HardwareAcceleration = encoderHardware(plan.Encoder)
 		spec := transcode.Spec{
 			VideoStream: plan.VideoStream, AudioStream: plan.AudioStream,
 			SourceVideoCodec: plan.SourceVideoCodec, TargetVideoCodec: plan.VideoCodec,
 			SourceAudioCodec: plan.SourceAudioCodec, TargetAudioCodec: plan.AudioCodec, AudioTranscode: plan.AudioTranscode,
-			Width: plan.VideoWidth, Height: plan.VideoHeight, TargetWidth: plan.TargetVideoWidth, TargetHeight: plan.TargetVideoHeight,
+			ForbidSoftwareVideo: playback.IsUHD(plan.VideoWidth, plan.VideoHeight),
+			Width:               plan.VideoWidth, Height: plan.VideoHeight, TargetWidth: plan.TargetVideoWidth, TargetHeight: plan.TargetVideoHeight,
 			FrameRate: plan.VideoFrameRate, TargetFrameRate: plan.TargetVideoFrameRate, SourceHDR: plan.VideoHDR, ToneMap: plan.ToneMap,
 			TargetBitrateKbps: plan.TargetBitrateKbps, DurationSeconds: source.DurationSeconds, Reason: plan.ReasonCode, Quality: plan.Quality,
 		}

@@ -2,6 +2,20 @@
 
 This file records user-visible and architectural changes. `PROJECT_STATE.md` is the authoritative current-state handoff and `ENTERTAINMENT_ROADMAP.md` tracks planned work.
 
+## 2026-09-05
+
+### Device-aware 4K — catálogo compatível e proteção real da CPU
+
+- Added centralized Web and Android capability discovery to catalog requests. Web clients only advertise UHD after a 4K display check plus a supported/smooth MediaCapabilities decode probe; Android enumerates hardware MediaCodec decoders and ignores software-only decoders.
+- Home, search, categories, collections, series, people, Continue Watching and version lists now hide known 4K sources the requesting device cannot decode. If an allowed 1080p/720p physical version represents the same logical movie or episode, the API substitutes it automatically instead of removing the title.
+- PlaybackPlan now probes alternate physical versions before creating a video-transcode session. A compatible 1080p version is selected transparently while resume/progress remains attached to the requested logical title.
+- Added the authoritative `cpu_4k_transcode_blocked` route: 4K-input video transcode is unavailable on the primary CPU-only server when no compatible lower-resolution version exists. Optional NVENC/QSV/VAAPI installations may still handle it when the exact codec/tone-map route is available.
+- Removed software encoder fallback from both continuous Web and dynamic HLS sessions for 4K input, preventing a failed GPU attempt from silently consuming server CPU/RAM.
+- Android advances to **0.6.6 / versionCode 24**. Its native resolution profiles constrain the shared Web Player, without claiming that WebView supports native-only containers, audio codecs or audio-track selection.
+- The UHD guard also covers cropped 3840×1600 video. A compiled FFmpeg encoder alone is not considered available hardware; a matching GPU device must be present, and failed hardware initialization cannot fall back to CPU encoding.
+- Home snapshots are capability-scoped. Alternate playback refreshes audio/subtitle options and signs external-player URLs for the selected physical source. Unknown technical metadata is indexed in the background; filename-labelled UHD is hidden on non-UHD devices while waiting.
+- Added regressions for 4K→1080p substitution, 4K-only hiding, CPU blocking and hardware-only encoder candidates. Server code line is now `0.29.0-device-aware-4k`.
+
 ## 2026-09-04
 
 ### Playback Engine v7 — Pacote 3, arquivo original no cliente

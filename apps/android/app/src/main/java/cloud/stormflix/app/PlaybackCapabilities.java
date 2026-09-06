@@ -12,11 +12,12 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Locale;
 import java.util.Set;
 
 /** Builds native device capability documents used by StormFlix catalog/playback policy. */
 public final class PlaybackCapabilities {
-    private static final String VERSION = "0.6.3";
+    private static final String VERSION = "0.6.6";
     private static volatile String catalogQueryCache;
 
     private static final Map<String,String> VIDEO_MIME_TO_CODEC = new LinkedHashMap<>();
@@ -48,7 +49,7 @@ public final class PlaybackCapabilities {
     private PlaybackCapabilities() {}
 
     /**
-     * Query string consumed by /categories/{slug}/smart. UHD shelves are only
+     * Query string consumed by every catalog route. UHD sources are only
      * returned when the physical Android/Fire device advertises a decoder that
      * can actually handle the resolution and codec. The value is cached because
      * MediaCodec enumeration is stable for the lifetime of the app process.
@@ -61,14 +62,20 @@ public final class PlaybackCapabilities {
         try { codecs = new MediaCodecList(MediaCodecList.ALL_CODECS).getCodecInfos(); }
         catch (Exception e) { codecs = new MediaCodecInfo[0]; }
 
-        Set<String> videoCodecs = new LinkedHashSet<>();
+        Map<String,VideoLimits> videoLimits = new LinkedHashMap<>();
         int maxHeight = 0;
         for (Map.Entry<String,String> entry : VIDEO_MIME_TO_CODEC.entrySet()) {
             VideoLimits limits = inspectVideo(codecs, entry.getKey());
             if (!limits.supported) continue;
-            videoCodecs.add(entry.getValue());
+            videoLimits.put(entry.getValue(), limits);
             maxHeight = Math.max(maxHeight, limits.height);
         }
+
+        Set<String> videoCodecs = new LinkedHashSet<>();
+        for (Map.Entry<String,VideoLimits> entry : videoLimits.entrySet()) {
+            if (maxHeight < 2000 || entry.getValue().height >= 2000) videoCodecs.add(entry.getKey());
+        }
+        if (maxHeight <= 0) maxHeight = 1080;
 
         StringBuilder query = new StringBuilder("?");
         boolean has = false;
@@ -109,7 +116,7 @@ public final class PlaybackCapabilities {
                 .put("max_height", limits.height)
                 .put("max_frame_rate", limits.frameRate)
                 .put("hdr_known", false)
-                .put("hdr_types", limits.hdrTypes);
+                .put("hdr_types", new JSONArray(new ArrayList<>(limits.hdrTypes)));
             videoProfiles.put(profile);
         }
 
@@ -148,7 +155,7 @@ public final class PlaybackCapabilities {
     private static VideoLimits inspectVideo(MediaCodecInfo[] codecs, String mime) {
         VideoLimits best = new VideoLimits();
         for (MediaCodecInfo codec : codecs) {
-            if (codec.isEncoder() || !supportsType(codec, mime)) continue;
+            if (codec.isEncoder() || isSoftware(codec) || !supportsType(codec, mime)) continue;
             best.supported = true;
             try {
                 MediaCodecInfo.CodecCapabilities caps = codec.getCapabilitiesForType(mime);
@@ -205,6 +212,11 @@ public final class PlaybackCapabilities {
         }
     }
     private static boolean hasDecoder(MediaCodecInfo[] codecs,String mime){for(MediaCodecInfo codec:codecs)if(!codec.isEncoder()&&supportsType(codec,mime))return true;return false;}
+    private static boolean isSoftware(MediaCodecInfo codec){
+        if(Build.VERSION.SDK_INT>=29)return codec.isSoftwareOnly();
+        String name=codec.getName().toLowerCase(Locale.ROOT);
+        return name.startsWith("omx.google.")||name.startsWith("c2.android.")||name.contains("software")||name.contains("sw.");
+    }
     private static boolean supportsType(MediaCodecInfo codec,String mime){try{for(String type:codec.getSupportedTypes())if(mime.equalsIgnoreCase(type))return true;}catch(Exception ignored){}return false;}
     private static JSONArray array(String... values){JSONArray out=new JSONArray();for(String value:values)out.put(value);return out;}
     private static final class VideoLimits{boolean supported;int width;int height;double frameRate;final Set<String>hdrTypes=new LinkedHashSet<>();long area(){return(long)width*(long)height;}}

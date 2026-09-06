@@ -142,6 +142,20 @@ func (s *server) browseCategory(w http.ResponseWriter, r *http.Request) {
 			response.Media = append(response.Media, item)
 		}
 	}
+	var allowedVersions []int64
+	if roleLevel(u.Role) < 2 {
+		allowedVersions = u.LibraryIDs
+	}
+	response.Media, err = s.adaptItemsForClient(r, allowedVersions, response.Media)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	response.Series, err = s.adaptSeriesForClient(r, allowedVersions, response.Series)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
 	if s.selectedProfileRestriction(r, u.ID).Restricted {
 		response.Media = s.filterRestrictedItems(r, u.ID, response.Media)
 		response.Series = s.filterRestrictedSeries(r, u.ID, response.Series)

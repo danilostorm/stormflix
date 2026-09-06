@@ -1,4 +1,4 @@
-// StormFlix Android 0.6.5 - native catalog + Web Player + Google Cast + DLNA/UPnP
+// StormFlix Android 0.6.6 - device-aware catalog + Web Player + Google Cast + DLNA/UPnP
 plugins {
     id 'com.android.application'
 }
@@ -11,8 +11,8 @@ android {
         applicationId 'cloud.stormflix.app'
         minSdk 23
         targetSdk 36
-        versionCode 23
-        versionName '0.6.5'
+        versionCode 24
+        versionName '0.6.6'
     }
 
     buildTypes {

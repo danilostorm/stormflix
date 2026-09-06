@@ -75,6 +75,10 @@ type Plan struct {
 	Reason                string   `json:"reason"`
 	TranscodeReasons      []string `json:"transcode_reasons,omitempty"`
 	MediaID               int64    `json:"media_id,omitempty"`
+	RequestedMediaID      int64    `json:"requested_media_id,omitempty"`
+	SelectedMediaID       int64    `json:"selected_media_id,omitempty"`
+	AutoSelectedVersion   bool     `json:"auto_selected_version,omitempty"`
+	SelectedVersionLabel  string   `json:"selected_version_label,omitempty"`
 	ClientKind            string   `json:"client_kind,omitempty"`
 	SourceContainer       string   `json:"source_container"`
 	Container             string   `json:"container"`

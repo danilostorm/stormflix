@@ -6,8 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
-	"sort"
 	"strings"
+
+	"github.com/danilostorm/stormflix/internal/playback"
 )
 
 type Version struct {
@@ -26,6 +27,7 @@ type Version struct {
 	Height            int      `json:"height,omitempty"`
 	HDR               string   `json:"hdr,omitempty"`
 	VideoCodec        string   `json:"video_codec,omitempty"`
+	TechnicalStatus   string   `json:"-"`
 	DubStatus         string   `json:"dub_status,omitempty"`
 	AudioLanguages    []string `json:"audio_languages,omitempty"`
 	SubtitleLanguages []string `json:"subtitle_languages,omitempty"`
@@ -49,7 +51,7 @@ FROM media m LEFT JOIN media_metadata mm ON mm.media_id=m.id WHERE m.id=? AND m.
 	}
 
 	rows, err := s.db.QueryContext(ctx, `SELECT m.id,m.library_id,l.name,m.path,m.extension,m.size_bytes,
-COALESCE(mt.width,0),COALESCE(mt.height,0),COALESCE(mt.hdr,''),COALESCE(mt.video_codec,''),COALESCE(mt.dub_status,''),COALESCE(mt.audio_json,'[]'),COALESCE(mt.subtitle_json,'[]')
+COALESCE(mt.width,0),COALESCE(mt.height,0),COALESCE(mt.hdr,''),COALESCE(mt.video_codec,''),CASE WHEN mt.source_modified_unix=m.modified_unix THEN mt.status ELSE 'pending' END,COALESCE(mt.dub_status,''),COALESCE(mt.audio_json,'[]'),COALESCE(mt.subtitle_json,'[]')
 FROM media m JOIN libraries l ON l.id=m.library_id LEFT JOIN media_metadata mm ON mm.media_id=m.id LEFT JOIN media_technical mt ON mt.media_id=m.id
 WHERE m.available=1 AND (
   (? > 0 AND COALESCE(mm.tmdb_id,0)=? AND COALESCE(mm.media_type,'')=? AND COALESCE(mm.season_number,0)=? AND COALESCE(mm.episode_number,0)=?)
@@ -65,7 +67,7 @@ ORDER BY m.id`, tmdbID, tmdbID, mediaType, seasonNumber, episodeNumber, tmdbID, 
 	for rows.Next() {
 		var v Version
 		var path, audioJSON, subtitleJSON string
-		if err := rows.Scan(&v.ID, &v.LibraryID, &v.LibraryName, &path, &v.Extension, &v.SizeBytes, &v.Width, &v.Height, &v.HDR, &v.VideoCodec, &v.DubStatus, &audioJSON, &subtitleJSON); err != nil {
+		if err := rows.Scan(&v.ID, &v.LibraryID, &v.LibraryName, &path, &v.Extension, &v.SizeBytes, &v.Width, &v.Height, &v.HDR, &v.VideoCodec, &v.TechnicalStatus, &v.DubStatus, &audioJSON, &subtitleJSON); err != nil {
 			return nil, err
 		}
 		if allowedLibraryIDs != nil && !ContainsLibrary(allowedLibraryIDs, v.LibraryID) {
@@ -73,7 +75,7 @@ ORDER BY m.id`, tmdbID, tmdbID, mediaType, seasonNumber, episodeNumber, tmdbID, 
 		}
 		_ = json.Unmarshal([]byte(audioJSON), &v.AudioLanguages)
 		_ = json.Unmarshal([]byte(subtitleJSON), &v.SubtitleLanguages)
-		v.Label = qualityFromTechnical(v.Height, path)
+		v.Label = qualityFromDimensions(v.Width, v.Height, path)
 		v.SourceID, v.SourceIndex, v.SourceLabel, v.SourceName = s.sourceForPath(ctx, v.LibraryID, path)
 		if v.SourceIndex <= 0 {
 			v.SourceIndex = 1
@@ -90,16 +92,7 @@ ORDER BY m.id`, tmdbID, tmdbID, mediaType, seasonNumber, episodeNumber, tmdbID, 
 	if len(out) == 0 {
 		return []Version{}, nil
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		qi, qj := qualityRank(out[i].Label), qualityRank(out[j].Label)
-		if qi == qj {
-			if out[i].SourceIndex == out[j].SourceIndex {
-				return out[i].SizeBytes > out[j].SizeBytes
-			}
-			return out[i].SourceIndex < out[j].SourceIndex
-		}
-		return qi > qj
-	})
+	sortVersions(out)
 	return out, nil
 }
 
@@ -150,6 +143,16 @@ func pathInside(path, root string) bool {
 		return false
 	}
 	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
+func qualityFromDimensions(width, height int, path string) string {
+	if width >= 6400 || height >= 4000 {
+		return "8K"
+	}
+	if playback.IsUHD(width, height) {
+		return "4K"
+	}
+	return qualityFromTechnical(height, path)
 }
 
 func qualityFromTechnical(height int, path string) string {

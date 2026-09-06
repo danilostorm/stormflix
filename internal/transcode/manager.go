@@ -17,6 +17,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/danilostorm/stormflix/internal/playback"
 )
 
 const sessionPrefix = "v5t-"
@@ -42,25 +44,26 @@ func DefaultPolicy() Policy {
 }
 
 type Spec struct {
-	VideoStream       int
-	AudioStream       int
-	SourceVideoCodec  string
-	TargetVideoCodec  string
-	SourceAudioCodec  string
-	TargetAudioCodec  string
-	AudioTranscode    bool
-	Width             int
-	Height            int
-	TargetWidth       int
-	TargetHeight      int
-	FrameRate         float64
-	TargetFrameRate   float64
-	SourceHDR         string
-	ToneMap           bool
-	TargetBitrateKbps int64
-	DurationSeconds   float64
-	Reason            string
-	Quality           string
+	VideoStream         int
+	AudioStream         int
+	SourceVideoCodec    string
+	TargetVideoCodec    string
+	SourceAudioCodec    string
+	TargetAudioCodec    string
+	AudioTranscode      bool
+	ForbidSoftwareVideo bool
+	Width               int
+	Height              int
+	TargetWidth         int
+	TargetHeight        int
+	FrameRate           float64
+	TargetFrameRate     float64
+	SourceHDR           string
+	ToneMap             bool
+	TargetBitrateKbps   int64
+	DurationSeconds     float64
+	Reason              string
+	Quality             string
 }
 
 type EngineStatus struct {
@@ -72,6 +75,7 @@ type EngineStatus struct {
 	ToneMap         bool     `json:"tone_map"`
 	ZScale          bool     `json:"zscale"`
 	VAAPIDevice     string   `json:"vaapi_device,omitempty"`
+	NVIDIADevice    string   `json:"nvidia_device,omitempty"`
 	PreferredH264   string   `json:"preferred_h264"`
 	PreferredHEVC   string   `json:"preferred_hevc"`
 	PreferredAV1    string   `json:"preferred_av1"`
@@ -219,6 +223,9 @@ func detectEngine() EngineStatus {
 	if _, err := os.Stat("/dev/dri/renderD128"); err == nil {
 		status.VAAPIDevice = "/dev/dri/renderD128"
 	}
+	if devices, _ := filepath.Glob("/dev/nvidia[0-9]*"); len(devices) > 0 {
+		status.NVIDIADevice = devices[0]
+	}
 	status.PreferredH264 = firstAvailable(status.VideoEncoders, "h264_nvenc", "h264_qsv", "h264_vaapi", "libx264")
 	status.PreferredHEVC = firstAvailable(status.VideoEncoders, "hevc_nvenc", "hevc_qsv", "hevc_vaapi", "libx265")
 	status.PreferredAV1 = firstAvailable(status.VideoEncoders, "av1_nvenc", "av1_qsv", "av1_vaapi", "libsvtav1", "librav1e", "libaom-av1")
@@ -345,7 +352,7 @@ func (m *Manager) Prepare(sessionID string, userID, mediaID int64, source string
 }
 
 func sameSpec(a, b Spec) bool {
-	return a.VideoStream == b.VideoStream && a.AudioStream == b.AudioStream && a.TargetVideoCodec == b.TargetVideoCodec && a.TargetAudioCodec == b.TargetAudioCodec && a.TargetWidth == b.TargetWidth && a.TargetHeight == b.TargetHeight && a.TargetBitrateKbps == b.TargetBitrateKbps && a.ToneMap == b.ToneMap && a.AudioTranscode == b.AudioTranscode && math.Abs(a.DurationSeconds-b.DurationSeconds) < 0.01
+	return a.VideoStream == b.VideoStream && a.AudioStream == b.AudioStream && a.TargetVideoCodec == b.TargetVideoCodec && a.TargetAudioCodec == b.TargetAudioCodec && a.TargetWidth == b.TargetWidth && a.TargetHeight == b.TargetHeight && a.TargetBitrateKbps == b.TargetBitrateKbps && a.ToneMap == b.ToneMap && a.AudioTranscode == b.AudioTranscode && a.ForbidSoftwareVideo == b.ForbidSoftwareVideo && math.Abs(a.DurationSeconds-b.DurationSeconds) < 0.01
 }
 
 func (m *Manager) get(userID, mediaID int64, id string) (*session, error) {
@@ -546,7 +553,7 @@ func (m *Manager) runBatch(ctx context.Context, s *session, batchStart, batchEnd
 		w.err = errors.New("ffmpeg is not installed")
 		return
 	}
-	candidates := m.encoderCandidates(s.Spec.TargetVideoCodec, s.Spec.ToneMap)
+	candidates := m.encoderCandidates(s.Spec.TargetVideoCodec, s.Spec.ToneMap, s.Spec.ForbidSoftwareVideo || playback.IsUHD(s.Spec.Width, s.Spec.Height))
 	if len(candidates) == 0 {
 		w.err = errors.New("no compatible video encoder is available")
 		return
@@ -581,7 +588,7 @@ type encoderCandidate struct {
 	vaapi    bool
 }
 
-func (m *Manager) encoderCandidates(codec string, toneMap bool) []encoderCandidate {
+func (m *Manager) encoderCandidates(codec string, toneMap bool, forbidSoftware ...bool) []encoderCandidate {
 	codec = strings.ToLower(strings.TrimSpace(codec))
 	out := []encoderCandidate{}
 	add := func(name, hardware string, vaapi bool) {
@@ -618,6 +625,9 @@ func (m *Manager) encoderCandidates(codec string, toneMap bool) []encoderCandida
 				add("av1_vaapi", "vaapi", true)
 			}
 		}
+	}
+	if len(forbidSoftware) > 0 && forbidSoftware[0] {
+		return out
 	}
 	switch codec {
 	case "h264":

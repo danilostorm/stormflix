@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/danilostorm/stormflix/internal/playback"
 )
 
 type clientMediaCaps struct {
@@ -64,9 +66,8 @@ func normalizeCatalogCodec(value string) string {
 	}
 }
 
-// Device capability hints are a presentation gate for dedicated UHD shelves,
-// not a catalog access rule. General genre/search rails must keep titles visible
-// because PlaybackPlan can still provide a safe compatibility transcode.
+// Dedicated UHD shelves are gated before their normal catalog adaptation. This
+// prevents an HD alternate from being relabelled as a 4K shelf result.
 func shouldGateUHDCategoryByDevice(mode string, rules categoryRules) bool {
 	return mode != "libraries" && rules.MinHeight >= 2000
 }
@@ -75,14 +76,14 @@ func shouldGateUHDCategoryByDevice(mode string, rules categoryRules) bool {
 // are unaffected. Older clients that do not send explicit capability hints
 // retain legacy behavior.
 func clientAllows4KMedia(caps clientMediaCaps, tech technicalSnapshot) bool {
-	if !caps.Explicit || tech.Status != "ok" || tech.Height < 2000 {
+	if !caps.Explicit || tech.Status != "ok" || !playback.IsUHD(tech.Width, tech.Height) {
 		return true
 	}
-	if caps.MaxHeight > 0 && caps.MaxHeight < 2000 {
+	if caps.MaxHeight < 2000 || tech.Height > caps.MaxHeight || tech.Width > caps.MaxHeight*16/9+256 {
 		return false
 	}
 	codec := normalizeCatalogCodec(tech.VideoCodec)
-	if len(caps.VideoCodecs) > 0 && codec != "" && !caps.VideoCodecs[codec] {
+	if codec == "" || !caps.VideoCodecs[codec] {
 		return false
 	}
 	hdr := strings.ToLower(strings.TrimSpace(tech.HDR))

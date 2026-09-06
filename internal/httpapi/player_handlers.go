@@ -36,6 +36,11 @@ func (s *server) mediaVersions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	items = filterVersionsForClient(clientMediaCapsFromRequest(r), items)
+	if len(items) == 0 && clientMediaCapsFromRequest(r).Explicit {
+		writeError(w, http.StatusNotFound, errNoCompatibleMediaVersion)
+		return
+	}
 	writeJSON(w, http.StatusOK, items)
 }
 

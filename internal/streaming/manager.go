@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/danilostorm/stormflix/internal/playback"
 	"github.com/danilostorm/stormflix/internal/transcode"
 )
 
@@ -76,25 +77,26 @@ func normalizePolicy(policy Policy) Policy {
 }
 
 type Spec struct {
-	VideoStream       int
-	AudioStream       int
-	SourceVideoCodec  string
-	TargetVideoCodec  string
-	SourceAudioCodec  string
-	TargetAudioCodec  string
-	VideoTranscode    bool
-	AudioTranscode    bool
-	Width             int
-	Height            int
-	TargetWidth       int
-	TargetHeight      int
-	FrameRate         float64
-	TargetFrameRate   float64
-	ToneMap           bool
-	TargetBitrateKbps int64
-	DurationSeconds   float64
-	StartSeconds      float64
-	Quality           string
+	VideoStream         int
+	AudioStream         int
+	SourceVideoCodec    string
+	TargetVideoCodec    string
+	SourceAudioCodec    string
+	TargetAudioCodec    string
+	VideoTranscode      bool
+	ForbidSoftwareVideo bool
+	AudioTranscode      bool
+	Width               int
+	Height              int
+	TargetWidth         int
+	TargetHeight        int
+	FrameRate           float64
+	TargetFrameRate     float64
+	ToneMap             bool
+	TargetBitrateKbps   int64
+	DurationSeconds     float64
+	StartSeconds        float64
+	Quality             string
 }
 
 type worker struct {
@@ -609,6 +611,9 @@ func (m *Manager) encoderCandidates(spec Spec) []encoderCandidate {
 				add("av1_vaapi", "vaapi", true)
 			}
 		}
+	}
+	if spec.ForbidSoftwareVideo || playback.IsUHD(spec.Width, spec.Height) {
+		return out
 	}
 	switch codec {
 	case "h264":

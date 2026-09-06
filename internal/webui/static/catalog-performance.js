@@ -8,7 +8,7 @@
   const baseFindItem=typeof findItem==='function'?findItem:null;
   const baseShowHome=typeof showHome==='function'?showHome:null;
   const CHUNK=28;
-  const SNAPSHOT_PREFIX='stormflix.home.snapshot.v3:';
+  const SNAPSHOT_PREFIX='stormflix.home.snapshot.v4:';
   const SNAPSHOT_TTL=10*60*1000;
   let instantFeed=null;
   const pageStarted=performance.now();
@@ -79,7 +79,8 @@
     const libraries=me?.role==='user'?(Array.isArray(me?.library_ids)?me.library_ids.map(Number).sort((a,b)=>a-b).join(','):'none'):'all';
     const account=[Number(me?.id||0),String(me?.role||''),String(me?.updated_at||''),libraries].join('|');
     const restrictions=[Number(profile.id),String(profile.updated_at||''),profile.is_kids?'kids':'standard',Number(profile.content_rating_limit??18)].join('|');
-    return SNAPSHOT_PREFIX+encodeURIComponent(account+'|'+restrictions);
+    const device=JSON.stringify(window.sfDeviceCapabilitySnapshot?.()||{});
+    return SNAPSHOT_PREFIX+encodeURIComponent(account+'|'+restrictions+'|'+device);
   }
 
   function readSnapshot(){
@@ -134,6 +135,7 @@
   if(baseLoadHome){
     loadHome=async function(){
       homeRequestStarted=performance.now();
+      await window.sfCatalogCapabilityQuery?.();
       const cached=readSnapshot();
       if(cached)paintSnapshot(cached);
       try{const value=await baseLoadHome();if(!homeMetricSent)reportFirstContent(homeRequestStarted);return value}

@@ -3,10 +3,20 @@ let me=null,feed=null,currentDetail=null,searchTimer=null,detailReturnState=null
 const themeAudio=$('#theme-audio'),player=$('#player');
 
 async function request(path,opt={}){
+  const method=String(opt.method||'GET').toUpperCase();
+  if(method==='GET'&&catalogRequestPath(path)&&typeof window.sfCatalogCapabilityQuery==='function'){
+    const caps=await window.sfCatalogCapabilityQuery();
+    if(caps&&!String(path).includes('client_max_height='))path+=String(path).includes('?')?`&${caps.replace(/^\?/,'')}`:caps;
+  }
   const r=await fetch(api+path,{...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});
   const d=await r.json().catch(()=>({}));
   if(!r.ok)throw Object.assign(new Error(d.error||`HTTP ${r.status}`),{status:r.status});
   return d;
+}
+
+function catalogRequestPath(path){
+  path=String(path||'').split('?')[0];
+  return path==='/home'||path==='/media'||path.startsWith('/media/')||path==='/series'||path.startsWith('/series/')||path==='/profiles/continue'||path==='/people'||path.startsWith('/people/')||path.startsWith('/categories/')||path.startsWith('/collections/');
 }
 
 async function boot(){
