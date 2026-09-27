@@ -287,6 +287,12 @@ public final class NativePlayerActivity extends Activity {
 
             DefaultMediaSourceFactory mediaSources = new DefaultMediaSourceFactory(http);
             ExoPlayer exo = new ExoPlayer.Builder(this).setMediaSourceFactory(mediaSources).build();
+            exo.setTrackSelectionParameters(
+                exo.getTrackSelectionParameters().buildUpon()
+                    .setPreferredAudioLanguages(store.preferredAudio(), "pt-BR", "pt")
+                    .setPreferredTextLanguages(store.preferredSubtitle(), "pt-BR", "pt")
+                    .build()
+            );
             player = exo;
             playerView.setPlayer(exo);
 
