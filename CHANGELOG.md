@@ -2,6 +2,17 @@
 
 This file records user-visible and architectural changes. `PROJECT_STATE.md` is the authoritative current-state handoff and `ENTERTAINMENT_ROADMAP.md` tracks planned work.
 
+## 2026-09-26
+
+### Android 0.7 native Media3 playback + cinematic details + safer Web fallback
+
+- Android/Android TV/Fire TV now execute the authoritative PlaybackPlan directly in Media3 instead of bootstrapping the WebView player first. Direct Play keeps the original authenticated HTTP Range source; remux/audio compatibility and HLS video-transcode plans are also consumed natively.
+- Added native progress/telemetry heartbeats, resume rewind, Skip Intro/Créditos, profile autoplay countdown, still-watching confirmation and server-quality replan around the Media3 player. A vendor/runtime failure falls back to the existing StormFlix Web Player instead of stranding playback.
+- Added Media3 HLS/UI dependencies and advanced Android to **0.7.0 / versionCode 25**.
+- Rebuilt the native details page around a full-bleed backdrop, readability gradients, prominent title/metadata, short synopsis and large TV/mobile actions inspired by the fast DriveTV reference workflow without copying its branding or authentication model.
+- Web Playback Engine v7 no longer invents H.264/AAC capability merely because MP4 exists. When a browser rejects Direct Play/remux/audio compatibility at runtime, the rejected container/codec is removed from the next capability report so PlaybackPlan can fall through to a safer route.
+- Documentation now marks Rewind on Resume, Still Watching and configurable autoplay countdown as delivered. Legacy Playback Engine v5 issue #18 and Android 0.1.4 validation PR #1 were closed; PostgreSQL #17 remains metric-gated roadmap work.
+
 ## 2026-09-05
 
 ### Device-aware 4K — catálogo compatível e proteção real da CPU
