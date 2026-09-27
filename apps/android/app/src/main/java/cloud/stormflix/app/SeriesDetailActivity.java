@@ -158,7 +158,7 @@ public class SeriesDetailActivity extends Activity {
 
     private void playEpisode(JSONObject episode) {
         long id=episode.optLong("id");if(id<=0)return;
-        Intent intent=new Intent(this,PlayerActivity.class);
+        Intent intent=new Intent(this,NativePlayerActivity.class);
         intent.putExtra("media_id",id);
         intent.putExtra("title",episode.optString("title","Episódio"));
         startActivity(intent);
