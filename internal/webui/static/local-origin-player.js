@@ -5,7 +5,7 @@
   const surface=document.querySelector('#sf-local-origin-surface');
   if(!video||!surface)return;
 
-  const BASE='/vendor-libmedia/';
+  const BASE=new URL('/vendor-libmedia/',location.href).href;
   const CODEC_WASM=new Map([
     [27,'h264'],[173,'hevc'],[225,'av1'],[86017,'mp3'],[86018,'aac'],
     [86019,'ac3'],[86020,'dca'],[86021,'vorbis'],[86028,'flac'],
@@ -153,8 +153,11 @@
     engine=instance;
     bindEvents(instance,AVPlayer,token);setEngineVolume();startStats();
     const subtitleRows=typeof sfSubtitles!=='undefined'&&Array.isArray(sfSubtitles)?sfSubtitles:[];
-    const externalSubtitles=subtitleRows.map(row=>({source:`/api/v1/media/${Number(plan?.media_id)}/subtitles/${Number(row.id)}/vtt`,lang:String(row.language||''),title:String(row.provider||row.language||'Legenda')}));
-    await instance.load(url,{ext:String(plan?.source_container||'').replace(/^matroska$/,'mkv'),externalSubtitles,http:{credentials:'same-origin'}});
+    const externalSubtitles=subtitleRows.map(row=>({source:new URL(`/api/v1/media/${Number(plan?.media_id)}/subtitles/${Number(row.id)}/vtt`,location.href).href,lang:String(row.language||''),title:String(row.provider||row.language||'Legenda')}));
+    // Blob workers have no page-relative base URL. Resolve media and sidecars
+    // before handing them to libmedia's network worker.
+    const source=new URL(url,location.href).href;
+    await instance.load(source,{ext:String(plan?.source_container||'').replace(/^matroska$/,'mkv'),externalSubtitles,http:{credentials:'same-origin'}});
     if(token!==generation)throw new Error('carregamento local cancelado');
     state.duration=Number(instance.getDuration?.()||0n)/1000;
     // The constructor callback receives ALL raw streams, not typed streams.

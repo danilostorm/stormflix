@@ -347,6 +347,7 @@ public final class NativePlayerActivity extends Activity {
                 }
 
                 @Override public void onPlayerError(PlaybackException error) {
+                    if (destroyed || player != exo) return;
                     sendTelemetry(error == null ? "Media3 playback error" : String.valueOf(error.getMessage()));
                     if (!preferSoftwareAudio && error != null && error.errorCode >= 4000 && error.errorCode < 6000) {
                         // Retry a vendor decoder/audio-sink failure once with the

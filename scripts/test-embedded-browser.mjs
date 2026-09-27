@@ -25,6 +25,11 @@ const server=http.createServer((req,res)=>{
     res.setHeader('Content-Type','text/html');
     res.end('<video id="player"></video><div id="sf-local-origin-surface" style="width:640px;height:360px" hidden></div><script src="/local-origin-player.js"></script>');return;
   }
+  if(url.pathname==='/assets/poster.png'){
+    if(url.searchParams.has('w')){res.writeHead(404);res.end();return}
+    res.setHeader('Content-Type','image/png');
+    res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWQAAAABJRU5ErkJggg==','base64'));return;
+  }
   const media=url.pathname==='/sample.mp4'||url.pathname==='/sample.mkv';
   const file=path.join(media?temp:root,url.pathname);
   if(!fs.existsSync(file)){res.writeHead(404);res.end();return}
@@ -48,6 +53,18 @@ try{
     page.on('console',msg=>{if(msg.type()==='error')console.error(msg.text())});
     await page.goto(`http://${host}:${server.address().port}`);
     assert.equal(await page.evaluate(()=>isSecureContext),host==='localhost');
+    const app=fs.readFileSync(path.join(root,'app.js'),'utf8');
+    await page.addScriptTag({content:app.slice(app.indexOf('function responsiveImageURL('),app.indexOf('function renderHero('))});
+    await page.evaluate(()=>{
+      const img=document.createElement('img');img.id='cover-test';
+      img.src='/assets/poster.png?w=360&format=webp';
+      img.srcset='/assets/poster.png?w=240&format=webp 240w, /assets/poster.png?w=500&format=webp 500w';
+      document.body.appendChild(img);
+    });
+    await page.waitForFunction(()=>document.querySelector('#cover-test').naturalWidth===1);
+    assert.equal(await page.locator('#cover-test').getAttribute('srcset'),null);
+    assert.equal(await page.locator('#cover-test').getAttribute('src'),'/assets/poster.png');
+
     for(const name of ['sample.mp4','sample.mkv']){
       await page.evaluate(async name=>{
         window.errors=[];document.querySelector('#player').addEventListener('error',()=>window.errors.push(window.sfPlaybackLastError));

@@ -18,7 +18,8 @@ Web tries `/playback/original` before probing on the server. Actual HTML playbac
 rejection still invokes the original-only planner and local decoder. The libmedia
 adapter no longer overrides `findBestStream` with a function that could return a
 video stream for audio. It uses upstream selection followed by explicit audio
-selection through typed public stream metadata. HTTP LAN can use ScriptProcessor
+selection through typed public stream metadata. Media/WASM/sidecar URLs are
+absolute because network workers have no page-relative URL base. HTTP LAN can use ScriptProcessor
 audio when AudioWorklet is unavailable. Feature-capable Android/mobile browsers
 may use local decoding; SIMD/WebGL/worker, codec, resolution and HDR constraints
 remain. This is a browser implementation of local original-file playback, not
