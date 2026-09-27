@@ -39,8 +39,9 @@ type playbackGrantInput struct {
 }
 
 type playbackGrantOutput struct {
-	URL       string `json:"url"`
-	ExpiresAt string `json:"expires_at"`
+	ContentType string `json:"content_type,omitempty"`
+	URL         string `json:"url"`
+	ExpiresAt   string `json:"expires_at"`
 }
 
 func (s *server) playbackGrantKey() ([]byte, error) {
@@ -181,7 +182,8 @@ func (s *server) createPlaybackGrant(w http.ResponseWriter, r *http.Request) {
 	if !s.requireKidsMediaAccess(w, r, u.ID, id) {
 		return
 	}
-	if _, ok := s.authorizeHLSMedia(w, r, id); !ok {
+	item, ok := s.authorizeHLSMedia(w, r, id)
+	if !ok {
 		return
 	}
 	var in playbackGrantInput
@@ -222,7 +224,17 @@ func (s *server) createPlaybackGrant(w http.ResponseWriter, r *http.Request) {
 		parsed.Host = r.Host
 	}
 	w.Header().Set("Cache-Control", "private, no-store")
-	writeJSON(w, http.StatusOK, playbackGrantOutput{URL: parsed.String(), ExpiresAt: expires.Format(time.RFC3339)})
+	contentType := mediaContentType(item.Extension)
+	if strings.HasSuffix(parsed.Path, ".m3u8") {
+		contentType = "application/vnd.apple.mpegurl"
+	}
+	if strings.HasSuffix(parsed.Path, "/remux") {
+		contentType = "video/mp4"
+	}
+	if strings.HasSuffix(parsed.Path, "/vtt") {
+		contentType = "text/vtt"
+	}
+	writeJSON(w, http.StatusOK, playbackGrantOutput{ContentType: contentType, URL: parsed.String(), ExpiresAt: expires.Format(time.RFC3339)})
 }
 
 func appendPlaybackGrant(rawURL, token string) string {

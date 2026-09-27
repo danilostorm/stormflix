@@ -205,7 +205,7 @@ public class DetailActivity extends Activity {
             logo.setAdjustViewBounds(true);
             logo.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
             info.addView(logo, new LinearLayout.LayoutParams(
-                Ui.dp(this, television ? 420 : 300), Ui.dp(this, television ? 120 : 92)));
+                (television ? Ui.dp(this, 420) : ViewGroup.LayoutParams.MATCH_PARENT), Ui.dp(this, television ? 120 : 92)));
             images.load(logo, media.logoUrl);
         } else {
             TextView title = Ui.title(this, media.title, television ? 43 : 34);
@@ -233,7 +233,7 @@ public class DetailActivity extends Activity {
             TextView tag = Ui.muted(this, tagline, television ? 16 : 14);
             tag.setTextColor(Color.rgb(220, 224, 232));
             tag.setMaxLines(2);
-            info.addView(tag, Ui.margin(this, Ui.dp(this, television ? 820 : 560),
+            info.addView(tag, Ui.margin(this, (television ? Ui.dp(this, 820) : ViewGroup.LayoutParams.MATCH_PARENT),
                 ViewGroup.LayoutParams.WRAP_CONTENT, 0, 12, 0, 0));
         }
 
@@ -243,11 +243,11 @@ public class DetailActivity extends Activity {
             overview.setTextColor(Color.rgb(210, 215, 225));
             overview.setMaxLines(television ? 4 : 3);
             overview.setLineSpacing(0, 1.16f);
-            info.addView(overview, Ui.margin(this, Ui.dp(this, television ? 820 : 620),
+            info.addView(overview, Ui.margin(this, (television ? Ui.dp(this, 820) : ViewGroup.LayoutParams.MATCH_PARENT),
                 ViewGroup.LayoutParams.WRAP_CONTENT, 0, 12, 0, 0));
         }
 
-        LinearLayout actions = Ui.horizontal(this, 0);
+        LinearLayout actions = television ? Ui.horizontal(this, 0) : Ui.vertical(this, 0);
         Button play = Ui.button(this, "▶  Assistir agora", true);
         play.setTextSize(television ? 16 : 14);
         play.setOnClickListener(v -> play(media));
@@ -284,66 +284,7 @@ public class DetailActivity extends Activity {
     }
 
     private void showPlaybackAnywhere(Models.Media media) {
-        String[] options = {"Chromecast / Google TV", "DLNA / UPnP", "Abrir com outro player"};
-        new AlertDialog.Builder(this)
-            .setTitle("Reproduzir em…")
-            .setItems(options, (dialog, which) -> preparePlaybackAnywhere(media, which))
-            .setNegativeButton("Cancelar", null)
-            .show();
-    }
-
-    private void preparePlaybackAnywhere(Models.Media media, int target) {
-        Toast.makeText(this, "Preparando reprodução…", Toast.LENGTH_SHORT).show();
-        io.submit(() -> {
-            try {
-                JSONObject caps = new JSONObject();
-                caps.put("containers", new JSONArray().put("mp4"));
-                caps.put("video_codecs", new JSONArray().put("h264"));
-                caps.put("audio_codecs", new JSONArray().put("aac").put("mp3").put("ac3"));
-                caps.put("subtitle_formats", new JSONArray().put("vtt"));
-                caps.put("allow_remux", true);
-                caps.put("allow_audio_compatibility", true);
-                caps.put("allow_video_transcode", true);
-                caps.put("max_transcode_bitrate_kbps", 18000);
-                caps.put("native_audio_track_selection", false);
-                caps.put("server_selects_audio", true);
-
-                JSONObject request = new JSONObject();
-                request.put("client_kind", "tv");
-                request.put("client_name", "StormFlix Android Playback Anywhere");
-                request.put("client_version", "0.7.0");
-                request.put("quality", "auto");
-                request.put("start_position_seconds", 0);
-                request.put("capabilities", caps);
-
-                JSONObject plan = new JSONObject(api.post(
-                    "/media/" + media.id + "/playback/plan", request));
-                if (!plan.optBoolean("available", false)
-                    || plan.optString("url", "").trim().isEmpty()) {
-                    throw new IllegalStateException(plan.optString(
-                        "reason", "Nenhuma rota compatível ficou disponível."));
-                }
-
-                JSONObject grantRequest = new JSONObject();
-                grantRequest.put("url", plan.getString("url"));
-                long selectedID = plan.optLong("selected_media_id", media.id);
-                JSONObject grant = new JSONObject(api.post(
-                    "/media/" + selectedID + "/playback/grant", grantRequest));
-                String url = grant.optString("url", "").trim();
-                if (url.isEmpty()) {
-                    throw new IllegalStateException(
-                        "StormFlix não retornou o link temporário de reprodução.");
-                }
-                String mime = remoteMime(plan, url);
-                main.post(() -> {
-                    if (target == 0) anywhereBridge.openNativeCast(url, media.title, mime, 0);
-                    else if (target == 1) anywhereBridge.openNativeDlna(url, media.title, mime, 0);
-                    else anywhereBridge.openExternalPlayer(url, media.title, mime);
-                });
-            } catch (Exception error) {
-                main.post(() -> Toast.makeText(this, error.getMessage(), Toast.LENGTH_LONG).show());
-            }
-        });
+        anywhereBridge.chooseOriginal(api, media.id, media.title, 0);
     }
 
     private String remoteMime(JSONObject plan, String url) {

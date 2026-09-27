@@ -1,4 +1,4 @@
-// StormFlix Android 0.7.0 - native Media3 playback + Web fallback + Cast/DLNA
+// StormFlix Android 0.8.0 - original playback, local audio decoding, Cast/DLNA
 plugins {
     id 'com.android.application'
 }
@@ -11,8 +11,8 @@ android {
         applicationId 'cloud.stormflix.app'
         minSdk 23
         targetSdk 36
-        versionCode 25
-        versionName '0.7.0'
+        versionCode 26
+        versionName '0.8.0'
     }
 
     buildTypes {
@@ -33,10 +33,11 @@ dependencies {
     // Java network APIs and does not require a casting application dependency.
     implementation 'com.google.android.gms:play-services-cast-framework:22.3.1'
     implementation 'androidx.appcompat:appcompat:1.7.1'
+    implementation 'androidx.recyclerview:recyclerview:1.4.0'
+    implementation 'com.github.bumptech.glide:glide:4.16.0'
 
-    // Video uses Media3 natively for Direct Play/remux/HLS/transcode plans; the
-    // existing Web Playback Engine remains a guarded fallback.
+    // Decode original video on the device; the extension adds local audio codecs.
     implementation 'androidx.media3:media3-exoplayer:1.11.0'
-    implementation 'androidx.media3:media3-exoplayer-hls:1.11.0'
+    implementation project(':decoder-ffmpeg')
     implementation 'androidx.media3:media3-ui:1.11.0'
 }

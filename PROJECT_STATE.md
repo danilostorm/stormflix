@@ -2,7 +2,63 @@
 
 > **Authoritative continuation note.** Any coding agent/session continuing StormFlix must read this file, `AGENTS.md` and `ENTERTAINMENT_ROADMAP.md` before changing code. Update this document after meaningful architecture, compatibility, schema, playback or deployment changes.
 
-Last architecture update: **2026-09-05**.
+Last architecture update: **2026-09-27**.
+
+## Original-file playback update — 2026-09-27
+
+This update supersedes the server-conversion fallback described in older sections
+for native StormFlix `/api/v1` clients, at the user's explicit request. Android
+**0.8.0 / versionCode 26** uses a catalog-only `/playback/original` request, then
+opens the authenticated original stream through Media3 with HTTP Range. It does
+not open a WebView, stat/probe the rclone file, or initialize an FFmpeg/HLS manager
+before handing the original URL to the decoder. Profile resume, playback
+preferences, markers and sidecar subtitle metadata are returned together.
+
+Media3 1.11.0 now includes its Apache-2.0 FFmpeg decoder module, built from source
+with FFmpeg 6.0.1 (LGPL-2.1-or-later). This is **audio decoding on the device**, the
+same architecture used by Just Player, and does not encode/convert a server
+stream. The build source, checksum, notices and reproduction recipe are under
+`apps/android/decoder-ffmpeg`; source archives accompany APK artifacts. Hardware
+video/HDR support and receiver compatibility remain device-dependent.
+
+`/playback/plan` enforces original quality and disables remux, AAC conversion,
+video conversion and the old HLS-assisted local decoder, including for stale
+clients with saved lower-quality preferences. It allows Direct Play or eligible
+libmedia original-file local decoding. Retired native remux/webstream/HLS URLs
+return `409 server_conversion_disabled` after authorization. Existing conversion
+code and the isolated Jellyfin compatibility facade are retained; this is not a
+claim that every third-party compatibility client has changed policy.
+
+“Reproduzir em” remains available in details, native player controls and Web:
+Chromecast, DLNA/UPnP, installed Just Player and the Android application chooser
+use signed original-media grants. Grants now include the real content type,
+rather than labelling MKV as MP4. No Just Player application code is embedded;
+its Android app cannot run directly in a browser. Web/desktop use HTML video or
+the existing libmedia runtime, within its codec/HDR/performance limits. An
+unsupported original is reported instead of silently starting server conversion.
+
+The persistent quality button is removed. Web runtime rejection is scoped to
+the current source, preserving the browser's MP4/AAC capabilities. Exact audio
+track selection can switch to local decoding. Android pauses on background,
+records first rendered frame and stalls, and captures media identity before
+queuing heartbeats (avoiding previous-episode progress on the next episode).
+
+Artwork uses a shared, bounded Glide cache (64 MiB disk, session/profile scope),
+responsive image sizes and recycled horizontal poster views. Home's duplicate
+initial requests are removed and returning from details preserves the catalog
+view while refreshing Continue Watching. Mobile detail text uses available width.
+Web rails defer off-screen posters, request fewer urgent images, and share an
+in-flight Home request only within the same account/profile/capability scope.
+
+Validation: regression coverage includes original-only planning, local audio
+selection, no-probe native startup, Kids/library authorization, browser runtime
+capabilities and rejecting false Home SLO passes. Exact-commit CI/build results
+must be checked before merge/release. Physical phone/Android TV/Fire TV playback,
+HDR/passthrough, external receivers and Unraid/rclone startup/seek/p95 measurements
+remain device/production validation, not results inferred from automated tests.
+The Home SLO script now rejects login HTML, redirects, error JSON, missing cache
+evidence, non-hit samples and changing catalog revisions. Smart Downloads v1
+remains pending; no offline download capability is included in this update.
 
 ## Deployment
 
@@ -30,9 +86,9 @@ Server HTTP port: **8090**, normally behind an HTTPS reverse proxy.
 ## Current clients
 
 - Server code line: **`0.29.0-device-aware-4k`**.
-- Web Player: **Playback Engine v7**, retaining the v5.3 session and v5.4 controls. Native Direct Play remains first; eligible desktop browsers can demux and decode the authenticated original file locally before the v6/server fallbacks.
+- Web Player: **Playback Engine v7**, retaining the v5.3 session and v5.4 controls. Native Direct Play remains first; eligible desktop browsers can demux and decode the authenticated original file locally. Native API server conversion is disabled.
 - Games Web Player: G2 browser/WASM runtime plus G2.5 dedicated Admin/metadata and RomMix-inspired browsing; G3 adds virtual mobile controls, TV/gamepad focus/menu behavior and profile-owned save-state previews. Games metadata uses Metadata Stack v2.
-- Android package: `cloud.stormflix.app`, **0.7.0 / versionCode 25**, minSdk 23, targetSdk 36, Java 17. Media3 is now the primary Android/Android TV/Fire TV video runtime; the existing Web Playback Engine remains a guarded fallback.
+- Android package: `cloud.stormflix.app`, **0.8.0 / versionCode 26**, minSdk 23, targetSdk 36, Java 17. Media3 plus a bundled local audio decoder is the primary Android/Android TV/Fire TV runtime, with optional external-player handoff.
 - Android phone/tablet, Android TV and Fire TV keep native StormFlix catalog/navigation and now execute PlaybackPlan directly through Media3 for Direct Play, remux/audio compatibility and HLS transcode. Media3 uses authenticated HTTP Range for original files, so compatible media no longer waits for a WebView bootstrap. Browser WASM/local-origin decode remains Web-only and the legacy Web Player is used only if a vendor Media3/decoder path fails.
 - Samsung Tizen: `apps/tizen` 0.1.0 thin shell; final WGT requires the developer's Samsung/Tizen signing profile.
 - LG webOS: `apps/webos` 0.1.0 thin shell; CI can package the Developer Mode IPK.

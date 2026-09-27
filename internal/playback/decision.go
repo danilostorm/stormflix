@@ -6,7 +6,11 @@ import (
 )
 
 func Decide(source Source, request Request) Plan {
+	if request.OriginalOnly {
+		request = OriginalRequest(request)
+	}
 	plan := Plan{
+		OriginalOnly:      request.OriginalOnly,
 		Mode:              ModeUnsupported,
 		ClientKind:        strings.ToLower(strings.TrimSpace(request.ClientKind)),
 		SourceContainer:   normalizeContainer(source.Container),
@@ -31,6 +35,9 @@ func Decide(source Source, request Request) Plan {
 	plan.VideoFrameRate = video.FrameRate
 	plan.VideoHDR = strings.ToLower(strings.TrimSpace(video.HDR))
 	plan.AvailableQualities = availableQualities(video.Height)
+	if request.OriginalOnly {
+		plan.AvailableQualities = []string{"original"}
+	}
 
 	audios := streamsOfType(source.Streams, "audio")
 	plan.AudioTrackCount = len(audios)
@@ -56,6 +63,14 @@ func Decide(source Source, request Request) Plan {
 	}
 
 	containerSupported := supports(request.Capabilities.Containers, plan.SourceContainer, normalizeContainer)
+	if request.NativeSourceRejected {
+		if local, ok := localOriginPlan(plan, source, video, request, "native_source_rejected", "the native player rejected this source at runtime"); ok {
+			return local
+		}
+		plan.ReasonCode = "native_source_rejected"
+		plan.Reason = "this source needs a different local decoder or a compatible physical version"
+		return plan
+	}
 	audioSupported := plan.AudioStream < 0 || supports(request.Capabilities.AudioCodecs, plan.SourceAudioCodec, normalizeCodec)
 	needsServerAudioSelection := request.Capabilities.ServerSelectsAudio && len(audios) > 1 && !selectedAudioDefault
 

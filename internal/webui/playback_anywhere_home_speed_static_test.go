@@ -11,7 +11,7 @@ func TestPlaybackAnywhereDetailActionIsFirstClass(t *testing.T) {
 		t.Fatalf("read index.html: %v", err)
 	}
 	for _, required := range [][]byte{
-		[]byte(`id="detail-anywhere"`), []byte(`Reproduzir em`), []byte(`/playback-anywhere.js?v=4.1`), []byte(`/source-selector.js?v=3`), []byte(`/catalog-performance.js?v=4`),
+		[]byte(`id="detail-anywhere"`), []byte(`Reproduzir em`), []byte(`/playback-anywhere.js?v=4.2`), []byte(`/source-selector.js?v=3`), []byte(`/catalog-performance.js?v=5`),
 	} {
 		if !bytes.Contains(index, required) {
 			t.Fatalf("detail Playback Anywhere missing %q", required)

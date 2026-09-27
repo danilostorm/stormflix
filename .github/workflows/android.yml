@@ -38,7 +38,18 @@ jobs:
           packages: platform-tools
 
       - name: Install Android 36
-        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;26.1.10909125' 'cmake;3.22.1'
+
+      - name: Cache local audio decoder build
+        uses: actions/cache@v4
+        with:
+          path: |
+            apps/android/decoder-ffmpeg/src/main/jni/ffmpeg
+            apps/android/decoder-ffmpeg/build/ffmpeg-6.0.1.tar.xz
+          key: android-audio-ndk26-${{ runner.os }}-${{ hashFiles('apps/android/build-audio-decoder.sh', 'apps/android/decoder-ffmpeg/src/main/jni/*') }}
+
+      - name: Build local audio decoders from verified source
+        run: bash apps/android/build-audio-decoder.sh
 
       - name: Gradle 9.5
         uses: gradle/actions/setup-gradle@v4
@@ -67,6 +78,11 @@ jobs:
           VERSION='${{ steps.version.outputs.version }}'
           cp apps/android/app/build/outputs/apk/debug/app-debug.apk "StormFlix-Android-v${VERSION}.apk"
           sha256sum "StormFlix-Android-v${VERSION}.apk" > "StormFlix-Android-v${VERSION}.sha256"
+          # Distribute the exact LGPL source with every installable APK.
+          tar --exclude='decoder-ffmpeg/src/main/jni/ffmpeg' --exclude='decoder-ffmpeg/.cxx' \
+            --exclude='decoder-ffmpeg/build' -czf "StormFlix-Android-v${VERSION}-decoder-sources.tar.gz" \
+            -C apps/android decoder-ffmpeg build-audio-decoder.sh \
+            -C decoder-ffmpeg/build ffmpeg-6.0.1.tar.xz
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -75,6 +91,7 @@ jobs:
           path: |
             StormFlix-Android-v${{ steps.version.outputs.version }}.apk
             StormFlix-Android-v${{ steps.version.outputs.version }}.sha256
+            StormFlix-Android-v${{ steps.version.outputs.version }}-decoder-sources.tar.gz
           if-no-files-found: error
 
       - name: Publish GitHub Release
@@ -92,6 +109,7 @@ jobs:
           gh release create "$TAG" \
             "StormFlix-Android-v${VERSION}.apk" \
             "StormFlix-Android-v${VERSION}.sha256" \
+            "StormFlix-Android-v${VERSION}-decoder-sources.tar.gz" \
             --target "$GITHUB_SHA" \
             --title "StormFlix Android ${VERSION}" \
             --generate-notes \

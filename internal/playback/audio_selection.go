@@ -6,6 +6,9 @@ import "strings"
 // Browser HTMLMediaElement does not reliably expose MKV/MP4 audioTracks, so the
 // Web client selects a server stream exactly like mature media servers do.
 func ApplyAudioStream(source Source, request Request, current Plan, streamIndex int) Plan {
+	if request.OriginalOnly {
+		request = OriginalRequest(request)
+	}
 	audios := streamsOfType(source.Streams, "audio")
 	var selected Stream
 	found := false
@@ -52,6 +55,12 @@ func ApplyAudioStream(source Source, request Request, current Plan, streamIndex 
 	// container itself is directly playable. Force server-side stream selection
 	// while preserving video stream-copy whenever possible.
 	if plan.Mode == ModeDirectPlay && len(audios) > 1 && !selected.Default && request.Capabilities.ServerSelectsAudio {
+		if request.OriginalOnly {
+			video, _ := firstStream(logical.Streams, "video")
+			if local, ok := localOriginPlan(plan, logical, video, request, "local_audio_selection", "the selected audio track is decoded locally"); ok {
+				return local
+			}
+		}
 		if request.Capabilities.AllowRemux && supports(request.Capabilities.Containers, "mp4", normalizeContainer) && mp4AudioCopyCompatible(plan.SourceAudioCodec) {
 			plan.Mode = ModeRemux
 			plan.Container = "mp4"

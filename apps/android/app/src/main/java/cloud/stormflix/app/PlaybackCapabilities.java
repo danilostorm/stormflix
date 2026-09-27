@@ -1,6 +1,7 @@
 package cloud.stormflix.app;
 
 import android.content.Context;
+import androidx.media3.decoder.ffmpeg.FfmpegLibrary;
 import android.media.MediaCodecInfo;
 import android.media.MediaCodecList;
 import android.os.Build;
@@ -17,7 +18,7 @@ import java.util.Set;
 
 /** Builds native device capability documents used by StormFlix catalog/playback policy. */
 public final class PlaybackCapabilities {
-    private static final String VERSION = "0.7.0";
+    private static final String VERSION = "0.8.0";
     private static volatile String catalogQueryCache;
 
     private static final Map<String,String> VIDEO_MIME_TO_CODEC = new LinkedHashMap<>();
@@ -121,7 +122,7 @@ public final class PlaybackCapabilities {
         }
 
         for (Map.Entry<String,String> entry : AUDIO_MIME_TO_CODEC.entrySet()) {
-            if (hasDecoder(codecs, entry.getKey())) audioCodecs.add(entry.getValue());
+            if (hasDecoder(codecs, entry.getKey()) || FfmpegLibrary.supportsFormat(entry.getKey())) audioCodecs.add(entry.getValue());
         }
 
         boolean television = RemoteUi.isTelevision(context);
@@ -132,9 +133,9 @@ public final class PlaybackCapabilities {
             .put("audio_codecs", new JSONArray(new ArrayList<>(audioCodecs)))
             .put("video_profiles", videoProfiles)
             .put("subtitle_formats", array("vtt", "srt", "ass", "ssa"))
-            .put("allow_remux", true)
-            .put("allow_audio_compatibility", audioCodecs.contains("aac"))
-            .put("allow_video_transcode", videoCodecs.contains("h264"))
+            .put("allow_remux", false)
+            .put("allow_audio_compatibility", false)
+            .put("allow_video_transcode", false)
             .put("max_transcode_bitrate_kbps", television ? 25000 : 16000)
             .put("native_audio_track_selection", true)
             .put("server_selects_audio", false)
@@ -145,7 +146,7 @@ public final class PlaybackCapabilities {
             .put("client_kind", television ? "tv" : "android")
             .put("client_name", television ? "StormFlix Android TV / Fire TV" : "StormFlix Android")
             .put("client_version", VERSION)
-            .put("quality", store.playerQuality())
+            .put("quality", "original")
             .put("capabilities", capabilities)
             .put("preferred_audio_language", store.preferredAudio());
         if (playbackSessionId != null && !playbackSessionId.trim().isEmpty()) request.put("playback_session_id", playbackSessionId.trim());

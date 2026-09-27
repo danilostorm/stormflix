@@ -75,6 +75,17 @@ public final class SessionStore {
         return out.toString();
     }
 
+    // Used only as an opaque cache identity; never expose session cookies in paths/logs.
+    public String cacheScope() {
+        try {
+            byte[] bytes = java.security.MessageDigest.getInstance("SHA-256").digest(
+                (baseUrl() + "\n" + cookieHeader()).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder out = new StringBuilder();
+            for (byte value : bytes) out.append(String.format(java.util.Locale.ROOT, "%02x", value & 255));
+            return out.toString();
+        } catch (java.security.NoSuchAlgorithmException e) { throw new IllegalStateException(e); }
+    }
+
     public boolean signedIn() {
         return !sessionCookie().isEmpty();
     }

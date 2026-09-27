@@ -2,6 +2,8 @@
 *.db
 *.db-shm
 *.db-wal
-stormflix
+/stormflix
 .env
 .DS_Store
+
+__pycache__/

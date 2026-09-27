@@ -1,0 +1,15 @@
+StormFlix uses AndroidX Media3 (Apache-2.0) and FFmpeg 6.0.1
+(LGPL-2.1-or-later) for audio decoding on this device. FFmpeg does not
+convert media on the server. No GPL/nonfree codecs or encoders are enabled.
+
+Media3: https://github.com/androidx/media/tree/2bc207851df311340767e913931ca7b28cab1794
+FFmpeg source: https://ffmpeg.org/releases/ffmpeg-6.0.1.tar.xz
+Build instructions, source modifications, and relinking/rebuild recipe:
+https://github.com/danilostorm/stormflix/tree/main/apps/android/decoder-ffmpeg
+The complete corresponding FFmpeg source is also included with StormFlix
+APK downloads. This app does not restrict reverse engineering or rebuilding
+for debugging modifications to the LGPL-covered library.
+
+Just Player (https://github.com/moneytoo/Player, Unlicense) and DriveTV
+inspired the direct-original playback architecture. Their app code is not
+embedded in StormFlix. Reproduzir em can open an installed Just Player.

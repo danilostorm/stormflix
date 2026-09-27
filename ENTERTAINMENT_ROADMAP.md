@@ -12,6 +12,16 @@ This roadmap turns product ideas into bounded engineering work. `PROJECT_STATE.m
 6. **TV is a first-class client.** Every important interaction must be usable by remote/D-pad and remain readable at living-room distance.
 7. **Measure before optimizing.** New background work gets queue/budget/latency metrics and must yield to active playback.
 
+## Current playback direction — 2026-09-27
+
+The original-only update replaces native API server conversion at the user's
+request. Android 0.8 uses Media3 plus local FFmpeg audio decoding, with Just Player
+as an optional installed target in “Reproduzir em”. Web uses direct HTML video or
+libmedia; browser/HDR/device limits still apply. Chromecast and DLNA remain and
+receive the original stream. CI builds do not substitute for physical-device and
+Unraid/rclone measurements. Smart Downloads is still pending after this playback
+and navigation work; none of the later roadmap items is marked delivered here.
+
 ## P0 — Production experience and latency
 
 ### Home performance SLO

@@ -52,6 +52,13 @@ public class MainActivity extends Activity {
     private LinearLayout page;
     private LinearLayout content;
     private LinearLayout topNav;
+    private String loadedScope = "";
+    private int loadGeneration;
+    private boolean destroyed;
+    private boolean showingHome = true;
+    private View continueRow;
+    private int continueIndex;
+
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -60,15 +67,21 @@ public class MainActivity extends Activity {
         if (!api.store().signedIn()) { startActivity(new Intent(this, LoginActivity.class)); finish(); return; }
         if (api.store().profileCookie().isEmpty()) { startActivity(new Intent(this, ProfileActivity.class)); finish(); return; }
         buildShell();
-        loadNavigation();
-        loadHome();
     }
 
     @Override protected void onResume() {
         super.onResume();
-        if (content != null && api != null && api.store().signedIn()) {
+        if (content == null || api == null) return;
+        if (!api.store().signedIn()) {
+            startActivity(new Intent(this, LoginActivity.class)); finish(); return;
+        }
+        String scope = api.store().cacheScope();
+        if (!scope.equals(loadedScope)) {
+            loadedScope = scope;
             loadNavigation();
             loadHome();
+        } else if (showingHome) {
+            refreshContinue();
         }
     }
 
@@ -112,6 +125,7 @@ public class MainActivity extends Activity {
     }
 
     private void loadNavigation() {
+        final String scope = loadedScope;
         io.submit(() -> {
             try {
                 JSONArray categories = new JSONArray(api.get("/categories"));
@@ -139,7 +153,7 @@ public class MainActivity extends Activity {
                     if (menu.visible && !menu.slug.isEmpty()) menus.add(menu);
                 }
                 menus.sort(Comparator.comparingInt((HomeMenu value) -> value.sortOrder).thenComparingLong(value -> value.id));
-                if (!menus.isEmpty()) main.post(() -> renderNavigation(menus));
+                if (!menus.isEmpty()) main.post(() -> { if (!destroyed && scope.equals(loadedScope)) renderNavigation(menus); });
             } catch (Exception ignored) {
                 // Keep the built-in fallback navigation when the dynamic menu
                 // endpoint is temporarily unavailable. Catalog content itself
@@ -184,13 +198,39 @@ public class MainActivity extends Activity {
     }
 
     private void loadHome() {
+        showingHome = true;
+        final int generation = ++loadGeneration;
+        final String scope = loadedScope;
         loading("Início");
         io.submit(() -> {
             try {
                 Models.Home home = Models.Home.from(api.get("/home"));
                 List<Models.Media> continuing = parseMediaArray(api.get("/profiles/continue"));
-                main.post(() -> renderHome(home, continuing));
-            } catch (Exception e) { main.post(() -> error(e)); }
+                main.post(() -> { if (validLoad(generation, scope)) renderHome(home, continuing); });
+            } catch (Exception e) { main.post(() -> { if (validLoad(generation, scope)) error(e); }); }
+        });
+    }
+
+    private boolean validLoad(int generation, String scope) {
+        return !destroyed && generation == loadGeneration && scope.equals(api.store().cacheScope());
+    }
+
+    private void refreshContinue() {
+        final int generation = loadGeneration;
+        final String scope = loadedScope;
+        io.submit(() -> {
+            try {
+                List<Models.Media> items = dedupeMedia(parseMediaArray(api.get("/profiles/continue")));
+                main.post(() -> {
+                    if (!validLoad(generation, scope) || !showingHome) return;
+                    if (continueRow != null) content.removeView(continueRow);
+                    continueRow = null;
+                    if (!items.isEmpty()) {
+                        continueRow = row("Continuar assistindo", items);
+                        content.addView(continueRow, Math.min(continueIndex, content.getChildCount()));
+                    }
+                });
+            } catch (Exception ignored) {}
         });
     }
 
@@ -199,17 +239,20 @@ public class MainActivity extends Activity {
         Models.Media hero = home.hero != null ? home.hero : firstVisible(home.rows);
         if (hero != null) content.addView(hero(hero));
 
+        continueIndex = content.getChildCount();
+        continueRow = null;
         Set<String> renderedRows = new HashSet<>();
         List<Models.Media> continueVisible = dedupeMedia(continuing);
         if (!continueVisible.isEmpty()) {
-            content.addView(row("Continuar assistindo", continueVisible));
+            continueRow = row("Continuar assistindo", continueVisible);
+            content.addView(continueRow);
             renderedRows.add(normalizeRowTitle("Continuar assistindo"));
         }
 
         for (Models.Row r : home.rows) {
             String rowKey = normalizeRowTitle(r.title);
             if (renderedRows.contains(rowKey)) continue;
-            if (!continueVisible.isEmpty() && isContinueWatchingTitle(r.title)) continue;
+            if (isContinueWatchingTitle(r.title)) continue;
             List<Models.Media> visible = dedupeMedia(r.items);
             if (!visible.isEmpty()) {
                 content.addView(row(r.title, visible));
@@ -259,13 +302,13 @@ public class MainActivity extends Activity {
         copy.addView(Ui.muted(this, meta(media), 13), Ui.margin(this, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 5, 0, 0));
         if (!media.overview.isEmpty()) {
             TextView overview = Ui.muted(this, media.overview, 14); overview.setMaxLines(3);
-            copy.addView(overview, Ui.margin(this, Ui.dp(this, 720), ViewGroup.LayoutParams.WRAP_CONTENT, 0, 10, 0, 0));
+            copy.addView(overview, Ui.margin(this, (RemoteUi.isTelevision(this) ? Ui.dp(this, 720) : ViewGroup.LayoutParams.MATCH_PARENT), ViewGroup.LayoutParams.WRAP_CONTENT, 0, 10, 0, 0));
         }
-        LinearLayout actions = Ui.horizontal(this, 0);
+        LinearLayout actions = RemoteUi.isTelevision(this) ? Ui.horizontal(this, 0) : Ui.vertical(this, 0);
         Button play = Ui.button(this, "▶ Assistir", true); play.setOnClickListener(v -> play(media));
         Button info = Ui.button(this, "Mais informações", false); info.setOnClickListener(v -> detail(media));
-        actions.addView(play, Ui.margin(this, ViewGroup.LayoutParams.WRAP_CONTENT, Ui.dp(this, 48), 0, 0, 10, 0));
-        actions.addView(info, Ui.margin(this, ViewGroup.LayoutParams.WRAP_CONTENT, Ui.dp(this, 48), 0, 0, 10, 0));
+        actions.addView(play, Ui.margin(this, ViewGroup.LayoutParams.WRAP_CONTENT, Ui.dp(this, 48), 0, 0, 10, 8));
+        actions.addView(info, Ui.margin(this, ViewGroup.LayoutParams.WRAP_CONTENT, Ui.dp(this, 48), 0, 0, 10, 8));
         copy.addView(actions, Ui.margin(this, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 14, 0, 0));
         art.addView(copy, cp);
         wrap.addView(art, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, 330)));
@@ -277,37 +320,10 @@ public class MainActivity extends Activity {
         if (title != null && !title.trim().isEmpty()) {
             section.addView(Ui.title(this, title, 21), Ui.margin(this, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 22, 0, 10));
         }
-        HorizontalScrollView scroll = new HorizontalScrollView(this);
-        scroll.setHorizontalScrollBarEnabled(false);
-        scroll.setFocusable(false);
-        LinearLayout rail = Ui.horizontal(this, 0);
-        for (Models.Media media : items) rail.addView(card(media));
-        scroll.addView(rail);
-        section.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, 292)));
+        MediaRail rail = new MediaRail(this, items, images, this::detail);
+        section.addView(rail, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+            Ui.dp(this, RemoteUi.isTelevision(this) ? 280 : 248)));
         return section;
-    }
-
-    private View card(Models.Media media) {
-        LinearLayout card = Ui.vertical(this, 0);
-        card.setFocusable(true); card.setClickable(true);
-        card.setBackground(Ui.round(Color.TRANSPARENT, 10));
-        card.setOnFocusChangeListener((v, focused) -> RemoteUi.cardFocus(v, focused));
-        ImageView poster = new ImageView(this);
-        poster.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        poster.setBackground(Ui.round(Color.rgb(25,29,38), 8));
-        card.addView(poster, new LinearLayout.LayoutParams(Ui.dp(this, 150), Ui.dp(this, 225)));
-        if (!media.posterUrl.isEmpty()) images.load(poster, media.posterUrl);
-        TextView title = Ui.title(this, media.title, 12); title.setMaxLines(1);
-        card.addView(title, Ui.margin(this, Ui.dp(this, 150), ViewGroup.LayoutParams.WRAP_CONTENT, 0, 7, 0, 0));
-        TextView meta = Ui.muted(this, meta(media), 10); meta.setMaxLines(1); card.addView(meta);
-        card.setOnClickListener(v -> detail(media));
-        return withMargin(card, 0, 0, 10, 0);
-    }
-
-    private View withMargin(View v, int l, int t, int r, int b) {
-        LinearLayout holder = new LinearLayout(this);
-        holder.addView(v, Ui.margin(this, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, l,t,r,b));
-        return holder;
     }
 
     private void searchDialog() {
@@ -318,13 +334,16 @@ public class MainActivity extends Activity {
 
     private void search(String query) {
         String value = query == null ? "" : query.trim(); if (value.isEmpty()) return;
+        showingHome = false;
+        final int generation = ++loadGeneration;
+        final String scope = loadedScope;
         loading("Resultados");
         io.submit(() -> {
             try {
                 String encoded = URLEncoder.encode(value, StandardCharsets.UTF_8.toString());
                 List<Models.Media> list = dedupeMedia(parseMediaArray(api.get("/media?q=" + encoded + "&limit=200")));
-                main.post(() -> renderGridLike("Resultados para “" + value + "”", list));
-            } catch (Exception e) { main.post(() -> error(e)); }
+                main.post(() -> { if (validLoad(generation, scope)) renderGridLike("Resultados para “" + value + "”", list); });
+            } catch (Exception e) { main.post(() -> { if (validLoad(generation, scope)) error(e); }); }
         });
     }
 
@@ -371,6 +390,8 @@ public class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        destroyed = true;
+        main.removeCallbacksAndMessages(null);
         io.shutdownNow();
         super.onDestroy();
     }
