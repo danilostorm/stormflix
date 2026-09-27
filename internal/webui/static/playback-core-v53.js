@@ -439,7 +439,10 @@
       if(generation!==planGeneration)return plan;startupInProgress=false;window.sfPlaybackLastError=String(err?.message||err);
       if(plan?.local_origin)localOriginRuntimeFailed=true;else if(plan?.local_decode)localDecodeRuntimeFailed=true;
       if(Number(plan?.video_width)>=3200||Number(plan?.video_height)>=2000)window.sfRejectUHDCodec?.(plan?.source_video_codec);
-      if(options.recovery&&runtimeRecoveryCount>=1)rejectNativePlan(plan);
+      // A real runtime rejection is stronger evidence than canPlayType(). Drop
+      // that native claim immediately so the very next PlaybackPlan can choose
+      // remux/audio compatibility/transcode instead of retrying the same source.
+      rejectNativePlan(plan);
       if(runtimeRecoveryCount>=2)visibleFailure('Não foi possível iniciar este vídeo.');else{runtimeRecoveryCount++;return start(item,{resumePosition:resume,autoplay,quality:preferredQuality,audioStream:activeAudioStream,recovery:true})}
       return plan;
     }
