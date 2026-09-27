@@ -31,7 +31,7 @@ Delivered foundation:
 - Home exposes cache/revision/`Server-Timing` headers and Admin reports a bounded p50/p95/p99 plus cache-state window;
 - embedded assets/API responses are compressed/cacheable where safe, optional CSS is non-blocking and large rails render incrementally.
 
-Production acceptance still requires observing cached p95 below 500 ms on the representative Unraid/rclone catalog. If it misses, use the new timing, projection, SQLite wait and FFmpeg diagnostics to identify the actual bottleneck before adding another cache or changing databases.
+Production acceptance still requires observing cached p95 below 500 ms on the representative Unraid/rclone catalog. `scripts/measure-home-slo.py` now performs the authenticated warmup/sample run and prints p50/p95/p99 plus cache/revision/`Server-Timing` state without logging credentials. If it misses, use the timing, projection, SQLite wait and FFmpeg diagnostics to identify the actual bottleneck before adding another cache or changing databases.
 
 ### Database scale decision
 
