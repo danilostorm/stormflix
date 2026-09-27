@@ -58,3 +58,22 @@ func TestRuntimeRejectionAndAudioSelectionUseLocalOriginal(t *testing.T) {
 		t.Fatalf("non-default audio should be selected locally: %+v", plan)
 	}
 }
+
+func TestOriginalLocalDecoderOnLANAndMobile(t *testing.T) {
+	for _, kind := range []string{"web", "desktop", "mobile_web", "android_webview"} {
+		t.Run(kind, func(t *testing.T) {
+			r := originalTestRequest()
+			r.NativeSourceRejected = true
+			r.LocalDecode.Kind = kind
+			r.LocalDecode.SecureContext = false // ScriptProcessor audio fallback on LAN.
+			plan := Decide(originalTestSource(), r)
+			if !plan.Available || !plan.LocalOrigin || plan.AudioTranscode || plan.VideoTranscode {
+				t.Fatalf("capable LAN/mobile decoder was blocked: %+v", plan)
+			}
+			r.LocalDecode.WASMSIMD = false
+			if Decide(originalTestSource(), r).Available {
+				t.Fatal("missing required decoder feature must still reject the route")
+			}
+		})
+	}
+}

@@ -4,6 +4,14 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 
 ## 2026-09-27
 
+### Embedded playback and artwork correction (Android 0.8.1)
+
+- Keep Android failures inside the player, retry device decoder failures with bundled FFmpeg audio, explain connection/access/format errors, and retain “Reproduzir em” as optional.
+- Stream originals on old servers without passing through their conversion planner; Web now also requests originals before a server probe.
+- Fix libmedia selecting video as audio, local decoder cancellation, runtime script retry and decoder statistics; enable capable mobile browsers and HTTP LAN audio fallback.
+- Request WebP artwork and retry failed variants with originals in Android and Web. Restore title text when a hero logo fails.
+- Add real Chromium MP4/AAC and MKV/AC3 decoding, seek and audio-track regression coverage. Hardware/rclone/production-cover validation remains pending.
+
 ### Original playback, local Android audio decoding and faster catalog navigation
 
 - Android 0.8.0 / versionCode 26 opens the original Range stream after a single catalog/profile request, without WebView startup or pre-probing the rclone media file. Added Media3's local FFmpeg audio decoder built from verified source; licenses, source archive and build instructions accompany the APK.

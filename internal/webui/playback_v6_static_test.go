@@ -41,9 +41,9 @@ func TestPlaybackV6LocalDecodeClientSafety(t *testing.T) {
 		"navigator.userAgentData?.mobile",
 		"navigator.maxTouchPoints",
 		"kind==='web'",
-		"const automatic4K=cores>=12&&(memory===0||memory>=8)",
+		"const automatic4K=kind==='web'&&cores>=12&&memory>=8",
 		"if(automatic4K)maxHeight=2160",
-		"const enabled=!localDecodeRuntimeFailed&&kind==='web'",
+		"const enabled=!localDecodeRuntimeFailed&&kind!=='tv'",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("Playback v6 client safety missing %q", want)

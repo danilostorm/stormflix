@@ -113,7 +113,7 @@ func (s *server) playbackPlan(w http.ResponseWriter, r *http.Request) {
 	}
 	if !plan.Available {
 		plan.ReasonCode = "original_decoder_unavailable"
-		plan.Reason = "Este dispositivo não conseguiu reproduzir o arquivo original. Abra em outro player ou escolha uma versão compatível."
+		plan.Reason = "O player integrado não conseguiu reproduzir este formato neste dispositivo. Tente outra versão do título."
 		writeJSON(w, http.StatusOK, plan)
 		return
 	}
