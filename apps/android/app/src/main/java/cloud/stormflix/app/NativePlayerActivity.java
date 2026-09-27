@@ -181,7 +181,14 @@ public final class NativePlayerActivity extends Activity {
 
     private void prepareMedia(long requestedMediaId, double resumeOverrideSeconds) {
         showLoading("Analisando o dispositivo e o arquivo…");
+        if (plan != null || player != null) {
+            sendHeartbeat("source_change", true);
+            stopServerPlayback();
+        }
         releasePlayer(false);
+        playbackSessionId = "";
+        playbackMode = "direct_play";
+        plan = null;
         skippedAutomatically.clear();
         markers.clear();
         mediaId = requestedMediaId;
@@ -601,7 +608,7 @@ public final class NativePlayerActivity extends Activity {
         sendHeartbeat("stop", true);
         stopServerPlayback();
         releasePlayer(false);
-        io.shutdownNow();
+        io.shutdown();
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         super.onDestroy();
     }
