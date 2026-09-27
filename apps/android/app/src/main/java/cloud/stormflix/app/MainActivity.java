@@ -355,7 +355,7 @@ public class MainActivity extends Activity {
     }
 
     private void play(Models.Media media) {
-        Intent i = new Intent(this, PlayerActivity.class); i.putExtra("media_id", media.id); i.putExtra("title", media.title); startActivity(i);
+        Intent i = new Intent(this, NativePlayerActivity.class); i.putExtra("media_id", media.id); i.putExtra("title", media.title); startActivity(i);
     }
 
     private void logout() {
