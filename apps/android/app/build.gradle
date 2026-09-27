@@ -1,4 +1,4 @@
-// StormFlix Android 0.6.6 - device-aware catalog + Web Player + Google Cast + DLNA/UPnP
+// StormFlix Android 0.7.0 - native Media3 playback + Web fallback + Cast/DLNA
 plugins {
     id 'com.android.application'
 }
@@ -11,8 +11,8 @@ android {
         applicationId 'cloud.stormflix.app'
         minSdk 23
         targetSdk 36
-        versionCode 24
-        versionName '0.6.6'
+        versionCode 25
+        versionName '0.7.0'
     }
 
     buildTypes {
@@ -34,7 +34,9 @@ dependencies {
     implementation 'com.google.android.gms:play-services-cast-framework:22.3.1'
     implementation 'androidx.appcompat:appcompat:1.7.1'
 
-    // Video playback itself remains the StormFlix Web Playback Engine. Keep
-    // ExoPlayer because the native MusicActivity still uses Media3 for audio.
+    // Video uses Media3 natively for Direct Play/remux/HLS/transcode plans; the
+    // existing Web Playback Engine remains a guarded fallback.
     implementation 'androidx.media3:media3-exoplayer:1.11.0'
+    implementation 'androidx.media3:media3-exoplayer-hls:1.11.0'
+    implementation 'androidx.media3:media3-ui:1.11.0'
 }

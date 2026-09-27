@@ -31,7 +31,7 @@ Delivered foundation:
 - Home exposes cache/revision/`Server-Timing` headers and Admin reports a bounded p50/p95/p99 plus cache-state window;
 - embedded assets/API responses are compressed/cacheable where safe, optional CSS is non-blocking and large rails render incrementally.
 
-Production acceptance still requires observing cached p95 below 500 ms on the representative Unraid/rclone catalog. If it misses, use the new timing, projection, SQLite wait and FFmpeg diagnostics to identify the actual bottleneck before adding another cache or changing databases.
+Production acceptance still requires observing cached p95 below 500 ms on the representative Unraid/rclone catalog. `scripts/measure-home-slo.py` now performs the authenticated warmup/sample run and prints p50/p95/p99 plus cache/revision/`Server-Timing` state without logging credentials. If it misses, use the timing, projection, SQLite wait and FFmpeg diagnostics to identify the actual bottleneck before adding another cache or changing databases.
 
 ### Database scale decision
 
@@ -56,12 +56,14 @@ Production acceptance still requires observing cached p95 below 500 ms on the re
 
 ## P1 — Playback delight
 
-### Playback Engine v7 local-origin — delivered foundation
+### Playback Engine v7 local-origin + Android native fast path — delivered foundation
 
 - Original authenticated MKV/MP4/WebM delivery with HTTP Range and no server FFmpeg/HLS job is implemented for eligible secure desktop browsers.
 - Client-side demux, WebCodecs-first decode, SIMD WASM fallback, audio/subtitle selection, seek, bounded preload, telemetry and transparent v6/server fallback are implemented.
 - Policy is internal and automatic; no user-facing decode switch exists.
 - HDR stays on the verified server path. Promotion across the wider device matrix still depends on long real-device Main/Main10/4K/HDR/memory/seek/dropped-frame observations.
+- Android 0.7 adds a native Media3 execution layer for the same authoritative PlaybackPlan. Direct Play uses authenticated HTTP Range without WebView startup; remux/audio-compatibility and HLS transcode are also consumed natively. The Web player remains a fallback for runtime/vendor failures.
+- Web runtime failures now remove the rejected container/video/audio capability from the next PlaybackPlan request instead of retrying the same Direct Play claim indefinitely.
 
 ### Skip Intro / Skip Credits
 
@@ -83,22 +85,21 @@ Acceptance:
 - no Internet dependency;
 - no raw remote file is fully copied merely to detect a marker when streaming analysis is possible.
 
-### Rewind on Resume
+### Rewind on Resume — delivered
 
-- Profile setting: Off / 5 / 10 / 15 / 30 seconds.
-- Applies after a meaningful pause/idle/resume, never before 00:00.
-- Does not alter stored canonical progress; it changes only the resumed playback start position.
+- Profile setting: Off / 5 / 10 / 15 / 30 seconds is implemented and synchronized through `profile_playback_preferences`.
+- Web and Android native playback apply the rewind only to the resumed start position, never before 00:00 and never by rewriting canonical stored progress.
 
-### Still Watching / passout protection
+### Still Watching / passout protection — delivered
 
-- Configurable per profile.
-- Trigger after N autoplay episodes or N uninterrupted hours.
-- Pauses before launching the next item; never marks an unplayed episode watched.
+- Configurable per profile through episode/hour thresholds.
+- Web and Android native playback pause the autoplay chain after the configured threshold and require confirmation before launching the next item.
+- An unplayed next episode is never marked watched merely because the prompt appeared.
 
-### Configurable autoplay countdown
+### Configurable autoplay countdown — delivered
 
-- Profile-controlled countdown including `imediato`, 5, 10, 15, 30 seconds and disabled.
-- Works across Web/Android/TV shells using the same Web Player state machine.
+- Profile-controlled countdown supports `imediato`, 5, 10, 15 and 30 seconds; the existing profile autoplay switch disables automatic next-episode launch.
+- Web uses Playback Delight and Android/Android TV/Fire TV mirror the same profile state around the native Media3 player.
 
 ### Editions, versions and extras
 

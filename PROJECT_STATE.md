@@ -32,8 +32,8 @@ Server HTTP port: **8090**, normally behind an HTTPS reverse proxy.
 - Server code line: **`0.29.0-device-aware-4k`**.
 - Web Player: **Playback Engine v7**, retaining the v5.3 session and v5.4 controls. Native Direct Play remains first; eligible desktop browsers can demux and decode the authenticated original file locally before the v6/server fallbacks.
 - Games Web Player: G2 browser/WASM runtime plus G2.5 dedicated Admin/metadata and RomMix-inspired browsing; G3 adds virtual mobile controls, TV/gamepad focus/menu behavior and profile-owned save-state previews. Games metadata uses Metadata Stack v2.
-- Android package: `cloud.stormflix.app`, **0.6.6 / versionCode 24**, minSdk 23, targetSdk 36, Java 17.
-- Android phone/tablet, Android TV and Fire TV keep native StormFlix catalog/navigation and their native/device playback capability paths. Browser WASM local video decode is not forced onto native Android/TV/Cast/DLNA routes.
+- Android package: `cloud.stormflix.app`, **0.7.0 / versionCode 25**, minSdk 23, targetSdk 36, Java 17. Media3 is now the primary Android/Android TV/Fire TV video runtime; the existing Web Playback Engine remains a guarded fallback.
+- Android phone/tablet, Android TV and Fire TV keep native StormFlix catalog/navigation and now execute PlaybackPlan directly through Media3 for Direct Play, remux/audio compatibility and HLS transcode. Media3 uses authenticated HTTP Range for original files, so compatible media no longer waits for a WebView bootstrap. Browser WASM/local-origin decode remains Web-only and the legacy Web Player is used only if a vendor Media3/decoder path fails.
 - Samsung Tizen: `apps/tizen` 0.1.0 thin shell; final WGT requires the developer's Samsung/Tizen signing profile.
 - LG webOS: `apps/webos` 0.1.0 thin shell; CI can package the Developer Mode IPK.
 - Playback Anywhere v4 includes native DLNA/UPnP discovery/control across Web/server and Android, plus Jellyfin Play To compatibility.
@@ -153,7 +153,7 @@ The browser is the reference video implementation. Compatible files use HTTP Ran
 
 Player diagnostics distinguish native Direct Play, original-file local decode, v6 WASM local compatibility, Direct Stream/AAC and server video transcode. Local decode is a hidden automatic PlaybackPlan decision rather than a user preference: the quality panel has no decode control, and Admin → Reprodução is read-only.
 
-Android/Fire/Android TV and the Tizen/webOS shells retain their device-native playback capability paths. `tv-remote.js` normalizes remote/media keys while hardware volume stays OS-owned.
+Android/Fire/Android TV use the native Media3 route as their primary player and preserve PlaybackPlan/progress/telemetry semantics, including rewind-on-resume, Skip Intro/Créditos, autoplay countdown and still-watching protection. Tizen/webOS retain their Web-shell path. `tv-remote.js` continues to normalize remote/media keys for Web-based TV clients while hardware volume stays OS-owned.
 
 Playback Anywhere v4 keeps the server-owned PlaybackPlan + short-lived HMAC playback-grant model. Google Cast uses Web Sender in compatible secure desktop browsers and the native Cast framework in Android. StormFlix also implements native DLNA/UPnP SSDP discovery plus AVTransport control for Web/server and Android, and exposes compatible renderers through Jellyfin Play To. External players receive only temporary authorized playback URLs; StormFlix cookies/passwords are not handed to receivers.
 
@@ -404,11 +404,20 @@ RetroAssembly (MIT) remains an architectural reference for browser retro emulati
 
 ## Entertainment roadmap
 
-`ENTERTAINMENT_ROADMAP.md` is the executable product roadmap. Games G1/G2/G2.5/G3, Metadata Stack v2, Playback Anywhere v4, Playback Engine v7 guarded local-origin decode, Performance Foundation v3 and automatic intro/credit foundations are implemented. Remaining major roadmap work includes Smart Downloads, smart playlists, Watch Party, improved editions/versions/extras, OIDC/optional stronger authentication, reuse of expensive media analysis, specialized long-tail Games providers, no-rehash scanning, BIOS/ROMset diagnostics and the G4 rich Games ecosystem.
+`ENTERTAINMENT_ROADMAP.md` is the executable product roadmap. Games G1/G2/G2.5/G3, Metadata Stack v2, Playback Anywhere v4, Playback Engine v7 guarded local-origin decode, Android native Media3 playback, Performance Foundation v3, automatic intro/credits, rewind-on-resume, still-watching protection and configurable autoplay countdown are implemented. Remaining major roadmap work includes Smart Downloads, smart playlists, Watch Party, improved editions/versions/extras, OIDC/optional stronger authentication, reuse of expensive media analysis, specialized long-tail Games providers, no-rehash scanning, BIOS/ROMset diagnostics and the G4 rich Games ecosystem.
 
 ## Jellyfin compatibility
 
 Official Jellyfin clients remain supported through an isolated compatibility facade. Native StormFlix APIs/catalog rules remain authoritative. The dedicated StormFlix clients are the path for StormFlix-branded UI on Android/Fire/Tizen/webOS.
+
+## Playback Delight delivery status
+
+The profile-owned Playback Delight controls are production code rather than future roadmap placeholders:
+- Rewind on Resume supports Off / 5 / 10 / 15 / 30 seconds and adjusts only the resumed start point, never canonical stored progress.
+- Still Watching/passout protection tracks autoplay episode/hour thresholds and blocks the next episode until confirmation.
+- Autoplay countdown supports immediate / 5 / 10 / 15 / 30 seconds plus the profile's existing autoplay enable/disable switch.
+- Skip Intro/Créditos uses synchronized server markers, multiple credit intervals and manual/automatic/disabled modes.
+- Android 0.7 executes these semantics around the native Media3 player; Web keeps the existing Playback Delight controller.
 
 ## Release/build channels
 

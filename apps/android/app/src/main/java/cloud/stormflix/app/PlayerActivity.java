@@ -35,7 +35,7 @@ import java.util.Locale;
  * mature TV clients such as Jellyfin.
  */
 public final class PlayerActivity extends Activity {
-    private static final String APP_UA = "StormFlixAndroidPlayer/0.6.6";
+    private static final String APP_UA = "StormFlixAndroidPlayer/0.7.0";
 
     private SessionStore store;
     private FrameLayout root;

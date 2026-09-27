@@ -103,3 +103,32 @@ func TestPlaybackV7AdminExplainsAdaptiveOrder(t *testing.T) {
 		}
 	}
 }
+
+
+func TestPlaybackV7RuntimeFailureReplansCapabilities(t *testing.T) {
+	core, err := os.ReadFile("static/playback-core-v53.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(core)
+	for _, want := range []string{
+		"rejectedNativeContainers",
+		"rejectedNativeVideoCodecs",
+		"rejectedNativeAudioCodecs",
+		"function rejectNativePlan(plan)",
+		"runtimeRecoveryCount>=2",
+		"nativeContainers.includes('mp4')",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("Playback v7 runtime fallback missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"if(containers.includes('mp4')&&!videoCodecs.includes('h264'))videoCodecs.push('h264')",
+		"if(containers.includes('mp4')&&!audioCodecs.includes('aac'))audioCodecs.push('aac')",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("Playback v7 must not advertise optimistic codec fallback %q", forbidden)
+		}
+	}
+}
