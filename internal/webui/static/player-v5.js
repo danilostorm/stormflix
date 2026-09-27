@@ -1,4 +1,4 @@
-/* StormFlix Player v7 — cinematic UX over adaptive Playback Core. */
+/* StormFlix Player v7 — cinematic UX over original-file Playback Core. */
 (function(){
   const modal=document.querySelector('#player-modal');
   const video=document.querySelector('#player');
@@ -6,25 +6,10 @@
   modal.dataset.sfV5='1';
   modal.classList.add('sf-player-v5');
 
-  const qualityValues=[
-    ['auto','Auto'],['original','Original'],['2160p','4K'],['1440p','1440p'],['1080p','1080p'],['720p','720p'],['480p','480p']
-  ];
-  const qualityLabels=Object.fromEntries(qualityValues);
-  const qualityButton=document.createElement('button');
-  qualityButton.id='sf-v5-quality';qualityButton.type='button';qualityButton.className='sf-control-btn sf-v5-quality-btn';qualityButton.title='Qualidade';
-  qualityButton.innerHTML='<span class="sf-v5-quality-value">AUTO</span><small>Qualidade</small>';
-  const settings=document.querySelector('#sf-settings');
-  if(settings?.parentElement)settings.parentElement.insertBefore(qualityButton,settings);
-
   const diagnosticsButton=document.createElement('button');
   diagnosticsButton.id='sf-v5-diagnostics-toggle';diagnosticsButton.type='button';diagnosticsButton.className='sf-control-btn sf-v5-diagnostics-btn';diagnosticsButton.title='Diagnóstico';diagnosticsButton.textContent='i';
   const fullscreen=document.querySelector('#sf-fullscreen');
   if(fullscreen?.parentElement)fullscreen.parentElement.insertBefore(diagnosticsButton,fullscreen);
-
-  const qualityMenu=document.createElement('div');
-  qualityMenu.id='sf-v5-quality-menu';qualityMenu.className='sf-v5-popover hidden';
-  qualityMenu.innerHTML='<header><div><b>Qualidade</b><small>Mostramos somente resoluções compatíveis com a fonte.</small></div><button type="button" data-v5-close>×</button></header><div class="sf-v5-quality-list"></div>';
-  modal.appendChild(qualityMenu);
 
   const diagnostics=document.createElement('aside');
   diagnostics.id='sf-v5-diagnostics';diagnostics.className='sf-v5-diagnostics hidden';
@@ -34,10 +19,7 @@
   const ambient=document.createElement('div');ambient.className='sf-v5-ambient';modal.insertBefore(ambient,modal.firstChild);
   const vignette=document.createElement('div');vignette.className='sf-v5-vignette';modal.insertBefore(vignette,modal.firstChild);
 
-  function qualityHint(value){
-    return ({auto:'Melhor rota automática',original:'Preservar a fonte quando possível','2160p':'Até 2160p','1440p':'Até 1440p','1080p':'Até 1080p','720p':'Até 720p','480p':'Economia de dados'})[value]||'';
-  }
-  function qualityLabel(value){return qualityLabels[String(value||'auto')]||'Auto'}
+  function qualityLabel(){return 'Original'}
   function plan(){return window.sfLastPlaybackPlan||window.sfPlaybackCore?.currentPlan?.()||{}}
   function modeLabel(mode,p=plan()){
     if(p?.local_origin)return'DECODE LOCAL · ORIGINAL';
@@ -48,33 +30,6 @@
   function escapeHtml(value){return String(value??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
   function formatRate(kbps){const n=Number(kbps||0);return n?`${(n/1000).toFixed(n>=10000?0:1)} Mb/s`:'—'}
   function yesNo(v){return v?'Sim':'Não'}
-
-  function fallbackAvailableQualities(){
-    const p=plan(),height=Number(p.video_height||video.videoHeight||0),values=['auto','original'];
-    for(const [minimum,value] of [[2160,'2160p'],[1440,'1440p'],[1080,'1080p'],[720,'720p'],[480,'480p']])if(height>=minimum)values.push(value);
-    return values;
-  }
-
-  function availableQualities(){
-    const fromCore=window.sfPlaybackCore?.availableQualities?.();
-    if(Array.isArray(fromCore)&&fromCore.length)return fromCore;
-    const supplied=plan().available_qualities;
-    if(Array.isArray(supplied)&&supplied.length)return supplied;
-    return fallbackAvailableQualities();
-  }
-
-  function renderQualityOptions(){
-    const list=qualityMenu.querySelector('.sf-v5-quality-list');if(!list)return;
-    const allowed=new Set(availableQualities().map(String));
-    list.innerHTML=qualityValues.filter(([value])=>allowed.has(value)).map(([value,label])=>`<button type="button" data-v5-quality="${value}"><span>${label}</span><small>${qualityHint(value)}</small></button>`).join('');
-  }
-
-  function refreshQuality(){
-    renderQualityOptions();
-    const current=window.sfPlaybackCore?.currentQuality?.()||'auto';
-    const value=qualityButton.querySelector('.sf-v5-quality-value');if(value)value.textContent=qualityLabel(current).toUpperCase();
-    qualityMenu.querySelectorAll('[data-v5-quality]').forEach(btn=>btn.classList.toggle('active',btn.dataset.v5Quality===current));
-  }
 
   function refreshPlan(){
     const p=plan();
@@ -88,7 +43,7 @@
       const transport=p.transport?transportLabel(p.transport):'';
       detail.textContent=[modeLabel(p.mode,p),transport,source+target,resolution,String(p.audio_codec||'').toUpperCase()].filter(Boolean).join(' · ');
     }
-    renderDiagnostics();refreshQuality();
+    renderDiagnostics();
   }
 
   function renderDiagnostics(){
@@ -117,34 +72,14 @@
   }
   function diag(label,value){return`<div><span>${label}</span><b>${value}</b></div>`}
 
-  function toggleQuality(show){
-    const shouldShow=show===undefined?qualityMenu.classList.contains('hidden'):show;
-    qualityMenu.classList.toggle('hidden',!shouldShow);
-    if(shouldShow)diagnostics.classList.add('hidden');
-    refreshQuality();
-  }
   function toggleDiagnostics(show){
     const shouldShow=show===undefined?diagnostics.classList.contains('hidden'):show;
     diagnostics.classList.toggle('hidden',!shouldShow);
-    if(shouldShow)qualityMenu.classList.add('hidden');
     if(shouldShow)renderDiagnostics();
   }
 
-  qualityButton.addEventListener('click',e=>{e.stopPropagation();toggleQuality()});
   diagnosticsButton.addEventListener('click',e=>{e.stopPropagation();toggleDiagnostics()});
-  qualityMenu.querySelector('[data-v5-close]').onclick=()=>toggleQuality(false);
   diagnostics.querySelector('[data-v5-diag-close]').onclick=()=>toggleDiagnostics(false);
-  qualityMenu.addEventListener('click',async event=>{
-    const button=event.target.closest?.('[data-v5-quality]');if(!button)return;
-    const value=button.dataset.v5Quality;
-    if(!availableQualities().includes(value))return;
-    toggleQuality(false);
-    if(window.sfPlaybackCore?.setQuality){
-      if(typeof sfToast==='function')sfToast(`Qualidade: ${qualityLabel(value)}`);
-      await window.sfPlaybackCore.setQuality(value);
-      refreshPlan();
-    }
-  });
 
   window.addEventListener('stormflix:playback-plan',refreshPlan);
   window.addEventListener('stormflix:local-decode-stat',renderDiagnostics);
@@ -164,7 +99,7 @@
       case 'm':video.muted=!video.muted;break;
       case 'f':document.querySelector('#sf-fullscreen')?.click();break;
       case 'i':toggleDiagnostics();break;
-      case 'escape':toggleQuality(false);toggleDiagnostics(false);break;
+      case 'escape':toggleDiagnostics(false);break;
     }
   });
 
@@ -176,5 +111,5 @@
     e.preventDefault();buttons[(idx+(e.key==='ArrowRight'?1:-1)+buttons.length)%buttons.length]?.focus();
   });
 
-  refreshQuality();refreshPlan();
+  refreshPlan();
 })();

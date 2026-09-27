@@ -7,10 +7,11 @@
   const baseAllFeedItems=typeof allFeedItems==='function'?allFeedItems:null;
   const baseFindItem=typeof findItem==='function'?findItem:null;
   const baseShowHome=typeof showHome==='function'?showHome:null;
-  const CHUNK=28;
+  const CHUNK=12;
   const SNAPSHOT_PREFIX='stormflix.home.snapshot.v4:';
   const SNAPSHOT_TTL=10*60*1000;
   let instantFeed=null;
+  let homePending=null,homePendingKey="";
   const pageStarted=performance.now();
   let homeRequestStarted=0,homeResponseMS=0,homeMetricSent=false;
 
@@ -50,7 +51,7 @@
         if(rendered>=row.items.length)return;
         const next=row.items.slice(rendered,rendered+CHUNK);
         const start=rendered;
-        track.insertAdjacentHTML('beforeend',next.map((item,index)=>cardHTML(item,urgentRow&&start+index<12)).join(''));
+        track.insertAdjacentHTML('beforeend',next.map((item,index)=>cardHTML(item,urgentRow&&start+index<4)).join(''));
         rendered+=next.length;
         bindCards(track);
         const complete=rendered>=row.items.length;
@@ -58,16 +59,26 @@
         sentinel.classList.toggle('hidden',complete);
       };
       button.onclick=append;
-      append();
-      if(rendered<row.items.length&&'IntersectionObserver'in window){
+      // Only visible rails create posters. Horizontal paging uses the actual
+      // track edge, not a vertical sentinel that eagerly drains every row.
+      track.style.minHeight='260px';
+      const initialize=()=>{if(rendered===0)append()};
+      if(urgentRow||!('IntersectionObserver'in window))initialize();
+      else{
         const observer=new IntersectionObserver(entries=>{
-          if(entries.some(entry=>entry.isIntersecting))append();
-        },{rootMargin:'1200px 800px'});
-        observer.observe(sentinel);
-        observers.push(observer);
-      }else if(rendered<row.items.length){
-        button.classList.remove('hidden');
+          if(entries.some(entry=>entry.isIntersecting)){initialize();observer.disconnect()}
+        },{rootMargin:'350px 0px'});
+        observer.observe(section);observers.push(observer);
       }
+      let paging=false;
+      track.addEventListener('scroll',()=>{
+        if(paging)return;paging=true;
+        requestAnimationFrame(()=>{
+          paging=false;
+          if(track.isConnected&&track.scrollWidth-track.clientWidth-track.scrollLeft<400)append();
+        });
+      },{passive:true});
+
     }
     window.sfCatalogObservers?.forEach(observer=>observer.disconnect());
     window.sfCatalogObservers=observers;
@@ -92,8 +103,7 @@
     }catch{return null}
   }
 
-  function storeSnapshot(value){
-    const key=profileKey();
+  function storeSnapshot(value,key=profileKey()){
     if(!key||!value||!Array.isArray(value.rows))return;
     try{sessionStorage.setItem(key,JSON.stringify({at:Date.now(),feed:value}))}catch{}
   }
@@ -120,12 +130,13 @@
   if(baseRequest){
     request=async function(path,opt={}){
       const started=path==='/home'?performance.now():0;
+      const scope=profileKey();
       const value=await baseRequest(path,opt);
       const method=String(opt.method||'GET').toUpperCase();
-      if(path==='/home'&&method==='GET'){
+      if(path==='/home'&&method==='GET'&&scope===profileKey()){
         homeResponseMS=Math.max(0,performance.now()-started);
         instantFeed=value;
-        storeSnapshot(value);
+        storeSnapshot(value,scope);
         window.dispatchEvent(new CustomEvent('stormflix:home-fresh',{detail:{rows:value?.rows?.length||0}}));
       }
       return value;
@@ -134,12 +145,27 @@
 
   if(baseLoadHome){
     loadHome=async function(){
-      homeRequestStarted=performance.now();
       await window.sfCatalogCapabilityQuery?.();
+      const scope=profileKey();
+      if(homePending&&homePendingKey===scope)return homePending;
+      homeRequestStarted=performance.now();
       const cached=readSnapshot();
       if(cached)paintSnapshot(cached);
-      try{const value=await baseLoadHome();if(!homeMetricSent)reportFirstContent(homeRequestStarted);return value}
-      catch(err){if(cached)return cached;throw err}
+      const pending=(async()=>{
+        try{
+          const value=await request('/home');
+          if(scope!==profileKey())return;
+          feed=value;
+          paintSnapshot(value);
+          return value;
+        }catch(err){
+          // Permission/authentication failures must never resurrect cached rows.
+          if(cached&&scope===profileKey()&&![401,403].includes(err?.status))return cached;
+          throw err;
+        }
+      })();
+      homePending=pending;homePendingKey=scope;
+      try{return await pending}finally{if(homePending===pending){homePending=null;homePendingKey=''}}
     };
   }
 
@@ -166,7 +192,7 @@
     };
   }
 
-  window.addEventListener('stormflix:profile',()=>{instantFeed=null});
+  window.addEventListener('stormflix:profile',()=>{instantFeed=null;homePending=null;homePendingKey=''});
   document.querySelector('#logout')?.addEventListener('click',()=>{
     try{for(let i=sessionStorage.length-1;i>=0;i--){const key=sessionStorage.key(i);if(key?.startsWith(SNAPSHOT_PREFIX))sessionStorage.removeItem(key)}}catch{}
   },true);

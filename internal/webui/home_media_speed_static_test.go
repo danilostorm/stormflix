@@ -19,7 +19,9 @@ func TestVideoHomeUsesPerProfileSnapshotBeforeRefresh(t *testing.T) {
 		[]byte(`sessionStorage`),
 		[]byte(`window.sfProfiles?.current?.()`),
 		[]byte(`if(cached)paintSnapshot(cached)`),
-		[]byte(`const value=await baseLoadHome()`),
+		[]byte(`const value=await request('/home')`),
+		[]byte(`if(scope!==profileKey())return`),
+		[]byte(`homePendingKey===scope`),
 		[]byte(`fetchpriority="high"`),
 	} {
 		if !bytes.Contains(js, required) {

@@ -163,7 +163,7 @@ public class SeriesDetailActivity extends Activity {
             logo.setAdjustViewBounds(true);
             logo.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
             info.addView(logo, new LinearLayout.LayoutParams(
-                Ui.dp(this, television ? 430 : 300), Ui.dp(this, television ? 120 : 90)));
+                (television ? Ui.dp(this, 430) : ViewGroup.LayoutParams.MATCH_PARENT), Ui.dp(this, television ? 120 : 90)));
             images.load(logo, logoUrl);
         } else {
             TextView title = Ui.title(this, data.optString("title", "Série"), television ? 42 : 33);
@@ -189,7 +189,7 @@ public class SeriesDetailActivity extends Activity {
             overviewView.setTextColor(Color.rgb(208, 214, 224));
             overviewView.setMaxLines(television ? 4 : 3);
             overviewView.setLineSpacing(0, 1.15f);
-            info.addView(overviewView, Ui.margin(this, Ui.dp(this, television ? 820 : 620),
+            info.addView(overviewView, Ui.margin(this, (television ? Ui.dp(this, 820) : ViewGroup.LayoutParams.MATCH_PARENT),
                 ViewGroup.LayoutParams.WRAP_CONTENT, 0, 12, 0, 0));
         }
 

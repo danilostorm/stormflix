@@ -37,6 +37,8 @@ type Capabilities struct {
 }
 
 type Request struct {
+	NativeSourceRejected   bool               `json:"native_source_rejected,omitempty"`
+	OriginalOnly           bool               `json:"original_only,omitempty"`
 	ClientKind             string             `json:"client_kind"`
 	ClientName             string             `json:"client_name"`
 	ClientVersion          string             `json:"client_version"`
@@ -69,6 +71,7 @@ type Source struct {
 }
 
 type Plan struct {
+	OriginalOnly          bool     `json:"original_only,omitempty"`
 	Available             bool     `json:"available"`
 	Mode                  string   `json:"mode"`
 	ReasonCode            string   `json:"reason_code"`

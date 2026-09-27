@@ -1,6 +1,7 @@
 package cloud.stormflix.app;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.net.Uri;
@@ -43,6 +44,47 @@ public final class PlaybackAnywhereNative {
         this.activity = activity;
         this.webView = webView;
         this.dlna = new DlnaNative(activity, this::emit);
+    }
+
+    // External receivers read the same authorized original; no capability claim
+    // about the phone is used to force the receiver through a conversion route.
+    public void chooseOriginal(ApiClient api, long mediaId, String title, double startSeconds) {
+        String[] choices = {"Chromecast / Google TV", "DLNA / UPnP", "Just Player", "Outro player…"};
+        new AlertDialog.Builder(activity).setTitle("Reproduzir em…")
+            .setItems(choices, (dialog, target) -> {
+                Toast.makeText(activity, "Abrindo arquivo original…", Toast.LENGTH_SHORT).show();
+                new Thread(() -> {
+                    try {
+                        JSONObject grant = new JSONObject(api.post("/media/" + mediaId + "/playback/grant",
+                            new JSONObject().put("url", "/api/v1/media/" + mediaId + "/stream")));
+                        String url = grant.getString("url");
+                        String mime = grant.optString("content_type", "video/*");
+                        main.post(() -> {
+                            if (activity.isFinishing() || activity.isDestroyed()) return;
+                            if (target == 0) openNativeCast(url, title, mime, startSeconds);
+                            else if (target == 1) openNativeDlna(url, title, mime, startSeconds);
+                            else openLocalPlayer(url, title, mime, startSeconds, target == 2);
+                        });
+                    } catch (Exception error) { emit("error", safeMessage(error, "Não foi possível abrir este vídeo.")); }
+                }, "stormflix-playback-grant").start();
+            }).setNegativeButton("Cancelar", null).show();
+    }
+
+    private void openLocalPlayer(String url, String title, String mime, double startSeconds, boolean justPlayer) {
+        Intent intent = mediaIntent(url, mime);
+        intent.putExtra("title", title);
+        intent.putExtra("position", (int)Math.min(Integer.MAX_VALUE, Math.max(0, startSeconds) * 1000));
+        if (justPlayer) {
+            // Official package first, followed by the older fork linked by users.
+            for (String packageName : new String[]{"com.brouken.player", "com.soulwin.player"}) {
+                try { activity.startActivity(new Intent(intent).setPackage(packageName)); return; }
+                catch (ActivityNotFoundException ignored) {}
+            }
+            emit("error", "Just Player não está instalado. Escolha outro player ou instale o Just Player.");
+            return;
+        }
+        try { activity.startActivity(Intent.createChooser(intent, "Reproduzir com…")); }
+        catch (ActivityNotFoundException error) { emit("error", "Instale um player compatível, como Just Player ou VLC."); }
     }
 
     @JavascriptInterface public boolean isAvailable() { return true; }

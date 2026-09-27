@@ -24,6 +24,7 @@
     <uses-feature android:name="android.software.leanback" android:required="false" />
 
     <application
+        android:name=".StormFlixApplication"
         android:allowBackup="true"
         android:banner="@drawable/tv_banner"
         android:icon="@drawable/ic_stormflix"
@@ -36,8 +37,8 @@
             android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
             android:value="cloud.stormflix.app.CastOptionsProvider" />
 
-        <!-- Media3 is the primary Android/TV/Fire playback path. PlaybackPlan
-             remains authoritative; the Web Player below is a guarded fallback. -->
+        <!-- Media3 opens the original file on Android/TV/Fire. Local audio
+             decoders extend device support; external handoff remains optional. -->
         <activity
             android:name=".NativePlayerActivity"
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout"

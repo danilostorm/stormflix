@@ -102,7 +102,10 @@ jobs:
         run: go test ./...
 
       - name: Device capability runtime tests
-        run: node scripts/test-device-capabilities.mjs
+        run: |
+          node scripts/test-device-capabilities.mjs
+          node scripts/test-original-playback.mjs
+          python3 -m unittest discover -s scripts -p 'test_measure_home_slo.py'
 
       - name: Race playback and streaming engines
         run: go test -race ./internal/playback ./internal/webcompat ./internal/transcode ./internal/streaming

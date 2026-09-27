@@ -2,6 +2,16 @@
 
 This file records user-visible and architectural changes. `PROJECT_STATE.md` is the authoritative current-state handoff and `ENTERTAINMENT_ROADMAP.md` tracks planned work.
 
+## 2026-09-27
+
+### Original playback, local Android audio decoding and faster catalog navigation
+
+- Android 0.8.0 / versionCode 26 opens the original Range stream after a single catalog/profile request, without WebView startup or pre-probing the rclone media file. Added Media3's local FFmpeg audio decoder built from verified source; licenses, source archive and build instructions accompany the APK.
+- Native StormFlix API playback now enforces original quality and disables server remux/audio/video conversion. Web retains direct HTML playback and eligible libmedia local decoding. Unsupported originals offer another player/physical version instead of conversion.
+- Preserved “Reproduzir em” for Chromecast, DLNA, installed Just Player and other apps; signed grants report the real source MIME type. Removed the native/Web quality button and fixed source-specific browser recovery, local audio selection, paused-background behavior and queued episode-progress identity.
+- Shared bounded artwork caching, responsive cover requests, recycled native rails, fewer eager Web posters and removal of duplicate Android Home startup requests improve navigation. Mobile detail text no longer uses clipped desktop widths.
+- Home P0 measurement now validates a JSON feed, actual cache hits and a stable catalog revision; fast login/error responses cannot pass. Hardware playback and Unraid/rclone latency still require production validation. Smart Downloads remains roadmap work.
+
 ## 2026-09-26
 
 ### Android 0.7 native Media3 playback + cinematic details + safer Web fallback

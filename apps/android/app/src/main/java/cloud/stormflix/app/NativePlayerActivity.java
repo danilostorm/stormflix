@@ -3,7 +3,8 @@ package cloud.stormflix.app;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
-import android.content.SharedPreferences;
+import android.net.Uri;
+import android.content.ActivityNotFoundException;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
@@ -25,6 +26,9 @@ import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.DefaultLoadControl;
+import androidx.media3.exoplayer.DefaultRenderersFactory;
+import androidx.media3.common.AudioAttributes;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.ui.PlayerView;
 
@@ -43,16 +47,9 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/**
- * Native Android/Android TV/Fire TV playback route.
- *
- * PlaybackPlan remains authoritative. Media3 consumes the returned Direct Play,
- * remux/audio-compatibility or HLS transcode URL with normal HTTP Range requests.
- * The Web Playback Engine is kept only as a guarded fallback when a vendor
- * decoder/runtime rejects a route that the device reported as supported.
- */
+/** Native original-file playback shared by phone, Android TV and Fire TV. */
 public final class NativePlayerActivity extends Activity {
-    private static final String VERSION = "0.7.0";
+    private static final String VERSION = "0.8.0";
 
     private static final class Marker {
         final String kind;
@@ -78,8 +75,16 @@ public final class NativePlayerActivity extends Activity {
     private ProgressBar loading;
     private TextView status;
     private Button skipButton;
-    private Button qualityButton;
+    private Button externalButton;
+    private int prepareGeneration;
+    private long planMs;
+    private long stalledAt;
+    private int stallCount;
+    private long lastStallMs;
     private ExoPlayer player;
+    private PlaybackAnywhereNative anywhereBridge;
+    private boolean foreground;
+    private boolean initialPlayPending;
 
     private long mediaId;
     private JSONObject plan;
@@ -92,7 +97,6 @@ public final class NativePlayerActivity extends Activity {
     private int stillWatchingHours = 3;
     private int autoplayCountdown = 10;
     private boolean autoplayNext = true;
-    private long selectedProfileId;
     private int chainCount;
     private long chainStartedAt = System.currentTimeMillis();
     private long progressSequence;
@@ -121,6 +125,7 @@ public final class NativePlayerActivity extends Activity {
         if (mediaId <= 0L) { finish(); return; }
         api = new ApiClient(this);
         store = api.store();
+        anywhereBridge = new PlaybackAnywhereNative(this, null);
         configureWindow();
         buildShell();
         prepareMedia(mediaId, Double.NaN);
@@ -144,6 +149,8 @@ public final class NativePlayerActivity extends Activity {
         playerView.setControllerAutoShow(true);
         playerView.setControllerHideOnTouch(true);
         playerView.setKeepContentOnPlayerReset(true);
+        playerView.setShowSubtitleButton(true);
+        playerView.setControllerShowTimeoutMs(3000);
         root.addView(playerView, new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
@@ -169,18 +176,22 @@ public final class NativePlayerActivity extends Activity {
         skipLp.setMargins(Ui.dp(this, 18), Ui.dp(this, 18), Ui.dp(this, 28), Ui.dp(this, 92));
         root.addView(skipButton, skipLp);
 
-        qualityButton = Ui.button(this, "Qualidade: " + qualityLabel(store.playerQuality()), false);
-        qualityButton.setOnClickListener(v -> chooseQuality());
-        FrameLayout.LayoutParams qualityLp = new FrameLayout.LayoutParams(
+        externalButton = Ui.button(this, "Reproduzir em…", false);
+        externalButton.setOnClickListener(v -> openExternalPlayer());
+        FrameLayout.LayoutParams externalLp = new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, Ui.dp(this, 44), Gravity.END | Gravity.TOP);
-        qualityLp.setMargins(Ui.dp(this, 18), Ui.dp(this, 18), Ui.dp(this, 24), Ui.dp(this, 18));
-        root.addView(qualityButton, qualityLp);
+        externalLp.setMargins(Ui.dp(this, 18), Ui.dp(this, 18), Ui.dp(this, 24), Ui.dp(this, 18));
+        root.addView(externalButton, externalLp);
+        playerView.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener) visibility ->
+            externalButton.setVisibility(visibility));
 
         setContentView(root);
     }
 
     private void prepareMedia(long requestedMediaId, double resumeOverrideSeconds) {
-        showLoading("Analisando o dispositivo e o arquivo…");
+        final int generation = ++prepareGeneration;
+        fallbackOpened = false;
+        showLoading("Abrindo vídeo…");
         if (plan != null || player != null) {
             sendHeartbeat("source_change", true);
             stopServerPlayback();
@@ -195,38 +206,39 @@ public final class NativePlayerActivity extends Activity {
         progressSequence = 0;
         startupStartedAt = System.currentTimeMillis();
         firstFrameMs = 0;
+        planMs = 0; stalledAt = 0; stallCount = 0; lastStallMs = 0;
 
         io.submit(() -> {
             try {
-                JSONObject request = PlaybackCapabilities.buildRequest(this, store, "");
-                JSONObject nextPlan = new JSONObject(api.post("/media/" + requestedMediaId + "/playback/plan", request));
-                if (!nextPlan.optBoolean("available", false) || nextPlan.optString("url", "").trim().isEmpty()) {
-                    throw new IllegalStateException(nextPlan.optString("reason", "Nenhuma rota compatível ficou disponível."));
-                }
-
-                JSONObject state = null;
+                JSONObject nextPlan;
                 try {
-                    state = new JSONObject(api.post("/media/" + requestedMediaId + "/playback/telemetry",
-                        new JSONObject().put("operation", "playback_state_get").put("client_kind", "android_native")));
-                } catch (Exception ignored) {}
-                loadPlaybackState(state);
-                loadSelectedProfile();
-
-                plan = nextPlan;
-                playbackSessionId = nextPlan.optString("playback_session_id", "");
-                playbackMode = nextPlan.optString("mode", "direct_play");
-
-                double resume = Double.isNaN(resumeOverrideSeconds)
-                    ? nextPlan.optDouble("resume_position_seconds", 0)
-                    : Math.max(0, resumeOverrideSeconds);
-                if (Double.isNaN(resumeOverrideSeconds) && resume > 0 && rewindSeconds > 0) {
-                    resume = Math.max(0, resume - rewindSeconds);
+                    nextPlan = new JSONObject(api.post("/media/" + requestedMediaId + "/playback/original", new JSONObject()));
+                } catch (ApiClient.ApiException error) {
+                    if (error.status != 404) throw error;
+                    nextPlan = new JSONObject(api.post("/media/" + requestedMediaId + "/playback/plan",
+                        PlaybackCapabilities.buildRequest(this, store, "")));
                 }
-
-                final double startAt = resume;
-                main.post(() -> startNative(nextPlan, startAt));
+                if (!nextPlan.optBoolean("available", false) ||
+                        !"direct_play".equals(nextPlan.optString("mode")) || nextPlan.optString("url").isEmpty()) {
+                    throw new IllegalStateException("Este arquivo precisa de outro player instalado no aparelho.");
+                }
+                final JSONObject readyPlan = nextPlan;
+                final long elapsed = Math.max(0, System.currentTimeMillis() - startupStartedAt);
+                main.post(() -> {
+                    if (destroyed || generation != prepareGeneration) return;
+                    loadPlaybackState(readyPlan);
+                    autoplayNext = readyPlan.optBoolean("autoplay_next", true);
+                    plan = readyPlan;
+                    planMs = elapsed;
+                    playbackSessionId = readyPlan.optString("playback_session_id", "");
+                    playbackMode = "direct_play";
+                    double resume = Double.isNaN(resumeOverrideSeconds)
+                        ? Math.max(0, readyPlan.optDouble("resume_position_seconds", 0) - rewindSeconds)
+                        : Math.max(0, resumeOverrideSeconds);
+                    startNative(readyPlan, resume);
+                });
             } catch (Exception error) {
-                main.post(() -> showFatal(error.getMessage()));
+                main.post(() -> { if (!destroyed && generation == prepareGeneration) showFatal(error.getMessage()); });
             }
         });
     }
@@ -254,22 +266,6 @@ public final class NativePlayerActivity extends Activity {
         }
     }
 
-    private void loadSelectedProfile() {
-        try {
-            JSONObject out = new JSONObject(api.get("/profiles"));
-            selectedProfileId = out.optLong("selected_profile_id", 0);
-            JSONArray profiles = out.optJSONArray("profiles");
-            if (profiles == null) return;
-            for (int i = 0; i < profiles.length(); i++) {
-                JSONObject p = profiles.optJSONObject(i);
-                if (p != null && p.optLong("id", 0) == selectedProfileId) {
-                    autoplayNext = p.optBoolean("autoplay_next", true);
-                    return;
-                }
-            }
-        } catch (Exception ignored) {}
-    }
-
     private void startNative(JSONObject currentPlan, double startSeconds) {
         if (destroyed) return;
         try {
@@ -286,7 +282,13 @@ public final class NativePlayerActivity extends Activity {
             if (!headers.isEmpty()) http.setDefaultRequestProperties(headers);
 
             DefaultMediaSourceFactory mediaSources = new DefaultMediaSourceFactory(http);
-            ExoPlayer exo = new ExoPlayer.Builder(this).setMediaSourceFactory(mediaSources).build();
+            ExoPlayer exo = new ExoPlayer.Builder(this, new DefaultRenderersFactory(this).setEnableDecoderFallback(true)
+                .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON))
+                .setMediaSourceFactory(mediaSources)
+                .setLoadControl(new DefaultLoadControl.Builder().setBufferDurationsMs(15000, 50000, 750, 1500).build())
+                .build();
+            exo.setAudioAttributes(AudioAttributes.DEFAULT, true);
+            exo.setHandleAudioBecomingNoisy(true);
             exo.setTrackSelectionParameters(
                 exo.getTrackSelectionParameters().buildUpon()
                     .setPreferredAudioLanguages(store.preferredAudio(), "pt-BR", "pt")
@@ -297,37 +299,60 @@ public final class NativePlayerActivity extends Activity {
             playerView.setPlayer(exo);
 
             MediaItem.Builder item = new MediaItem.Builder().setUri(source);
-            if (isHls(currentPlan, source)) item.setMimeType(MimeTypes.APPLICATION_M3U8);
+            JSONArray subtitles = currentPlan.optJSONArray("subtitles");
+            List<MediaItem.SubtitleConfiguration> subtitleItems = new ArrayList<>();
+            if (subtitles != null) for (int i = 0; i < subtitles.length(); i++) {
+                JSONObject subtitle = subtitles.optJSONObject(i);
+                if (subtitle == null) continue;
+                String format = subtitle.optString("format");
+                if (!"srt".equalsIgnoreCase(format) && !"vtt".equalsIgnoreCase(format)) continue;
+                subtitleItems.add(new MediaItem.SubtitleConfiguration.Builder(Uri.parse(
+                    store.baseUrl() + "/api/v1/media/" + mediaId + "/subtitles/" + subtitle.optLong("id") + "/vtt"))
+                    .setMimeType(MimeTypes.TEXT_VTT).setLanguage(subtitle.optString("language"))
+                    .setLabel(subtitle.optString("language", "Legenda")).build());
+            }
+            item.setSubtitleConfigurations(subtitleItems);
 
             exo.addListener(new Player.Listener() {
                 @Override public void onPlaybackStateChanged(int playbackState) {
                     if (playbackState == Player.STATE_READY) {
-                        if (firstFrameMs == 0) firstFrameMs = Math.max(0, System.currentTimeMillis() - startupStartedAt);
+                        if (stalledAt > 0) {
+                            lastStallMs = Math.max(0, System.currentTimeMillis() - stalledAt);
+                            stalledAt = 0; stallCount++;
+                        }
                         hideLoading();
                         sendTelemetry("");
+                    } else if (playbackState == Player.STATE_BUFFERING && firstFrameMs > 0) {
+                        if (stalledAt == 0) stalledAt = System.currentTimeMillis();
                     } else if (playbackState == Player.STATE_ENDED) {
                         sendHeartbeat("ended", true);
                         handleEnded();
                     }
                 }
 
+                @Override public void onRenderedFirstFrame() {
+                    if (firstFrameMs == 0) firstFrameMs = Math.max(1, System.currentTimeMillis() - startupStartedAt);
+                    sendTelemetry("");
+                }
+
                 @Override public void onPlayerError(PlaybackException error) {
                     sendTelemetry(error == null ? "Media3 playback error" : String.valueOf(error.getMessage()));
-                    fallbackToWeb(error == null ? "Media3 playback error" : error.getMessage());
+                    showPlaybackFailure(error == null ? "Media3 playback error" : error.getMessage());
                 }
             });
 
             exo.setMediaItem(item.build(), Math.max(0L, (long)(startSeconds * 1000)));
             exo.prepare();
-            exo.play();
+            initialPlayPending = !foreground;
+            if (foreground) exo.play();
 
             main.removeCallbacks(heartbeatTask);
             main.removeCallbacks(markerTask);
             main.postDelayed(heartbeatTask, 1500);
             main.postDelayed(markerTask, 500);
-            qualityButton.setText("Qualidade: " + qualityLabel(store.playerQuality()));
+
         } catch (Exception error) {
-            fallbackToWeb(error.getMessage());
+            showPlaybackFailure(error.getMessage());
         }
     }
 
@@ -337,41 +362,6 @@ public final class NativePlayerActivity extends Activity {
         if (value.startsWith("/api/")) return store.baseUrl() + value;
         if (value.startsWith("/")) return store.baseUrl() + "/api/v1" + value;
         return store.baseUrl() + "/api/v1/" + value;
-    }
-
-    private boolean isHls(JSONObject currentPlan, String url) {
-        String lower = url == null ? "" : url.toLowerCase(Locale.ROOT);
-        return lower.contains(".m3u8") || "hls".equalsIgnoreCase(currentPlan.optString("transport", ""))
-            || "video_transcode".equalsIgnoreCase(currentPlan.optString("mode", ""));
-    }
-
-    private void chooseQuality() {
-        final String[] labels = {"Automática", "Original", "4K", "1440p", "1080p", "720p", "480p"};
-        final String[] values = {"auto", "original", "2160p", "1440p", "1080p", "720p", "480p"};
-        new AlertDialog.Builder(this)
-            .setTitle("Qualidade")
-            .setItems(labels, (dialog, which) -> {
-                double position = player == null ? 0 : player.getCurrentPosition() / 1000.0;
-                store.setPlayerQuality(values[which]);
-                qualityButton.setText("Qualidade: " + labels[which]);
-                sendHeartbeat("quality_change", true);
-                prepareMedia(mediaId, position);
-            })
-            .setNegativeButton("Cancelar", null)
-            .show();
-    }
-
-    private String qualityLabel(String value) {
-        String v = value == null ? "auto" : value;
-        switch (v) {
-            case "original": return "Original";
-            case "2160p": return "4K";
-            case "1440p": return "1440p";
-            case "1080p": return "1080p";
-            case "720p": return "720p";
-            case "480p": return "480p";
-            default: return "Auto";
-        }
     }
 
     private Marker activeMarker() {
@@ -406,6 +396,7 @@ public final class NativePlayerActivity extends Activity {
         boolean playing = exo.isPlaying();
         JSONObject currentPlan = plan;
         long seq = ++progressSequence;
+        final long targetMediaId = mediaId;
         JSONObject body = new JSONObject();
         try {
             body.put("position_seconds", Math.max(0, positionMs) / 1000.0);
@@ -422,7 +413,7 @@ public final class NativePlayerActivity extends Activity {
             body.put("progress_reason", reason == null ? "periodic" : reason);
         } catch (Exception ignored) {}
         io.submit(() -> {
-            try { api.post("/media/" + mediaId + "/playback", body); }
+            try { api.post("/media/" + targetMediaId + "/playback", body); }
             catch (Exception ignored) {}
         });
     }
@@ -430,6 +421,7 @@ public final class NativePlayerActivity extends Activity {
     private void sendTelemetry(String lastError) {
         JSONObject currentPlan = plan;
         if (currentPlan == null) return;
+        final long targetMediaId = mediaId;
         JSONObject body = new JSONObject();
         try {
             body.put("playback_session_id", playbackSessionId);
@@ -439,24 +431,29 @@ public final class NativePlayerActivity extends Activity {
             body.put("video_codec", currentPlan.optString("video_codec", ""));
             body.put("audio_codec", currentPlan.optString("audio_codec", ""));
             body.put("last_error", lastError == null ? "" : lastError);
-            body.put("plan_ms", Math.max(0, System.currentTimeMillis() - startupStartedAt - firstFrameMs));
+            body.put("plan_ms", planMs);
             body.put("first_frame_ms", firstFrameMs);
             body.put("startup_ms", firstFrameMs);
+            body.put("stall_count", stallCount);
+            body.put("last_stall_ms", lastStallMs);
         } catch (Exception ignored) {}
         io.submit(() -> {
-            try { api.post("/media/" + mediaId + "/playback/telemetry", body); }
+            try { api.post("/media/" + targetMediaId + "/playback/telemetry", body); }
             catch (Exception ignored) {}
         });
     }
 
     private void handleEnded() {
-        if (!autoplayNext) return;
+        if (!autoplayNext || destroyed) return;
+        final long endedMediaId = mediaId;
+        final int generation = prepareGeneration;
         io.submit(() -> {
             try {
-                JSONObject neighbors = new JSONObject(api.get("/media/" + mediaId + "/neighbors"));
+                JSONObject neighbors = new JSONObject(api.get("/media/" + endedMediaId + "/neighbors"));
                 JSONObject next = neighbors.optJSONObject("next");
                 if (next == null || next.optLong("id", 0) <= 0) return;
                 main.post(() -> {
+                    if (destroyed || generation != prepareGeneration) return;
                     if (needsStillWatchingConfirmation()) showStillWatching(next);
                     else showNextCountdown(next);
                 });
@@ -501,7 +498,8 @@ public final class NativePlayerActivity extends Activity {
             .create();
         Runnable tick = new Runnable() {
             @Override public void run() {
-                if (!dialog.isShowing()) return;
+                if (!dialog.isShowing() || destroyed) return;
+                if (!foreground) { main.postDelayed(this, 1000); return; }
                 message.setText("Reprodução automática em " + remaining[0] + "s.");
                 if (remaining[0] <= 0) {
                     dialog.dismiss();
@@ -529,16 +527,31 @@ public final class NativePlayerActivity extends Activity {
         prepareMedia(nextId, 0);
     }
 
-    private void fallbackToWeb(String error) {
+    private void showPlaybackFailure(String error) {
         if (fallbackOpened || destroyed) return;
         fallbackOpened = true;
-        sendHeartbeat("native_fallback", true);
-        Toast.makeText(this, "Player nativo encontrou incompatibilidade; usando fallback StormFlix.", Toast.LENGTH_SHORT).show();
-        Intent intent = new Intent(this, PlayerActivity.class);
-        intent.putExtra("media_id", mediaId);
-        if (error != null) intent.putExtra("native_error", error);
-        startActivity(intent);
-        finish();
+        if (player != null) player.pause();
+        hideLoading();
+        new AlertDialog.Builder(this)
+            .setTitle("Não foi possível abrir este vídeo")
+            .setMessage("Tente novamente ou abra o arquivo original em outro player instalado, como VLC ou Just Player.")
+            .setPositiveButton("Abrir com…", (d, w) -> openExternalPlayer())
+            .setNeutralButton("Tentar novamente", (d, w) -> {
+                double position = player == null ? Double.NaN : player.getCurrentPosition() / 1000.0;
+                prepareMedia(mediaId, position);
+            })
+            .setNegativeButton("Voltar", (d, w) -> finish())
+            .setOnCancelListener(d -> finish())
+            .show();
+    }
+
+    private void openExternalPlayer() {
+        if (destroyed) return;
+        double position = player == null ? 0 : player.getCurrentPosition() / 1000.0;
+        if (player != null) player.pause();
+        initialPlayPending = false;
+        sendHeartbeat("external_player", true);
+        anywhereBridge.chooseOriginal(api, mediaId, getIntent().getStringExtra("title"), position);
     }
 
     private void showLoading(String message) {
@@ -552,15 +565,7 @@ public final class NativePlayerActivity extends Activity {
         status.setVisibility(View.GONE);
     }
 
-    private void showFatal(String message) {
-        hideLoading();
-        new AlertDialog.Builder(this)
-            .setTitle("Não foi possível reproduzir")
-            .setMessage(message == null || message.trim().isEmpty() ? "Nenhuma rota compatível ficou disponível." : message)
-            .setPositiveButton("Usar player de compatibilidade", (d, w) -> fallbackToWeb(message))
-            .setNegativeButton("Fechar", (d, w) -> finish())
-            .show();
-    }
+    private void showFatal(String message) { showPlaybackFailure(message); }
 
     private void releasePlayer(boolean finishing) {
         main.removeCallbacks(heartbeatTask);
@@ -601,16 +606,22 @@ public final class NativePlayerActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        foreground = true;
+        if (initialPlayPending && player != null) { initialPlayPending = false; player.play(); }
         enterImmersiveMode();
     }
 
     @Override protected void onPause() {
+        foreground = false;
+        if (player != null) player.pause();
         sendHeartbeat("pause", true);
         super.onPause();
     }
 
     @Override protected void onDestroy() {
         destroyed = true;
+        prepareGeneration++;
+        main.removeCallbacksAndMessages(null);
         sendHeartbeat("stop", true);
         stopServerPlayback();
         releasePlayer(false);

@@ -18,7 +18,7 @@ import java.util.Map;
 
 public final class ApiClient {
     private static final String TAG = "StormFlixApi";
-    private static final String VERSION = "0.7.0";
+    private static final String VERSION = "0.8.0";
 
     public static final class ApiException extends IOException {
         public final int status;
@@ -94,9 +94,9 @@ public final class ApiClient {
             if (sourceCaps.has("containers")) caps.put("containers", sourceCaps.get("containers"));
             if (sourceCaps.has("video_codecs")) caps.put("video_codecs", sourceCaps.get("video_codecs"));
             if (sourceCaps.has("audio_codecs")) caps.put("audio_codecs", sourceCaps.get("audio_codecs"));
-            caps.put("allow_remux", sourceCaps.optBoolean("allow_remux", true));
-            caps.put("allow_audio_compatibility", sourceCaps.optBoolean("allow_audio_compatibility", true));
-        } else { caps.put("allow_remux", true); caps.put("allow_audio_compatibility", true); }
+            caps.put("allow_remux", false);
+            caps.put("allow_audio_compatibility", false);
+        } else { caps.put("allow_remux", false); caps.put("allow_audio_compatibility", false); }
         out.put("capabilities", caps); return out;
     }
 
@@ -114,11 +114,22 @@ public final class ApiClient {
     }
 
     private HttpURLConnection open(String url) throws IOException {
-        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection(); c.setConnectTimeout(15000); c.setReadTimeout(1200000); c.setInstanceFollowRedirects(true); c.setRequestProperty("User-Agent", "StormFlix-Android/" + VERSION);
-        String cookies = store.cookieHeader(); if (!cookies.isEmpty()) c.setRequestProperty("Cookie", cookies); return c;
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection(); c.setConnectTimeout(15000); c.setReadTimeout(30000); c.setInstanceFollowRedirects(true); c.setRequestProperty("User-Agent", "StormFlix-Android/" + VERSION);
+        String cookies = store.cookieHeader(); if (!cookies.isEmpty() && sameOrigin(url)) c.setRequestProperty("Cookie", cookies); return c;
+    }
+
+    public boolean sameOrigin(String value) {
+        try {
+            URL source = new URL(store.baseUrl()), target = new URL(value);
+            int sourcePort = source.getPort() < 0 ? source.getDefaultPort() : source.getPort();
+            int targetPort = target.getPort() < 0 ? target.getDefaultPort() : target.getPort();
+            return source.getProtocol().equalsIgnoreCase(target.getProtocol())
+                && source.getHost().equalsIgnoreCase(target.getHost()) && sourcePort == targetPort;
+        } catch (Exception ignored) { return false; }
     }
 
     private void captureCookies(HttpURLConnection c) {
+        if (!sameOrigin(c.getURL().toString())) return;
         Map<String, List<String>> headers = c.getHeaderFields();
         for (Map.Entry<String, List<String>> entry : headers.entrySet()) {
             if (entry.getKey() == null || !entry.getKey().equalsIgnoreCase("Set-Cookie")) continue;

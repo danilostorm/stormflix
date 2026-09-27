@@ -104,7 +104,6 @@ func TestPlaybackV7AdminExplainsAdaptiveOrder(t *testing.T) {
 	}
 }
 
-
 func TestPlaybackV7RuntimeFailureReplansCapabilities(t *testing.T) {
 	core, err := os.ReadFile("static/playback-core-v53.js")
 	if err != nil {
@@ -112,12 +111,11 @@ func TestPlaybackV7RuntimeFailureReplansCapabilities(t *testing.T) {
 	}
 	text := string(core)
 	for _, want := range []string{
-		"rejectedNativeContainers",
-		"rejectedNativeVideoCodecs",
-		"rejectedNativeAudioCodecs",
+		"nativeSourceRejected",
+		"native_source_rejected:nativeSourceRejected",
 		"function rejectNativePlan(plan)",
 		"runtimeRecoveryCount>=2",
-		"nativeContainers.includes('mp4')",
+		"allow_remux:false,allow_audio_compatibility:false,allow_video_transcode:false",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("Playback v7 runtime fallback missing %q", want)

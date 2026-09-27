@@ -58,6 +58,8 @@ func (s *server) playbackPlan(w http.ResponseWriter, r *http.Request) {
 	if decodeJSON(w, r, &in) != nil {
 		return
 	}
+	// Server-owned policy also protects older clients and remembered qualities.
+	in.Request = playback.OriginalRequest(in.Request)
 
 	profileID := s.selectedProfileID(r, u.ID)
 	resumePosition := 0.0
@@ -110,6 +112,24 @@ func (s *server) playbackPlan(w http.ResponseWriter, r *http.Request) {
 		plan = applyCPU4KTranscodeBlock(plan, transcode.Detect())
 	}
 	if !plan.Available {
+		plan.ReasonCode = "original_decoder_unavailable"
+		plan.Reason = "Este dispositivo não conseguiu reproduzir o arquivo original. Abra em outro player ou escolha uma versão compatível."
+		writeJSON(w, http.StatusOK, plan)
+		return
+	}
+	// Return before initializing any FFmpeg/HLS manager, even for native clients.
+	if plan.OriginalOnly {
+		if !webPlanUsesOriginalTransport(plan) {
+			plan.Available = false
+			plan.Mode = playback.ModeUnsupported
+			plan.ReasonCode = "server_conversion_disabled"
+			plan.URL = ""
+		} else {
+			s.closePlaybackTransport(u.ID, in.PlaybackSessionID)
+			plan.PlaybackSessionID = newPlaybackSessionID()
+			plan.Transport = "original_range"
+			plan.URL, plan.PrepareURL = playbackExecutionURLs(id, plan)
+		}
 		writeJSON(w, http.StatusOK, plan)
 		return
 	}

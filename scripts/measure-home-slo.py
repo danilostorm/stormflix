@@ -14,6 +14,7 @@ The script uses only the Python standard library and never prints cookie values.
 
 from __future__ import annotations
 
+import json
 import os
 import statistics
 import sys
@@ -83,11 +84,20 @@ def main() -> int:
         started = time.perf_counter()
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
-                response.read()
+                body = response.read()
+                if response.geturl() != url:
+                    raise ValueError("redirected response is not an authenticated Home sample")
+                if response.headers.get_content_type() != "application/json":
+                    raise ValueError("Home did not return application/json")
+                payload = json.loads(body)
+                if not isinstance(payload, dict) or not isinstance(payload.get("rows"), list) or "error" in payload:
+                    raise ValueError("response is not a Home feed")
                 elapsed_ms = (time.perf_counter() - started) * 1000
                 cache = response.headers.get("X-StormFlix-Home-Cache", "unknown")
                 revision = response.headers.get("X-StormFlix-Catalog-Revision", "unknown")
                 timing = response.headers.get("Server-Timing", "")
+                if cache not in {"hit", "miss", "stale", "fallback"} or not revision.isdigit():
+                    raise ValueError("missing or invalid Home cache/revision evidence")
         except urllib.error.HTTPError as exc:
             print(f"HTTP {exc.code}: {exc.read().decode('utf-8', 'replace')[:300]}", file=sys.stderr)
             return 3
@@ -121,6 +131,9 @@ def main() -> int:
     if server_timings:
         print(f"last Server-Timing: {server_timings[-1]}")
 
+    if cache_states != {"hit": samples} or len(revisions) != 1:
+        print("RESULT: INCONCLUSIVE — expected cache hits at a stable catalog revision. Retry after warming the cache.")
+        return 5
     if p95 < 500:
         print("RESULT: PASS — cached Home p95 is below 500 ms.")
         return 0
