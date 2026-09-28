@@ -32,14 +32,14 @@ type ClientCapabilities struct {
 
 // SupportsLocalOrigin reports whether the client can consume the original
 // file with HTTP Range, demux it and render it locally. This is deliberately
-// stricter than the v6 HLS-assisted decoder: only modern desktop browsers with
+// stricter than the v6 HLS-assisted decoder: modern browsers with
 // WebAssembly SIMD and an explicitly advertised source matrix enter the path.
 func (c ClientCapabilities) SupportsLocalOrigin(container, videoCodec, audioCodec string, width, height int, hdr string) bool {
-	if !c.Enabled || !c.OriginalFile || !c.WASM || !c.WASMSIMD || !c.Worker || !c.WebGL || !c.SecureContext {
+	if !c.Enabled || !c.OriginalFile || !c.WASM || !c.WASMSIMD || !c.Worker || !c.WebGL {
 		return false
 	}
 	kind := strings.ToLower(strings.TrimSpace(c.Kind))
-	if kind != "web" && kind != "desktop" {
+	if kind != "web" && kind != "desktop" && kind != "mobile_web" && kind != "android_webview" {
 		return false
 	}
 	if !supports(c.Containers, container, normalizeContainer) || !supports(c.Codecs, videoCodec, normalizeCodec) {

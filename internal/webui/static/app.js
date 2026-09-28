@@ -61,8 +61,28 @@ async function loadHome(){
 
 function responsiveImageURL(value,width){
   value=String(value||'');if(!value||!value.startsWith('/assets/'))return value;
-  try{const url=new URL(value,location.origin);url.searchParams.set('w',String(width));url.searchParams.set('format','auto');return url.pathname+url.search}catch{return value}
+  try{const url=new URL(value,location.origin);url.searchParams.set('w',String(width));url.searchParams.set('format','webp');return url.pathname+url.search}catch{return value}
 }
+
+// Capture image failures from dynamically inserted rails/detail screens too.
+// Retry a failed local thumbnail exactly once without srcset/variant parameters.
+document.addEventListener('error',event=>{
+  const img=event.target;
+  if(!(img instanceof HTMLImageElement))return;
+  let url;
+  try{url=new URL(img.currentSrc||img.src,location.origin)}catch{return}
+  if(url.origin===location.origin&&url.pathname.startsWith('/assets/')&&url.searchParams.has('w')){
+    url.searchParams.delete('w');url.searchParams.delete('format');
+    const original=url.pathname+url.search;
+    if(img.dataset.originalRetry!==original){
+      img.dataset.originalRetry=original;img.removeAttribute('srcset');img.removeAttribute('sizes');img.src=original;return;
+    }
+  }
+  // A missing logo must not also hide the textual title.
+  if(img.id==='hero-logo'){
+    img.classList.add('hidden');document.querySelector('#hero-title')?.classList.remove('title-with-logo');
+  }
+},true);
 
 function responsiveImageSet(value){
   if(!String(value||'').startsWith('/assets/'))return'';

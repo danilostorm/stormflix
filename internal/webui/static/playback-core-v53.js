@@ -118,7 +118,8 @@
 
   function localDecodeClientKind(){
     const ua=String(navigator.userAgent||'').toLowerCase();
-    if(ua.includes('android')||ua.includes('; wv')||window.NativePlaybackAnywhere)return'android_webview';
+    if(ua.includes('; wv')||window.NativePlaybackAnywhere)return'android_webview';
+    if(ua.includes('android'))return'mobile_web';
     if(/tizen|web0s|webos|smart-tv|smarttv|hbbtv|netcast/.test(ua))return'tv';
     if(navigator.userAgentData?.mobile||/iphone|ipad|ipod|mobile/.test(ua)||(/macintosh/.test(ua)&&Number(navigator.maxTouchPoints||0)>1))return'mobile_web';
     return'web';
@@ -127,28 +128,29 @@
   function browserLocalDecodeCapabilities(){
     const wasm=typeof WebAssembly==='object'&&typeof WebAssembly.instantiate==='function';
     const worker=typeof Worker==='function';
-    const webcodecs=typeof VideoEncoder==='function'&&typeof VideoDecoder==='function';
+    const webcodecs=typeof VideoDecoder==='function';
     const secure=Boolean(window.isSecureContext||location.hostname==='localhost'||location.hostname==='127.0.0.1');
     const cores=Math.max(1,Number(navigator.hardwareConcurrency||2));
     const memory=Math.max(0,Number(navigator.deviceMemory||0));
     const kind=localDecodeClientKind();
-    const automatic4K=cores>=12&&(memory===0||memory>=8);
+    const automatic4K=kind==='web'&&cores>=12&&memory>=8;
     let maxHeight=720;
     if(cores>=6)maxHeight=1080;
     if(automatic4K)maxHeight=2160;
     const maxWidth=maxHeight>=2160?3840:maxHeight>=1080?1920:1280;
-    const enabled=!localDecodeRuntimeFailed&&kind==='web';
+    const enabled=!localDecodeRuntimeFailed&&kind!=='tv';
+    const audio=typeof (window.AudioContext||window.webkitAudioContext)==='function';
     return{
       kind,enabled,wasm,worker,webgl:hasWebGL(),webgpu:Boolean(navigator.gpu),webcodecs,secure_context:secure,
       hevc_wasm:false,av1_wasm:false,hdr:false,
-      original_file:enabled&&!localOriginRuntimeFailed&&wasm&&hasWasmSIMD()&&worker&&secure&&hasWebGL(),wasm_simd:hasWasmSIMD(),
+      original_file:enabled&&!localOriginRuntimeFailed&&wasm&&hasWasmSIMD()&&worker&&audio&&hasWebGL(),wasm_simd:hasWasmSIMD(),
       max_width:maxWidth,max_height:maxHeight,hardware_concurrency:cores,device_memory_gb:memory,
       codecs:['h264','hevc','av1'],containers:['mkv','mp4','webm'],audio_codecs:['aac','ac3','eac3','dts','mp3','opus','flac','vorbis'],subtitle_formats:['vtt','srt','ass','ssa']
     };
   }
 
   function clientRequest(sessionID,quality,startPosition,audioStream){
-    const body={client_kind:'web',client_name:'StormFlix Web',client_version:'0.8.0',original_only:true,native_source_rejected:nativeSourceRejected,playback_session_id:String(sessionID||''),capabilities:browserCapabilities(),local_decode:browserLocalDecodeCapabilities()};
+    const body={client_kind:'web',client_name:'StormFlix Web',client_version:'0.8.1',original_only:true,native_source_rejected:nativeSourceRejected,playback_session_id:String(sessionID||''),capabilities:browserCapabilities(),local_decode:browserLocalDecodeCapabilities()};
     let native=null;
     if(typeof window.StormFlixShell?.playbackRequest==='function'){
       try{native=JSON.parse(String(window.StormFlixShell.playbackRequest(String(sessionID||''))||''))}catch{}
@@ -158,9 +160,7 @@
     if(device){
       body.local_decode.max_height=Math.min(body.local_decode.max_height,device.max_height||1080);
       body.local_decode.max_width=Math.min(body.local_decode.max_width,body.local_decode.max_height>=2000?3840:body.local_decode.max_height>=1300?2560:1920);
-      // The v6 engine only supports HEVC. Keep its whole local budget at FHD
-      // when UHD HEVC failed, even if another native UHD codec still works.
-      if(body.local_decode.max_height>=2000&&!device.video_codecs.includes('hevc')){body.local_decode.max_height=1080;body.local_decode.max_width=1920}
+      // Local WASM decoding does not require a native HEVC decoder.
     }
     if(native){body.client_name='StormFlix Android Web Player';body.client_version=native.client_version;body.preferred_audio_language=native.preferred_audio_language||''}
     body.quality='original';
@@ -209,7 +209,7 @@
   }
   function isHLSSource(source){const v=String(source||'').toLowerCase();return v.includes('.m3u8')||v.includes('/webstream/')||v.includes('/hls/')}
   function destroyHls(){if(activeHls){try{activeHls.destroy()}catch{}activeHls=null}}
-  async function destroyLocalOrigin(){if(window.sfLocalOrigin?.isActive?.())await window.sfLocalOrigin.destroy()}
+  async function destroyLocalOrigin(){await window.sfLocalOrigin?.destroy?.()}
 
   function ensureHlsLibrary(){
     if(window.Hls)return Promise.resolve(window.Hls);
@@ -330,7 +330,7 @@
     if(!window.sfLocalOrigin)throw new Error('Runtime de arquivo original não carregou');
     const source=absoluteSourceURL(plan?.url);if(!source)throw new Error('O plano local não retornou a fonte original');
     await window.sfLocalOrigin.load(source,plan,{resume,autoplay,audioStream:Number(plan?.audio_stream)});
-    if(generation!==planGeneration)await window.sfLocalOrigin.destroy();
+    if(generation!==planGeneration)return;
   }
 
   function rejectNativePlan(plan){
@@ -395,7 +395,14 @@
     let plan;
     try{
       if(typeof window.sfCatalogCapabilityQuery==='function')await window.sfCatalogCapabilityQuery();
-      plan=await request(`/media/${Number(item.id)}/playback/plan`,{method:'POST',body:JSON.stringify(clientRequest(previousSession,options.quality||preferredQuality,requestedPosition,requestedAudio))});
+      // Original first: do not wait for an rclone/ffprobe read before the
+      // browser can request bytes. Replan only after actual decoder rejection
+      // or an explicit audio-track change.
+      if(!nativeSourceRejected&&requestedAudio===null){
+        try{plan=await request(`/media/${Number(item.id)}/playback/original`,{method:'POST',body:'{}'})}
+        catch(error){if(Number(error?.status)!==404)throw error}
+      }
+      if(!plan)plan=await request(`/media/${Number(item.id)}/playback/plan`,{method:'POST',body:JSON.stringify(clientRequest(previousSession,options.quality||preferredQuality,requestedPosition,requestedAudio))});
       startupMetrics.plan_ms=Math.max(0,performance.now()-startupMetrics.started_at);window.sfPlaybackStartupMetrics=startupMetrics;
     }catch(err){
       if(generation!==planGeneration)return null;startupInProgress=false;window.sfPlaybackLastError=String(err?.message||err);visibleFailure('Não foi possível iniciar este vídeo.');return null;

@@ -36,3 +36,18 @@ assert.equal(after.audio_stream, 2);
 for (const flag of ['allow_remux', 'allow_audio_compatibility', 'allow_video_transcode']) assert.equal(after.capabilities[flag], false);
 assert.equal(evaluate("rejectNativePlan({mode:'direct_play'})"), false, 'recovery must be bounded');
 console.log('Original playback: failed HEVC keeps MP4/AAC claims; client conversions disabled.');
+
+const capsContext=vm.createContext({
+  window:{AudioContext:function(){}},location:{hostname:'stormflix.test'},
+  navigator:{userAgent:'Mozilla Android Mobile',hardwareConcurrency:8,deviceMemory:4},
+  document:{createElement:()=>({getContext:()=>({})})},Worker:function(){},
+  atob:s=>Buffer.from(s,'base64').toString('binary')
+});
+vm.runInContext('let localDecodeRuntimeFailed=false,localOriginRuntimeFailed=false;'+
+  between('  function hasWebGL()', '  function clientRequest('),capsContext);
+const mobileCaps=vm.runInContext('browserLocalDecodeCapabilities()',capsContext);
+assert.equal(mobileCaps.kind,'mobile_web');assert.equal(mobileCaps.original_file,true);
+assert.equal(mobileCaps.secure_context,false);assert.equal(mobileCaps.max_height,1080);
+vm.runInContext('window.AudioContext=undefined',capsContext);
+assert.equal(vm.runInContext('browserLocalDecodeCapabilities().original_file',capsContext),false);
+console.log('Local decoder: capable Android browser on HTTP LAN; missing audio API rejected.');

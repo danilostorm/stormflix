@@ -2,6 +2,16 @@
 
 This file records user-visible and architectural changes. `PROJECT_STATE.md` is the authoritative current-state handoff and `ENTERTAINMENT_ROADMAP.md` tracks planned work.
 
+## 2026-09-28
+
+### Embedded playback and artwork correction (Android 0.8.1)
+
+- Keep Android failures inside the player, retry device decoder failures with bundled FFmpeg audio, explain connection/access/format errors, and retain “Reproduzir em” as optional.
+- Stream originals on old servers without passing through their conversion planner; Web now also requests originals before a server probe.
+- Fix libmedia selecting video as audio, relative worker URLs, startup resume, pause/track-switch races, frozen progress, local decoder cancellation, runtime script retry and decoder statistics; enable capable mobile browsers and HTTP LAN audio fallback.
+- Request WebP artwork and retry failed variants with originals in Android and Web. Restore title text when a hero logo fails.
+- Add real Chromium MP4/AAC and MKV/AC3 decoding, seek and audio-track regression coverage. Hardware/rclone/production-cover validation remains pending.
+
 ## 2026-09-27
 
 ### Original playback, local Android audio decoding and faster catalog navigation

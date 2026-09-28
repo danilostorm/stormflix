@@ -108,7 +108,13 @@ func (s *server) serveAsset(w http.ResponseWriter, r *http.Request) {
 		if !active {
 			variantContext, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 			defer cancel()
-			if variant, contentType, ok := s.assets.Variant(variantContext, key, width, r.Header.Get("Accept")); ok {
+			accept := r.Header.Get("Accept")
+			// Clients may request WebP explicitly to avoid slow AVIF creation on
+			// a cold catalog and unsupported AVIF decoders on older Android TVs.
+			if r.URL.Query().Get("format") == "webp" && strings.Contains(accept, "image/webp") {
+				accept = "image/webp"
+			}
+			if variant, contentType, ok := s.assets.Variant(variantContext, key, width, accept); ok {
 				path = variant
 				w.Header().Set("Content-Type", contentType)
 				w.Header().Set("Vary", "Accept")

@@ -2,7 +2,45 @@
 
 > **Authoritative continuation note.** Any coding agent/session continuing StormFlix must read this file, `AGENTS.md` and `ENTERTAINMENT_ROADMAP.md` before changing code. Update this document after meaningful architecture, compatibility, schema, playback or deployment changes.
 
-Last architecture update: **2026-09-27**.
+Last architecture update: **2026-09-28**.
+
+## Embedded playback and artwork correction — 2026-09-28
+
+Android **0.8.1 / versionCode 27** keeps playback in the embedded Media3 + FFmpeg
+audio decoder. Older servers without `/playback/original` are authorized through
+catalog metadata and streamed directly, instead of rejecting an old planner's
+conversion decision. A device decoder/audio-sink failure gets one internal retry
+preferring the bundled audio decoder. Error messages distinguish HTTP/session,
+access, missing files and decoder failures; they no longer demand installation
+of an external app. “Reproduzir em” remains an explicit optional action.
+
+Web tries `/playback/original` before probing on the server. Actual HTML playback
+rejection still invokes the original-only planner and local decoder. The libmedia
+adapter no longer overrides `findBestStream` with a function that could return a
+video stream for audio. It uses upstream selection followed by explicit audio
+selection through typed public stream metadata after decoder initialization. Resume
+also waits for the playback pipelines; decoder statistics verify audio and video.
+Pause and immediate play/audio selection are serialized. Controls and progress
+read the engine clock when TIME events stop after a track switch.
+Media/WASM/sidecar URLs are
+absolute because network workers have no page-relative URL base. HTTP LAN can use ScriptProcessor
+audio when AudioWorklet is unavailable. Feature-capable Android/mobile browsers
+may use local decoding; SIMD/WebGL/worker, codec, resolution and HDR constraints
+remain. This is a browser implementation of local original-file playback, not
+an Android APK running in a browser or a promise of universal codec support.
+
+Artwork explicitly requests WebP, avoiding cold AVIF generation and old Android
+AVIF incompatibility. Android and Web retry a failed local variant with the
+original image. Web retry removes `srcset` so it cannot reselect the failed
+variant; a missing hero logo restores the textual title. Missing original files
+still require library/artwork repair; no production asset was inspected here.
+
+Validation adds real Chromium decoding of generated MP4/AAC and MKV/AC3 files,
+seek, alternate audio selection and teardown over secure localhost and plain
+HTTP LAN, plus mobile/LAN planner regressions. Exact PR/main CI and Android build
+must pass before release claims. Physical devices, real Unraid artwork and rclone
+performance remain production checks. Updating the APK does not update the server:
+use the git pull + Docker rebuild commands below, then refresh the web page.
 
 ## Original-file playback update — 2026-09-27
 

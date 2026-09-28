@@ -5,7 +5,7 @@
   const surface=document.querySelector('#sf-local-origin-surface');
   if(!video||!surface)return;
 
-  const BASE='/vendor-libmedia/';
+  const BASE=new URL('/vendor-libmedia/',location.href).href;
   const CODEC_WASM=new Map([
     [27,'h264'],[173,'hevc'],[225,'av1'],[86017,'mp3'],[86018,'aac'],
     [86019,'ac3'],[86020,'dca'],[86021,'vorbis'],[86028,'flac'],
@@ -19,6 +19,8 @@
   let active=false;
   let generation=0;
   let statsTimer=0;
+  let pendingAudioStream=null,pendingResume=0;
+  let pausePending=Promise.resolve();
   let state={time:0,duration:0,paused:true,volume:1,muted:false,rate:1,width:0,height:0,buffered:0};
 
   function dispatch(name,detail){
@@ -28,13 +30,14 @@
     try{return WebAssembly.validate(Uint8Array.from(atob('AGFzbQEAAAABBQFgAAF7AhIBA2VudgZtZW1vcnkCAwGAgAIDAgEACgoBCABBAP0ABAAL'),c=>c.charCodeAt(0)))}catch{return false}
   }
   function script(url,marker){
-    const found=document.querySelector(`script[data-${marker}]`);
+    const attribute='data-'+marker.replace(/[A-Z]/g,c=>'-'+c.toLowerCase());
+    const found=document.querySelector(`script[${attribute}]`);
     if(found?.dataset.loaded==='1')return Promise.resolve();
     return new Promise((resolve,reject)=>{
       const node=found||document.createElement('script');
       node.src=url;node.async=true;node.dataset[marker]='1';
       node.onload=()=>{node.dataset.loaded='1';resolve()};
-      node.onerror=()=>reject(new Error(`runtime local indisponível: ${url}`));
+      node.onerror=()=>{node.remove();reject(new Error(`runtime local indisponível: ${url}`))};
       if(!found)document.head.appendChild(node);
     });
   }
@@ -65,7 +68,7 @@
     if(active)return;
     active=true;
     Object.defineProperties(video,{
-      currentTime:{configurable:true,get:()=>state.time,set:value=>seek(value)},
+      currentTime:{configurable:true,get:currentTime,set:value=>seek(value)},
       duration:{configurable:true,get:()=>state.duration},
       paused:{configurable:true,get:()=>state.paused},
       volume:{configurable:true,get:()=>state.volume,set:value=>{state.volume=Math.max(0,Math.min(1,Number(value)||0));setEngineVolume()}},
@@ -86,11 +89,26 @@
   }
   async function play(){
     if(!engine)return Promise.reject(new Error('player local não carregado'));
-    await engine.play();state.paused=false;dispatch('play');dispatch('playing');
+    const instance=engine,token=generation;
+    await pausePending;
+    if(token!==generation)return;
+    await instance.play();
+    if(token!==generation)return;
+    // libmedia creates decoder pipelines in play(), not load(). Apply track
+    // selection and resume only once those pipelines actually exist.
+    if(pendingAudioStream!==null){const index=pendingAudioStream;pendingAudioStream=null;await selectAudio(index)}
+    if(token!==generation)return;
+    if(pendingResume>0){const resume=pendingResume;pendingResume=0;await instance.seek(BigInt(Math.round(resume*1000)))}
+    if(token!==generation)return;
+    state.paused=false;dispatch('play');dispatch('playing');
   }
   function pause(){
     if(!engine)return;
-    state.paused=true;Promise.resolve(engine.pause()).catch(()=>{});dispatch('pause');
+    state.paused=true;pausePending=Promise.resolve(engine.pause()).catch(()=>{});dispatch('pause');
+  }
+  function currentTime(){
+    if(pendingResume>0)return pendingResume;
+    try{return engine?Number(engine.currentTime)/1000:state.time}catch{return state.time}
   }
   function seek(seconds){
     const target=Math.max(0,Math.min(state.duration||Infinity,Number(seconds)||0));
@@ -123,49 +141,59 @@
     if(!name)throw new Error(`codec local sem módulo permitido: ${codecId}`);
     return`${BASE}${name}-simd.wasm`;
   }
-  function bestStream(streams,mediaType,audioStream){
-    if(!Array.isArray(streams)||!streams.length)return undefined;
-    if(Number(mediaType)===1&&Number.isInteger(audioStream))return streams.find(s=>Number(s.index)===audioStream||Number(s.id)===audioStream)||streams[0];
-    return streams.find(s=>Boolean(s?.disposition?.default))||streams[0];
-  }
   function startStats(){
     clearInterval(statsTimer);
     statsTimer=setInterval(()=>{
       if(!engine)return;
+      // Some libmedia track switches stop TIME events. Read the engine clock
+      // so the controls and progress heartbeats continue after audio changes.
+      const time=currentTime();
+      if(Number.isFinite(time)&&time!==state.time){state.time=time;dispatch('timeupdate')}
       const raw=engine.getStats?.()||{};
-      window.sfLocalDecodeStats={engine:'libmedia',transport:'original_range',codec:String(window.sfLastPlaybackPlan?.source_video_codec||''),current_seconds:state.time,duration_seconds:state.duration,dropped_frames:Number(raw.videoFrameDrop||raw.video_frame_drop||0),decoded_frames:Number(raw.videoFrameDecode||raw.video_frame_decode||0),buffer_seconds:Math.max(0,state.buffered-state.time),updated_at:Date.now()};
+      window.sfLocalDecodeStats={engine:'libmedia',transport:'original_range',codec:String(window.sfLastPlaybackPlan?.source_video_codec||''),current_seconds:state.time,duration_seconds:state.duration,dropped_frames:Number(raw.videoFrameDropCount||0),decoded_frames:Number(raw.videoFrameDecodeCount||0),decoded_audio_frames:Number(raw.audioFrameDecodeCount||0),audio_stream:Number(engine.getStreams?.().find(s=>s.id===engine.getSelectedAudioStreamId?.())?.index??-1),buffer_seconds:Math.max(0,state.buffered-state.time),updated_at:Date.now()};
       window.dispatchEvent(new CustomEvent('stormflix:local-decode-stat',{detail:window.sfLocalDecodeStats}));
-    },2000);
+    },1000);
   }
   async function load(url,plan,options={}){
-    const token=++generation;
-    await destroy();generation=token;
+    const cleanup=destroy();
+    const token=generation;
+    await cleanup;
+    if(token!==generation)throw new Error('inicialização local cancelada');
     if(!wasmSIMD())throw new Error('WebAssembly SIMD indisponível');
     const AVPlayer=await ensureRuntime();
     if(token!==generation)throw new Error('inicialização local cancelada');
     try{native.pause();video.removeAttribute('src');native.load()}catch{}
-    state={time:0,duration:0,paused:true,volume:Number(video.volume||1),muted:Boolean(video.muted),rate:1,width:Number(plan?.video_width||0),height:Number(plan?.video_height||0),buffered:0};
+    state={time:0,duration:0,paused:true,volume:Number(video.volume??1),muted:Boolean(video.muted),rate:1,width:Number(plan?.video_width||0),height:Number(plan?.video_height||0),buffered:0};
     installAdapter();
     const requestedAudio=Number.isInteger(options.audioStream)?options.audioStream:Number(plan?.audio_stream);
-    engine=new AVPlayer({
+    const instance=new AVPlayer({
       container:surface,getWasm:wasmURL,checkUseMSE:()=>false,
-      enableHardware:true,enableWebCodecs:true,enableWebGPU:Boolean(navigator.gpu),enableWorker:true,enableAudioWorklet:true,
-      lowLatency:false,preLoadTime:3,audioWorkletBufferLength:14,
-      findBestStream:(streams,mediaType)=>bestStream(streams,mediaType,requestedAudio)
+      enableHardware:true,enableWebCodecs:true,enableWebGPU:Boolean(navigator.gpu),enableWorker:true,enableAudioWorklet:Boolean(window.isSecureContext&&window.AudioWorkletNode),
+      lowLatency:false,preLoadTime:3,audioWorkletBufferLength:14
     });
-    bindEvents(engine,AVPlayer,token);setEngineVolume();startStats();
+    engine=instance;
+    bindEvents(instance,AVPlayer,token);setEngineVolume();startStats();
     const subtitleRows=typeof sfSubtitles!=='undefined'&&Array.isArray(sfSubtitles)?sfSubtitles:[];
-    const externalSubtitles=subtitleRows.map(row=>({source:`/api/v1/media/${Number(plan?.media_id)}/subtitles/${Number(row.id)}/vtt`,lang:String(row.language||''),title:String(row.provider||row.language||'Legenda')}));
-    await engine.load(url,{ext:String(plan?.source_container||'').replace(/^matroska$/,'mkv'),externalSubtitles,http:{credentials:'same-origin'}});
+    const externalSubtitles=subtitleRows.map(row=>({source:new URL(`/api/v1/media/${Number(plan?.media_id)}/subtitles/${Number(row.id)}/vtt`,location.href).href,lang:String(row.language||''),title:String(row.provider||row.language||'Legenda')}));
+    // Blob workers have no page-relative base URL. Resolve media and sidecars
+    // before handing them to libmedia's network worker.
+    const source=new URL(url,location.href).href;
+    await instance.load(source,{ext:String(plan?.source_container||'').replace(/^matroska$/,'mkv'),externalSubtitles,http:{credentials:'same-origin'}});
     if(token!==generation)throw new Error('carregamento local cancelado');
-    state.duration=Number(engine.getDuration?.()||0n)/1000;
+    state.duration=Number(instance.getDuration?.()||0n)/1000;
+    // The constructor callback receives ALL raw streams, not typed streams.
+    // Let libmedia choose valid audio/video first, then apply an explicit track.
+    pendingAudioStream=Number.isInteger(requestedAudio)&&requestedAudio>=0?requestedAudio:null;
     engine.setSubtitleEnable?.(false);window.sfLocalSubtitleID=0;
-    if(Number(options.resume)>0)await engine.seek(BigInt(Math.round(Number(options.resume)*1000)));
+    pendingResume=Math.max(0,Number(options.resume)||0);
     if(options.autoplay!==false)await play();
     return true;
   }
   async function selectAudio(index){
-    if(!engine)return false;
+    const token=generation;
+    await pausePending;
+    if(!engine||token!==generation)return false;
+    if(engine.getSelectedAudioStreamId?.()<0){pendingAudioStream=index;return true}
     const streams=engine.getStreams?.()||[];
     const stream=streams.find(s=>(s.mediaType==='audio'||Number(s?.codecparProxy?.codecType)===1)&&(Number(s.index)===Number(index)||Number(s.id)===Number(index)));
     await engine.selectAudio(Number(stream?.id??index));
@@ -184,11 +212,12 @@
     engine.setSubtitleEnable?.(true);return true;
   }
   async function destroy(){
-    generation++;clearInterval(statsTimer);statsTimer=0;
+    generation++;clearInterval(statsTimer);statsTimer=0;pendingAudioStream=null;pendingResume=0;pausePending=Promise.resolve();
     const old=engine;engine=null;
-    if(old){try{await old.destroy()}catch{}}
+    // Synchronous detach prevents an older destroy from removing a new player.
     surface.replaceChildren();removeAdapter();
     window.sfLocalDecodeStats=null;window.sfLocalSubtitleID=0;
+    if(old){try{await old.destroy()}catch{}}
   }
 
   window.sfLocalOrigin={load,destroy,selectAudio,selectSubtitle,isActive:()=>active,isSupported:wasmSIMD};
