@@ -36,7 +36,7 @@ func TestPlaybackAnywhereIsAnchoredToDetailButton(t *testing.T) {
 		t.Fatalf("read source-selector.js: %v", err)
 	}
 	for _, required := range [][]byte{
-		[]byte(`#detail-anywhere,#sf-anywhere-toggle`),
+		[]byte(`#detail-anywhere`),
 		[]byte(`getBoundingClientRect()`),
 		[]byte(`panel.style.left`),
 		[]byte(`panel.style.right='auto'`),

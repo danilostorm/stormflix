@@ -95,7 +95,7 @@
   }
 
   document.addEventListener('click',event=>{
-    const trigger=event.target.closest?.('#detail-anywhere,#sf-anywhere-toggle');
+    const trigger=event.target.closest?.('#detail-anywhere');
     if(!trigger)return;
     anywhereAnchor=trigger;
     requestAnimationFrame(()=>requestAnimationFrame(()=>positionAnywhere(trigger)));

@@ -49,7 +49,7 @@ import java.util.concurrent.Executors;
 
 /** Native original-file playback shared by phone, Android TV and Fire TV. */
 public final class NativePlayerActivity extends Activity {
-    private static final String VERSION = "0.8.1";
+    private static final String VERSION = "0.8.2";
 
     private static final class Marker {
         final String kind;
@@ -75,14 +75,12 @@ public final class NativePlayerActivity extends Activity {
     private ProgressBar loading;
     private TextView status;
     private Button skipButton;
-    private Button externalButton;
     private int prepareGeneration;
     private long planMs;
     private long stalledAt;
     private int stallCount;
     private long lastStallMs;
     private ExoPlayer player;
-    private PlaybackAnywhereNative anywhereBridge;
     private boolean foreground;
     private boolean initialPlayPending;
 
@@ -125,7 +123,6 @@ public final class NativePlayerActivity extends Activity {
         if (mediaId <= 0L) { finish(); return; }
         api = new ApiClient(this);
         store = api.store();
-        anywhereBridge = new PlaybackAnywhereNative(this, null);
         configureWindow();
         buildShell();
         prepareMedia(mediaId, Double.NaN);
@@ -175,15 +172,6 @@ public final class NativePlayerActivity extends Activity {
             ViewGroup.LayoutParams.WRAP_CONTENT, Ui.dp(this, 48), Gravity.END | Gravity.BOTTOM);
         skipLp.setMargins(Ui.dp(this, 18), Ui.dp(this, 18), Ui.dp(this, 28), Ui.dp(this, 92));
         root.addView(skipButton, skipLp);
-
-        externalButton = Ui.button(this, "Reproduzir em…", false);
-        externalButton.setOnClickListener(v -> openExternalPlayer());
-        FrameLayout.LayoutParams externalLp = new FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, Ui.dp(this, 44), Gravity.END | Gravity.TOP);
-        externalLp.setMargins(Ui.dp(this, 18), Ui.dp(this, 18), Ui.dp(this, 24), Ui.dp(this, 18));
-        root.addView(externalButton, externalLp);
-        playerView.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener) visibility ->
-            externalButton.setVisibility(visibility));
 
         setContentView(root);
     }
@@ -582,15 +570,6 @@ public final class NativePlayerActivity extends Activity {
         if (error.errorCode >= 2000 && error.errorCode < 3000)
             return "A leitura do vídeo foi interrompida. Verifique a conexão com o servidor e tente novamente. (" + error.getErrorCodeName() + ")";
         return "O decoder integrado não conseguiu reproduzir este arquivo neste aparelho. (" + error.getErrorCodeName() + ")";
-    }
-
-    private void openExternalPlayer() {
-        if (destroyed) return;
-        double position = player == null ? 0 : player.getCurrentPosition() / 1000.0;
-        if (player != null) player.pause();
-        initialPlayPending = false;
-        sendHeartbeat("external_player", true);
-        anywhereBridge.chooseOriginal(api, mediaId, getIntent().getStringExtra("title"), position);
     }
 
     private void showLoading(String message) {
