@@ -20,6 +20,8 @@ adapter no longer overrides `findBestStream` with a function that could return a
 video stream for audio. It uses upstream selection followed by explicit audio
 selection through typed public stream metadata after decoder initialization. Resume
 also waits for the playback pipelines; decoder statistics verify audio and video.
+Pause and immediate play/audio selection are serialized. Controls and progress
+read the engine clock when TIME events stop after a track switch.
 Media/WASM/sidecar URLs are
 absolute because network workers have no page-relative URL base. HTTP LAN can use ScriptProcessor
 audio when AudioWorklet is unavailable. Feature-capable Android/mobile browsers

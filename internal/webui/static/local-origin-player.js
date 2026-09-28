@@ -20,6 +20,7 @@
   let generation=0;
   let statsTimer=0;
   let pendingAudioStream=null,pendingResume=0;
+  let pausePending=Promise.resolve();
   let state={time:0,duration:0,paused:true,volume:1,muted:false,rate:1,width:0,height:0,buffered:0};
 
   function dispatch(name,detail){
@@ -67,7 +68,7 @@
     if(active)return;
     active=true;
     Object.defineProperties(video,{
-      currentTime:{configurable:true,get:()=>state.time,set:value=>seek(value)},
+      currentTime:{configurable:true,get:currentTime,set:value=>seek(value)},
       duration:{configurable:true,get:()=>state.duration},
       paused:{configurable:true,get:()=>state.paused},
       volume:{configurable:true,get:()=>state.volume,set:value=>{state.volume=Math.max(0,Math.min(1,Number(value)||0));setEngineVolume()}},
@@ -89,6 +90,8 @@
   async function play(){
     if(!engine)return Promise.reject(new Error('player local não carregado'));
     const instance=engine,token=generation;
+    await pausePending;
+    if(token!==generation)return;
     await instance.play();
     if(token!==generation)return;
     // libmedia creates decoder pipelines in play(), not load(). Apply track
@@ -101,7 +104,11 @@
   }
   function pause(){
     if(!engine)return;
-    state.paused=true;Promise.resolve(engine.pause()).catch(()=>{});dispatch('pause');
+    state.paused=true;pausePending=Promise.resolve(engine.pause()).catch(()=>{});dispatch('pause');
+  }
+  function currentTime(){
+    if(pendingResume>0)return pendingResume;
+    try{return engine?Number(engine.currentTime)/1000:state.time}catch{return state.time}
   }
   function seek(seconds){
     const target=Math.max(0,Math.min(state.duration||Infinity,Number(seconds)||0));
@@ -138,10 +145,14 @@
     clearInterval(statsTimer);
     statsTimer=setInterval(()=>{
       if(!engine)return;
+      // Some libmedia track switches stop TIME events. Read the engine clock
+      // so the controls and progress heartbeats continue after audio changes.
+      const time=currentTime();
+      if(Number.isFinite(time)&&time!==state.time){state.time=time;dispatch('timeupdate')}
       const raw=engine.getStats?.()||{};
       window.sfLocalDecodeStats={engine:'libmedia',transport:'original_range',codec:String(window.sfLastPlaybackPlan?.source_video_codec||''),current_seconds:state.time,duration_seconds:state.duration,dropped_frames:Number(raw.videoFrameDropCount||0),decoded_frames:Number(raw.videoFrameDecodeCount||0),decoded_audio_frames:Number(raw.audioFrameDecodeCount||0),audio_stream:Number(engine.getStreams?.().find(s=>s.id===engine.getSelectedAudioStreamId?.())?.index??-1),buffer_seconds:Math.max(0,state.buffered-state.time),updated_at:Date.now()};
       window.dispatchEvent(new CustomEvent('stormflix:local-decode-stat',{detail:window.sfLocalDecodeStats}));
-    },2000);
+    },1000);
   }
   async function load(url,plan,options={}){
     const cleanup=destroy();
@@ -152,7 +163,7 @@
     const AVPlayer=await ensureRuntime();
     if(token!==generation)throw new Error('inicialização local cancelada');
     try{native.pause();video.removeAttribute('src');native.load()}catch{}
-    state={time:0,duration:0,paused:true,volume:Number(video.volume||1),muted:Boolean(video.muted),rate:1,width:Number(plan?.video_width||0),height:Number(plan?.video_height||0),buffered:0};
+    state={time:0,duration:0,paused:true,volume:Number(video.volume??1),muted:Boolean(video.muted),rate:1,width:Number(plan?.video_width||0),height:Number(plan?.video_height||0),buffered:0};
     installAdapter();
     const requestedAudio=Number.isInteger(options.audioStream)?options.audioStream:Number(plan?.audio_stream);
     const instance=new AVPlayer({
@@ -179,7 +190,9 @@
     return true;
   }
   async function selectAudio(index){
-    if(!engine)return false;
+    const token=generation;
+    await pausePending;
+    if(!engine||token!==generation)return false;
     if(engine.getSelectedAudioStreamId?.()<0){pendingAudioStream=index;return true}
     const streams=engine.getStreams?.()||[];
     const stream=streams.find(s=>(s.mediaType==='audio'||Number(s?.codecparProxy?.codecType)===1)&&(Number(s.index)===Number(index)||Number(s.id)===Number(index)));
@@ -199,7 +212,7 @@
     engine.setSubtitleEnable?.(true);return true;
   }
   async function destroy(){
-    generation++;clearInterval(statsTimer);statsTimer=0;pendingAudioStream=null;pendingResume=0;
+    generation++;clearInterval(statsTimer);statsTimer=0;pendingAudioStream=null;pendingResume=0;pausePending=Promise.resolve();
     const old=engine;engine=null;
     // Synchronous detach prevents an older destroy from removing a new player.
     surface.replaceChildren();removeAdapter();
