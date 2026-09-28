@@ -28,7 +28,7 @@ const server=http.createServer((req,res)=>{
   if(url.pathname==='/assets/poster.png'){
     if(url.searchParams.has('w')){res.writeHead(404);res.end();return}
     res.setHeader('Content-Type','image/png');
-    res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWQAAAABJRU5ErkJggg==','base64'));return;
+    res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC','base64'));return;
   }
   const media=url.pathname==='/sample.mp4'||url.pathname==='/sample.mkv';
   const file=path.join(media?temp:root,url.pathname);
@@ -68,9 +68,9 @@ try{
     for(const name of ['sample.mp4','sample.mkv']){
       await page.evaluate(async name=>{
         window.errors=[];document.querySelector('#player').addEventListener('error',()=>window.errors.push(window.sfPlaybackLastError));
-        await window.sfLocalOrigin.load('/'+name,{media_id:1,source_container:name.split('.').pop(),audio_stream:2},{autoplay:true});
+        await window.sfLocalOrigin.load('/'+name,{media_id:1,source_container:name.split('.').pop(),audio_stream:2},{autoplay:true,resume:3});
       },name);
-      await page.waitForFunction(()=>window.sfLocalDecodeStats?.decoded_frames>0&&document.querySelector('#player').currentTime>1,{},{timeout:20000});
+      await page.waitForFunction(()=>window.sfLocalDecodeStats?.decoded_frames>0&&window.sfLocalDecodeStats?.decoded_audio_frames>0&&window.sfLocalDecodeStats?.audio_stream===2&&document.querySelector('#player').currentTime>3.1,{},{timeout:20000});
       assert.deepEqual(await page.evaluate(()=>window.errors),[]);
       await page.evaluate(()=>{document.querySelector('#player').currentTime=7});
       await page.waitForFunction(()=>document.querySelector('#player').currentTime>7.2,{},{timeout:15000});
@@ -79,7 +79,7 @@ try{
         await window.sfLocalOrigin.selectAudio(1);
         await document.querySelector('#player').play();
       });
-      await page.waitForTimeout(500);
+      await page.waitForFunction(()=>window.sfLocalDecodeStats?.audio_stream===1,{},{timeout:5000});
       await page.evaluate(()=>window.sfLocalOrigin.destroy());
       assert.equal(await page.evaluate(()=>window.sfLocalOrigin.isActive()),false);
       console.log(`Decoded + seek + audio selection + teardown: ${host}/${name}`);

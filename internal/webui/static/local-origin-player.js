@@ -19,6 +19,7 @@
   let active=false;
   let generation=0;
   let statsTimer=0;
+  let pendingAudioStream=null,pendingResume=0;
   let state={time:0,duration:0,paused:true,volume:1,muted:false,rate:1,width:0,height:0,buffered:0};
 
   function dispatch(name,detail){
@@ -87,7 +88,16 @@
   }
   async function play(){
     if(!engine)return Promise.reject(new Error('player local não carregado'));
-    await engine.play();state.paused=false;dispatch('play');dispatch('playing');
+    const instance=engine,token=generation;
+    await instance.play();
+    if(token!==generation)return;
+    // libmedia creates decoder pipelines in play(), not load(). Apply track
+    // selection and resume only once those pipelines actually exist.
+    if(pendingAudioStream!==null){const index=pendingAudioStream;pendingAudioStream=null;await selectAudio(index)}
+    if(token!==generation)return;
+    if(pendingResume>0){const resume=pendingResume;pendingResume=0;await instance.seek(BigInt(Math.round(resume*1000)))}
+    if(token!==generation)return;
+    state.paused=false;dispatch('play');dispatch('playing');
   }
   function pause(){
     if(!engine)return;
@@ -129,7 +139,7 @@
     statsTimer=setInterval(()=>{
       if(!engine)return;
       const raw=engine.getStats?.()||{};
-      window.sfLocalDecodeStats={engine:'libmedia',transport:'original_range',codec:String(window.sfLastPlaybackPlan?.source_video_codec||''),current_seconds:state.time,duration_seconds:state.duration,dropped_frames:Number(raw.videoFrameDropCount||0),decoded_frames:Number(raw.videoFrameDecodeCount||0),buffer_seconds:Math.max(0,state.buffered-state.time),updated_at:Date.now()};
+      window.sfLocalDecodeStats={engine:'libmedia',transport:'original_range',codec:String(window.sfLastPlaybackPlan?.source_video_codec||''),current_seconds:state.time,duration_seconds:state.duration,dropped_frames:Number(raw.videoFrameDropCount||0),decoded_frames:Number(raw.videoFrameDecodeCount||0),decoded_audio_frames:Number(raw.audioFrameDecodeCount||0),audio_stream:Number(engine.getStreams?.().find(s=>s.id===engine.getSelectedAudioStreamId?.())?.index??-1),buffer_seconds:Math.max(0,state.buffered-state.time),updated_at:Date.now()};
       window.dispatchEvent(new CustomEvent('stormflix:local-decode-stat',{detail:window.sfLocalDecodeStats}));
     },2000);
   }
@@ -162,14 +172,15 @@
     state.duration=Number(instance.getDuration?.()||0n)/1000;
     // The constructor callback receives ALL raw streams, not typed streams.
     // Let libmedia choose valid audio/video first, then apply an explicit track.
-    if(Number.isInteger(requestedAudio)&&requestedAudio>=0)await selectAudio(requestedAudio);
+    pendingAudioStream=Number.isInteger(requestedAudio)&&requestedAudio>=0?requestedAudio:null;
     engine.setSubtitleEnable?.(false);window.sfLocalSubtitleID=0;
-    if(Number(options.resume)>0)await engine.seek(BigInt(Math.round(Number(options.resume)*1000)));
+    pendingResume=Math.max(0,Number(options.resume)||0);
     if(options.autoplay!==false)await play();
     return true;
   }
   async function selectAudio(index){
     if(!engine)return false;
+    if(engine.getSelectedAudioStreamId?.()<0){pendingAudioStream=index;return true}
     const streams=engine.getStreams?.()||[];
     const stream=streams.find(s=>(s.mediaType==='audio'||Number(s?.codecparProxy?.codecType)===1)&&(Number(s.index)===Number(index)||Number(s.id)===Number(index)));
     await engine.selectAudio(Number(stream?.id??index));
@@ -188,7 +199,7 @@
     engine.setSubtitleEnable?.(true);return true;
   }
   async function destroy(){
-    generation++;clearInterval(statsTimer);statsTimer=0;
+    generation++;clearInterval(statsTimer);statsTimer=0;pendingAudioStream=null;pendingResume=0;
     const old=engine;engine=null;
     // Synchronous detach prevents an older destroy from removing a new player.
     surface.replaceChildren();removeAdapter();

@@ -2,9 +2,9 @@
 
 > **Authoritative continuation note.** Any coding agent/session continuing StormFlix must read this file, `AGENTS.md` and `ENTERTAINMENT_ROADMAP.md` before changing code. Update this document after meaningful architecture, compatibility, schema, playback or deployment changes.
 
-Last architecture update: **2026-09-27**.
+Last architecture update: **2026-09-28**.
 
-## Embedded playback and artwork correction — 2026-09-27
+## Embedded playback and artwork correction — 2026-09-28
 
 Android **0.8.1 / versionCode 27** keeps playback in the embedded Media3 + FFmpeg
 audio decoder. Older servers without `/playback/original` are authorized through
@@ -18,7 +18,9 @@ Web tries `/playback/original` before probing on the server. Actual HTML playbac
 rejection still invokes the original-only planner and local decoder. The libmedia
 adapter no longer overrides `findBestStream` with a function that could return a
 video stream for audio. It uses upstream selection followed by explicit audio
-selection through typed public stream metadata. Media/WASM/sidecar URLs are
+selection through typed public stream metadata after decoder initialization. Resume
+also waits for the playback pipelines; decoder statistics verify audio and video.
+Media/WASM/sidecar URLs are
 absolute because network workers have no page-relative URL base. HTTP LAN can use ScriptProcessor
 audio when AudioWorklet is unavailable. Feature-capable Android/mobile browsers
 may use local decoding; SIMD/WebGL/worker, codec, resolution and HDR constraints
