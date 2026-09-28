@@ -4,6 +4,11 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 
 ## 2026-09-28
 
+### Details-only “Reproduzir em” (Android 0.8.2)
+
+- Remove duplicate device/external-player handoff controls from Android and Web video players; retain the existing details action and its Cast/DLNA/external-player integrations.
+- Document the actual Games gap: Web WASM/touch/gamepad support exists, but the native Android/TV/Fire TV shell does not yet have a Games entry or dedicated runtime screen.
+
 ### Embedded playback and artwork correction (Android 0.8.1)
 
 - Keep Android failures inside the player, retry device decoder failures with bundled FFmpeg audio, explain connection/access/format errors, and retain “Reproduzir em” as optional.

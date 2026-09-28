@@ -4,6 +4,23 @@
 
 Last architecture update: **2026-09-28**.
 
+## Details-only device handoff — 2026-09-28
+
+Android **0.8.2 / versionCode 28** and Web no longer add “Reproduzir em” inside
+player controls. The existing details action remains, including Cast, DLNA and
+optional installed players. This supersedes older descriptions of in-player
+handoff controls. Just Player is an Android application; StormFlix embeds the
+Media3/FFmpeg decoder foundation on Android. Web uses HTML video and libmedia;
+a complete Just Player interface port has not been delivered.
+
+Games audit: the Web player supports NES, SNES, Genesis, GB/GBC/GBA using
+Nostalgist/RetroArch WASM, touch/gamepad controls and profile-owned server saves.
+The native Android shell currently has no Games navigation entry or dedicated
+Games activity. Therefore Games is not yet integrated in the APK on phone,
+Android TV or Fire TV. Adding that entry/runtime, native controller delivery,
+TV focus and background save/lifecycle validation remains required; browser
+control code alone is not evidence of a tested native TV game experience.
+
 ## Embedded playback and artwork correction — 2026-09-28
 
 Android **0.8.1 / versionCode 27** keeps playback in the embedded Media3 + FFmpeg
@@ -126,7 +143,7 @@ Server HTTP port: **8090**, normally behind an HTTPS reverse proxy.
 - Server code line: **`0.29.0-device-aware-4k`**.
 - Web Player: **Playback Engine v7**, retaining the v5.3 session and v5.4 controls. Native Direct Play remains first; eligible desktop browsers can demux and decode the authenticated original file locally. Native API server conversion is disabled.
 - Games Web Player: G2 browser/WASM runtime plus G2.5 dedicated Admin/metadata and RomMix-inspired browsing; G3 adds virtual mobile controls, TV/gamepad focus/menu behavior and profile-owned save-state previews. Games metadata uses Metadata Stack v2.
-- Android package: `cloud.stormflix.app`, **0.8.0 / versionCode 26**, minSdk 23, targetSdk 36, Java 17. Media3 plus a bundled local audio decoder is the primary Android/Android TV/Fire TV runtime, with optional external-player handoff.
+- Android package: `cloud.stormflix.app`, **0.8.2 / versionCode 28**, minSdk 23, targetSdk 36, Java 17. Media3 plus a bundled local audio decoder is the primary Android/Android TV/Fire TV runtime, with optional external-player handoff.
 - Android phone/tablet, Android TV and Fire TV keep native StormFlix catalog/navigation and now execute PlaybackPlan directly through Media3 for Direct Play, remux/audio compatibility and HLS transcode. Media3 uses authenticated HTTP Range for original files, so compatible media no longer waits for a WebView bootstrap. Browser WASM/local-origin decode remains Web-only and the legacy Web Player is used only if a vendor Media3/decoder path fails.
 - Samsung Tizen: `apps/tizen` 0.1.0 thin shell; final WGT requires the developer's Samsung/Tizen signing profile.
 - LG webOS: `apps/webos` 0.1.0 thin shell; CI can package the Developer Mode IPK.
