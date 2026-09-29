@@ -204,7 +204,7 @@ public final class NativePlayerActivity extends Activity {
     private void applyScreenMode() {
         if (screenMode < 0 || screenMode > 4) screenMode = 0;
         playerView.setResizeMode(screenMode == 2 ? AspectRatioFrameLayout.RESIZE_MODE_FILL :
-            screenMode == 1 ? AspectRatioFrameLayout.RESIZE_MODE_ZOOM : AspectRatioFrameLayout.RESIZE_MODE_FIT);
+            (screenMode == 1 || screenMode >= 3) ? AspectRatioFrameLayout.RESIZE_MODE_ZOOM : AspectRatioFrameLayout.RESIZE_MODE_FIT);
         View surface = playerView.getVideoSurfaceView();
         if (surface != null) {
             float scale = screenMode == 3 ? 1.25f : screenMode == 4 ? 1.5f : 1f;
