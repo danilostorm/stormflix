@@ -25,6 +25,7 @@ const server=http.createServer((req,res)=>{
     res.setHeader('Content-Type','text/html');
     res.end('<video id="player"></video><div id="sf-local-origin-surface" style="width:640px;height:360px" hidden></div><script src="/local-origin-player.js"></script>');return;
   }
+  if(url.pathname==='/api/v1/media/1/subtitles/10/vtt'){res.setHeader('Content-Type','text/vtt');res.end('WEBVTT\n\n00:00:00.000 --> 00:00:12.000\nSTORMFLIX CAPTION TEST\n');return}
   if(url.pathname==='/assets/poster.png'){
     if(url.searchParams.has('w')){res.writeHead(404);res.end();return}
     res.setHeader('Content-Type','image/png');
@@ -45,11 +46,19 @@ const server=http.createServer((req,res)=>{
   }else{res.setHeader('Content-Length',bytes.length);res.end(bytes)}
 });
 await new Promise(resolve=>server.listen(0,'0.0.0.0',resolve));
-const browser=await chromium.launch({executablePath:process.env.CHROMIUM_EXECUTABLE||undefined,headless:true,args:['--no-sandbox','--autoplay-policy=no-user-gesture-required','--host-resolver-rules=MAP stormflix.test 127.0.0.1','--no-proxy-server']});
+const browser=await chromium.launch({executablePath:process.env.CHROMIUM_EXECUTABLE||undefined,headless:true,args:['--no-sandbox','--host-resolver-rules=MAP stormflix.test 127.0.0.1','--no-proxy-server']});
 try{
   for(const host of (process.env.DECODER_TEST_HOSTS||'localhost,stormflix.test').split(',')){
     const page=await browser.newPage();
-    page.on('pageerror',e=>{failures.push(String(e));console.error('page error',String(e))});
+    await page.addInitScript(()=>{
+      window.audioMeters=[];
+      const connect=AudioNode.prototype.connect;
+      AudioNode.prototype.connect=function(destination,...args){
+        if(destination instanceof AudioDestinationNode){const meter=this.context.createAnalyser();meter.fftSize=2048;connect.call(this,meter);connect.call(meter,destination);window.audioMeters.push(meter);return destination}
+        return connect.call(this,destination,...args);
+      };
+    });
+    page.on('pageerror' ,e=>{failures.push(String(e));console.error('page error',String(e))});
     page.on('console',msg=>{if(msg.type()==='error'||process.env.DECODER_DEBUG)console.error(msg.text())});
     await page.goto(`http://${host}:${server.address().port}`);
     assert.equal(await page.evaluate(()=>isSecureContext),host==='localhost');
@@ -67,9 +76,17 @@ try{
 
     for(const name of ['sample.mp4','sample.mkv']){
       await page.evaluate(async name=>{
+        window.sfSubtitles=[{id:10,language:'por'}];
         window.errors=[];document.querySelector('#player').addEventListener('error',()=>window.errors.push(window.sfPlaybackLastError));
         await Promise.race([window.sfLocalOrigin.load('/'+name,{media_id:1,source_container:name.split('.').pop(),audio_stream:2},{autoplay:true,resume:3}),new Promise((_,reject)=>setTimeout(()=>reject(new Error('Decoder startup timeout: '+JSON.stringify(window.sfLocalDecodeStats))),30000))]);
       },name);
+      await page.mouse.click(10,10);
+      await page.waitForFunction(()=>!window.sfLocalOrigin.isAudioSuspended());
+      await page.waitForFunction(()=>window.audioMeters.some(m=>{const data=new Float32Array(m.fftSize);m.getFloatTimeDomainData(data);return data.some(v=>Math.abs(v)>.001)}),{},{timeout:15000});
+      await page.evaluate(()=>window.sfLocalOrigin.selectSubtitle(10));
+      await page.waitForFunction(()=>document.querySelector('#sf-external-caption')?.textContent.includes('STORMFLIX CAPTION TEST'),{},{timeout:10000});
+      await page.evaluate(()=>window.sfLocalOrigin.selectSubtitle(0));
+      await page.waitForFunction(()=>!document.querySelector('#sf-external-caption')?.textContent.includes('STORMFLIX CAPTION TEST'));
       await page.waitForFunction(()=>window.sfLocalDecodeStats?.decoded_frames>0&&window.sfLocalDecodeStats?.decoded_audio_frames>0&&window.sfLocalDecodeStats?.audio_stream===2&&document.querySelector('#player').currentTime>3.1,{},{timeout:20000});
       assert.deepEqual(await page.evaluate(()=>window.errors),[]);
       await page.evaluate(()=>{document.querySelector('#player').currentTime=7});

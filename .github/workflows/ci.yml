@@ -93,6 +93,7 @@ jobs:
           node --check internal/webui/static/playback-anywhere.js
           node --check internal/webui/static/player-audio-v53.js
           node --check internal/webui/static/player-screen-v54.js
+          node --check internal/webui/static/player-captions.js
           node --check internal/webui/static/player-simple.js
           node --check internal/webui/static/games-android.js
           node --check internal/webui/static/player-monitor.js
@@ -133,3 +134,4 @@ jobs:
         run: |
           node scripts/test-embedded-browser.mjs
           node scripts/test-player-controls.mjs
+          node scripts/test-game-input.mjs

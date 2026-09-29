@@ -21,6 +21,7 @@
   let statsTimer=0;
   let pendingAudioStream=null,pendingResume=0;
   let pausePending=Promise.resolve();
+  let captionCues=[],captionNode=null,captionGeneration=0;
   let state={time:0,duration:0,paused:true,volume:1,muted:false,rate:1,width:0,height:0,buffered:0};
 
   function dispatch(name,detail){
@@ -92,6 +93,7 @@
     const instance=engine,token=generation;
     await pausePending;
     if(token!==generation)return;
+    await instance.resume?.();
     await instance.play();
     if(token!==generation)return;
     // libmedia creates decoder pipelines in play(), not load(). Apply track
@@ -100,7 +102,9 @@
     if(token!==generation)return;
     if(pendingResume>0){const resume=pendingResume;pendingResume=0;await instance.seek(BigInt(Math.round(resume*1000)))}
     if(token!==generation)return;
+    instance.setSubtitleEnable?.(String(window.sfLocalSubtitleID).startsWith('local:'));
     state.paused=false;dispatch('play');dispatch('playing');
+    window.dispatchEvent(new Event('stormflix:local-tracks'));
   }
   function pause(){
     if(!engine)return;
@@ -156,6 +160,7 @@
   }
   async function load(url,plan,options={}){
     const cleanup=destroy();
+    loadedMediaID=Number(plan?.media_id||0);
     const token=generation;
     await cleanup;
     if(token!==generation)throw new Error('inicialização local cancelada');
@@ -173,18 +178,16 @@
     });
     engine=instance;
     bindEvents(instance,AVPlayer,token);setEngineVolume();startStats();
-    const subtitleRows=typeof sfSubtitles!=='undefined'&&Array.isArray(sfSubtitles)?sfSubtitles:[];
-    const externalSubtitles=subtitleRows.map(row=>({source:new URL(`/api/v1/media/${Number(plan?.media_id)}/subtitles/${Number(row.id)}/vtt`,location.href).href,lang:String(row.language||''),title:String(row.provider||row.language||'Legenda')}));
     // Blob workers have no page-relative base URL. Resolve media and sidecars
     // before handing them to libmedia's network worker.
     const source=new URL(url,location.href).href;
-    await instance.load(source,{ext:String(plan?.source_container||'').replace(/^matroska$/,'mkv'),externalSubtitles,http:{credentials:'same-origin'}});
+    await instance.load(source,{ext:String(plan?.source_container||'').replace(/^matroska$/,'mkv'),http:{credentials:'same-origin'}});
     if(token!==generation)throw new Error('carregamento local cancelado');
     state.duration=Number(instance.getDuration?.()||0n)/1000;
     // The constructor callback receives ALL raw streams, not typed streams.
     // Let libmedia choose valid audio/video first, then apply an explicit track.
     pendingAudioStream=Number.isInteger(requestedAudio)&&requestedAudio>=0?requestedAudio:null;
-    engine.setSubtitleEnable?.(false);window.sfLocalSubtitleID=0;
+    window.sfLocalSubtitleID=0;
     pendingResume=Math.max(0,Number(options.resume)||0);
     if(options.autoplay!==false)await play();
     return true;
@@ -201,17 +204,46 @@
   }
   async function selectSubtitle(id){
     if(!engine)return false;
-    id=Number(id||0);window.sfLocalSubtitleID=id;
-    if(!id){engine.setSubtitleEnable?.(false);return true}
+    if(!id||id==='0'){captionGeneration++;captionCues=[];renderCaption();engine.setSubtitleEnable?.(false);window.sfLocalSubtitleID=0;return true}
+    const token=++captionGeneration;
+    captionCues=[];renderCaption();
     const rows=typeof sfSubtitles!=='undefined'&&Array.isArray(sfSubtitles)?sfSubtitles:[];
-    const rowIndex=rows.findIndex(row=>Number(row.id)===id);
+    if(!String(id).startsWith('local:')){
+      const row=rows.find(r=>String(r.id)===String(id));
+      if(!row)throw new Error('Faixa de legenda indisponível');
+      const mediaID=Number(window.sfLastPlaybackPlan?.media_id||loadedMediaID);
+      const response=await fetch(`/api/v1/media/${mediaID}/subtitles/${Number(row.id)}/vtt`,{credentials:'same-origin'});
+      if(!response.ok)throw new Error('Não foi possível carregar a legenda');
+      const text=await response.text();if(token!==captionGeneration)return false;
+      const cues=parseVTT(text);if(!cues.length)throw new Error('A legenda não contém texto compatível');captionCues=cues;engine.setSubtitleEnable?.(false);window.sfLocalSubtitleID=id;renderCaption();return true;
+    }
     const streams=(engine.getStreams?.()||[]).filter(s=>s.mediaType==='subtitle'||Number(s?.codecparProxy?.codecType)===3);
-    const externalCount=rows.length;
-    const stream=rowIndex>=0?streams[Math.max(0,streams.length-externalCount)+rowIndex]:undefined;
-    if(stream)await engine.selectSubtitle(Number(stream.id));
-    engine.setSubtitleEnable?.(true);return true;
+    const stream=streams.find(s=>String(s.id)===String(id).slice(6));
+    if(!stream)throw new Error('Faixa de legenda indisponível');
+    await engine.selectSubtitle(Number(stream.id));
+    if(token!==captionGeneration)return false;
+    if(engine.getSelectedSubtitleStreamId?.()!==stream.id)throw new Error('O decoder não selecionou a legenda');
+    engine.setSubtitleEnable?.(true);window.sfLocalSubtitleID=id;return true;
   }
+
+  let loadedMediaID=0;
+  function parseVTT(text){
+    const time=value=>value.split(':').reduce((total,part)=>total*60+Number(part.replace(',','.')),0);
+    return String(text).replace(/\r/g,'').split(/\n\s*\n/).flatMap(block=>{
+      const lines=block.split('\n'),index=lines.findIndex(l=>l.includes('-->'));if(index<0)return[];
+      const m=lines[index].match(/([\d:.,]+)\s+-->\s+([\d:.,]+)/);if(!m)return[];
+      const doc=new DOMParser().parseFromString(lines.slice(index+1).join('\n'),'text/html');
+      return[{start:time(m[1]),end:time(m[2]),text:doc.body.textContent||''}];
+    });
+  }
+  function renderCaption(){
+    if(!active&&!captionNode)return;
+    if(!captionNode){captionNode=document.createElement('div');captionNode.id='sf-external-caption';captionNode.style.cssText='position:absolute;bottom:18%;left:8%;right:8%;z-index:12;text-align:center;white-space:pre-line;color:white;font:600 clamp(18px,2.3vw,32px)/1.35 sans-serif;text-shadow:0 2px 4px black,1px 0 2px black;pointer-events:none';(document.querySelector('#player-modal')||surface.parentElement).appendChild(captionNode)}
+    const time=currentTime();captionNode.textContent=captionCues.filter(c=>time>=c.start&&time<c.end).map(c=>c.text).join('\n');captionNode.hidden=!captionNode.textContent;
+  }
+  video.addEventListener('timeupdate',renderCaption);video.addEventListener('seeked',renderCaption);
   async function destroy(){
+    captionGeneration++;captionCues=[];if(captionNode){captionNode.remove();captionNode=null}
     generation++;clearInterval(statsTimer);statsTimer=0;pendingAudioStream=null;pendingResume=0;pausePending=Promise.resolve();
     const old=engine;engine=null;
     // Synchronous detach prevents an older destroy from removing a new player.
@@ -220,5 +252,12 @@
     if(old){try{await old.destroy()}catch{}}
   }
 
-  window.sfLocalOrigin={load,destroy,selectAudio,selectSubtitle,isActive:()=>active,isSupported:wasmSIMD};
+  function subtitleTracks(){
+    const embedded=(engine?.getStreams?.()||[]).filter(s=>s.mediaType==='subtitle'||Number(s?.codecparProxy?.codecType)===3).map(s=>({id:'local:'+s.id,label:s.metadata?.title||s.metadata?.language||'Legenda '+(s.index+1)}));
+    const sidecars=typeof sfSubtitles!=='undefined'&&Array.isArray(sfSubtitles)?sfSubtitles:[];
+    return [...embedded,...sidecars.map(s=>({id:s.id,label:s.language||'Legenda externa'}))];
+  }
+  function unlockAudio(){return engine?.resume?.()}
+  for(const event of ['pointerdown','keydown'])document.addEventListener(event,()=>{if(active&&engine?.isSuspended?.())void unlockAudio()},true);
+  window.sfLocalOrigin={load,destroy,selectAudio,selectSubtitle,subtitleTracks,unlockAudio,isAudioSuspended:()=>Boolean(engine?.isSuspended?.()),isActive:()=>active,isSupported:wasmSIMD};
 })();

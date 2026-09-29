@@ -18,7 +18,7 @@ import java.util.Set;
 
 /** Builds native device capability documents used by StormFlix catalog/playback policy. */
 public final class PlaybackCapabilities {
-    private static final String VERSION = "0.9.0";
+    private static final String VERSION = "0.9.1";
     private static volatile String catalogQueryCache;
 
     private static final Map<String,String> VIDEO_MIME_TO_CODEC = new LinkedHashMap<>();

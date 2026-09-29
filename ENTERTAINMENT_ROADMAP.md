@@ -21,6 +21,11 @@ using the existing WASM cores and profile saves inside the APK. Physical TV/mobi
 controller mappings, lifecycle interruption and sustained gameplay performance
 remain acceptance work. This supersedes the earlier missing APK Games entry.
 
+Web 0.9.1 compatibility correction: resolve the original-only PlaybackPlan before
+selecting HTML/local decoding so unsupported audio cannot silently disappear.
+Android keeps its fast original route. Browser diagnostics now measure audio
+output and run a real NES input ROM; physical-device acceptance remains pending.
+
 ## Current playback direction — 2026-09-27
 
 The original-only update replaces native API server conversion at the user's

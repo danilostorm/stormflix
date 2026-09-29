@@ -38,7 +38,7 @@ public final class GamesActivity extends Activity {
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(false);
         settings.setSupportMultipleWindows(false);
-        settings.setUserAgentString(settings.getUserAgentString() + " StormFlixGames/0.9.0");
+        settings.setUserAgentString(settings.getUserAgentString() + " StormFlixGames/0.9.1");
         CookieManager cookies = CookieManager.getInstance();
         cookies.setAcceptCookie(true);
         cookies.setAcceptThirdPartyCookies(web, false);
@@ -99,10 +99,10 @@ public final class GamesActivity extends Activity {
             case KeyEvent.KEYCODE_DPAD_DOWN: return "down";
             case KeyEvent.KEYCODE_DPAD_LEFT: return "left";
             case KeyEvent.KEYCODE_DPAD_RIGHT: return "right";
-            case KeyEvent.KEYCODE_BUTTON_A: return "b";
-            case KeyEvent.KEYCODE_BUTTON_B: return "a";
-            case KeyEvent.KEYCODE_BUTTON_X: return "y";
-            case KeyEvent.KEYCODE_BUTTON_Y: return "x";
+            case KeyEvent.KEYCODE_BUTTON_A: return "a";
+            case KeyEvent.KEYCODE_BUTTON_B: return "b";
+            case KeyEvent.KEYCODE_BUTTON_X: return "x";
+            case KeyEvent.KEYCODE_BUTTON_Y: return "y";
             case KeyEvent.KEYCODE_BUTTON_L1: return "l";
             case KeyEvent.KEYCODE_BUTTON_R1: return "r";
             case KeyEvent.KEYCODE_BUTTON_L2: return "l2";

@@ -50,7 +50,7 @@ import java.util.concurrent.Executors;
 
 /** Native original-file playback shared by phone, Android TV and Fire TV. */
 public final class NativePlayerActivity extends Activity {
-    private static final String VERSION = "0.9.0";
+    private static final String VERSION = "0.9.1";
 
     private static final class Marker {
         final String kind;

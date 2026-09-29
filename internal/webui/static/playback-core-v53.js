@@ -395,14 +395,10 @@
     let plan;
     try{
       if(typeof window.sfCatalogCapabilityQuery==='function')await window.sfCatalogCapabilityQuery();
-      // Original first: do not wait for an rclone/ffprobe read before the
-      // browser can request bytes. Replan only after actual decoder rejection
-      // or an explicit audio-track change.
-      if(!nativeSourceRejected&&requestedAudio===null){
-        try{plan=await request(`/media/${Number(item.id)}/playback/original`,{method:'POST',body:'{}'})}
-        catch(error){if(Number(error?.status)!==404)throw error}
-      }
-      if(!plan)plan=await request(`/media/${Number(item.id)}/playback/plan`,{method:'POST',body:JSON.stringify(clientRequest(previousSession,options.quality||preferredQuality,requestedPosition,requestedAudio))});
+      // HTML video can accept the container while silently dropping AC3/DTS.
+      // Resolve audio compatibility before choosing HTML vs local decode.
+      // The planner remains original-only: no server conversion is permitted.
+      plan=await request(`/media/${Number(item.id)}/playback/plan`,{method:'POST',body:JSON.stringify(clientRequest(previousSession,options.quality||preferredQuality,requestedPosition,requestedAudio))});
       startupMetrics.plan_ms=Math.max(0,performance.now()-startupMetrics.started_at);window.sfPlaybackStartupMetrics=startupMetrics;
     }catch(err){
       if(generation!==planGeneration)return null;startupInProgress=false;window.sfPlaybackLastError=String(err?.message||err);visibleFailure('Não foi possível iniciar este vídeo.');return null;

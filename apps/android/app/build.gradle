@@ -1,4 +1,4 @@
-// StormFlix Android 0.9.0 - original playback, local audio decoding, Cast/DLNA
+// StormFlix Android 0.9.1 - original playback, local audio decoding, Cast/DLNA
 plugins {
     id 'com.android.application'
 }
@@ -11,8 +11,8 @@ android {
         applicationId 'cloud.stormflix.app'
         minSdk 23
         targetSdk 36
-        versionCode 29
-        versionName '0.9.0'
+        versionCode 30
+        versionName '0.9.1'
     }
 
     buildTypes {
