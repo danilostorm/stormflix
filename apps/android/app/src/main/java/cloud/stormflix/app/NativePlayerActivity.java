@@ -15,6 +15,7 @@ import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.Button;
+import androidx.media3.ui.AspectRatioFrameLayout;
 import android.widget.FrameLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
@@ -49,7 +50,7 @@ import java.util.concurrent.Executors;
 
 /** Native original-file playback shared by phone, Android TV and Fire TV. */
 public final class NativePlayerActivity extends Activity {
-    private static final String VERSION = "0.8.2";
+    private static final String VERSION = "0.9.0";
 
     private static final class Marker {
         final String kind;
@@ -75,6 +76,8 @@ public final class NativePlayerActivity extends Activity {
     private ProgressBar loading;
     private TextView status;
     private Button skipButton;
+    private Button screenButton;
+    private int screenMode;
     private int prepareGeneration;
     private long planMs;
     private long stalledAt;
@@ -173,7 +176,42 @@ public final class NativePlayerActivity extends Activity {
         skipLp.setMargins(Ui.dp(this, 18), Ui.dp(this, 18), Ui.dp(this, 28), Ui.dp(this, 92));
         root.addView(skipButton, skipLp);
 
+        screenButton = Ui.button(this, "Tela / Zoom", false);
+        FrameLayout.LayoutParams screenLp = new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, Ui.dp(this, 48), Gravity.END | Gravity.TOP);
+        screenLp.setMargins(Ui.dp(this, 16), Ui.dp(this, 16), Ui.dp(this, 20), 0);
+        root.addView(screenButton, screenLp);
+        screenButton.setOnClickListener(v -> showScreenModes());
+        playerView.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener) visibility ->
+            screenButton.setVisibility(visibility));
+        screenMode = getPreferences(MODE_PRIVATE).getInt("screen_mode", 0);
+        applyScreenMode();
         setContentView(root);
+    }
+
+    private void showScreenModes() {
+        String[] modes = {"Ajustar (Fit) — imagem completa", "Preencher (Pan & Scan) — corta bordas",
+            "Esticar — altera a proporção", "Zoom 125% — corta barras do arquivo", "Zoom 150% — corte maior"};
+        new AlertDialog.Builder(this).setTitle("Tela / Zoom")
+            .setSingleChoiceItems(modes, screenMode, (dialog, which) -> {
+                screenMode = which;
+                getPreferences(MODE_PRIVATE).edit().putInt("screen_mode", which).apply();
+                applyScreenMode();
+                dialog.dismiss();
+            }).setNegativeButton("Fechar", null).show();
+    }
+
+    private void applyScreenMode() {
+        if (screenMode < 0 || screenMode > 4) screenMode = 0;
+        playerView.setResizeMode(screenMode == 2 ? AspectRatioFrameLayout.RESIZE_MODE_FILL :
+            (screenMode == 1 || screenMode >= 3) ? AspectRatioFrameLayout.RESIZE_MODE_ZOOM : AspectRatioFrameLayout.RESIZE_MODE_FIT);
+        View surface = playerView.getVideoSurfaceView();
+        if (surface != null) {
+            float scale = screenMode == 3 ? 1.25f : screenMode == 4 ? 1.5f : 1f;
+            surface.setScaleX(scale);
+            surface.setScaleY(scale);
+        }
+        screenButton.setText(new String[]{"Tela: Ajustar", "Tela: Preencher", "Tela: Esticar", "Zoom: 125%", "Zoom: 150%"}[screenMode]);
     }
 
     private boolean preferSoftwareAudio = false;

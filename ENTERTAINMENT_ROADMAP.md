@@ -12,6 +12,15 @@ This roadmap turns product ideas into bounded engineering work. `PROJECT_STATE.m
 6. **TV is a first-class client.** Every important interaction must be usable by remote/D-pad and remain readable at living-room distance.
 7. **Measure before optimizing.** New background work gets queue/budget/latency metrics and must yield to active playback.
 
+## Client integration update — 2026-09-29
+
+Android 0.9 adds screen fit/fill/stretch/zoom controls and embeds Games from the
+native launcher. Web gets a simpler browser adaptation of Just Player-style
+controls and zoom/pan without changing the original-file engine. Games continues
+using the existing WASM cores and profile saves inside the APK. Physical TV/mobile
+controller mappings, lifecycle interruption and sustained gameplay performance
+remain acceptance work. This supersedes the earlier missing APK Games entry.
+
 ## Current playback direction — 2026-09-27
 
 The original-only update replaces native API server conversion at the user's
