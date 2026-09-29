@@ -93,6 +93,8 @@ jobs:
           node --check internal/webui/static/playback-anywhere.js
           node --check internal/webui/static/player-audio-v53.js
           node --check internal/webui/static/player-screen-v54.js
+          node --check internal/webui/static/player-simple.js
+          node --check internal/webui/static/games-android.js
           node --check internal/webui/static/player-monitor.js
           node --check internal/webui/static/autoplay-next.js
           node --check internal/webui/static/continue-watching.js
@@ -128,4 +130,6 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg
       - name: Decode original MP4 and MKV inside the browser
-        run: node scripts/test-embedded-browser.mjs
+        run: |
+          node scripts/test-embedded-browser.mjs
+          node scripts/test-player-controls.mjs

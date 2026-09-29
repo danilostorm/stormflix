@@ -55,6 +55,7 @@
             android:resizeableActivity="true"
             android:exported="false" />
 
+        <activity android:name=".GamesActivity" android:configChanges="keyboard|keyboardHidden|orientation|screenSize" android:exported="false" />
         <activity android:name=".MusicActivity" android:exported="false" />
         <activity android:name=".CategoryBrowseActivity" android:exported="false" />
         <activity android:name=".SeriesBrowseActivity" android:exported="false" />

@@ -2,7 +2,43 @@
 
 > **Authoritative continuation note.** Any coding agent/session continuing StormFlix must read this file, `AGENTS.md` and `ENTERTAINMENT_ROADMAP.md` before changing code. Update this document after meaningful architecture, compatibility, schema, playback or deployment changes.
 
-Last architecture update: **2026-09-28**.
+Last architecture update: **2026-09-29**.
+
+## Player controls and APK Games — 2026-09-29
+
+Android **0.9.0 / versionCode 29** adds a controller-visible Tela / Zoom menu:
+Fit, proportional fill (Pan & Scan), stretch, and 125%/150% zoom. The choice is
+saved on the device; presentation changes do not reopen the source. Zoom crops
+edges, stretch changes proportions, and baked-in black bars need manual zoom.
+
+Web now loads `player-simple.js/css`: a simpler Just Player-inspired control
+layout, no persistent quality/technical badges or duplicate transport buttons,
+speed, touch lock, double-tap seek, horizontal seek/vertical volume swipes and
+manual zoom/pan. Both HTML video and libmedia canvas use the same presentation
+transform. This is a browser adaptation of controls over the existing original
+file engine, not the Android Just Player application compiled for the browser.
+The original-only playback and device/browser codec limits remain unchanged.
+“Reproduzir em” remains on details only.
+
+The native launcher now includes Jogos and a dedicated GamesActivity on phone,
+Android TV and Fire TV. It embeds the existing authenticated Web games runtime,
+seeds the native account/profile cookies, restricts navigation to the server
+origin, forwards D-pad/gamepad/joystick input and implements directional focus.
+Native gamepad input owns the APK path to avoid duplicate browser joypad input.
+Back opens the game menu; Back from that menu closes with the existing save
+flow; Back from the catalog returns to the native app. Backgrounding releases
+held inputs, pauses and requests a profile save, without freezing WebView timers.
+Saves require a reachable server and OS process termination can interrupt them.
+TV hides touch controls. Supported systems remain NES/SNES/Genesis/GB/GBC/GBA.
+The game engine is embedded WASM, not an external emulator application.
+
+Validation: Chromium tests exercise the actual Web page with generated video,
+speed, fit/fill/zoom/pan without resetting playback, touch lock, responsive
+layout, and the APK JS input/pause/save contract with a stub game runtime.
+Existing real MP4/MKV decoder tests remain in CI, plus server and Android builds.
+No physical Android/Fire TV gamepad or emulator performance validation was done;
+CI browser bridge tests are not ROM execution or device tests. Server and APK
+both need updating for this release.
 
 ## Details-only device handoff — 2026-09-28
 

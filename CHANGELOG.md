@@ -2,6 +2,13 @@
 
 This file records user-visible and architectural changes. `PROJECT_STATE.md` is the authoritative current-state handoff and `ENTERTAINMENT_ROADMAP.md` tracks planned work.
 
+## 2026-09-29
+
+- Android 0.9.0: Fit, Pan & Scan/fill, stretch and manual zoom presets in the embedded player.
+- Web: simpler playback controls, speed, touch lock, seek/volume gestures and zoom/pan for native video and local-decoder surfaces; remove persistent quality badges.
+- APK: Jogos entry and embedded authenticated games screen with native input, focus navigation and background pause/save. Physical-device gameplay remains to validate.
+- Add Chromium controls and APK input/lifecycle contract coverage; retain actual original-file decoder smoke tests.
+
 ## 2026-09-28
 
 ### Details-only “Reproduzir em” (Android 0.8.2)

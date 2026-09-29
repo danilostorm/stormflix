@@ -171,6 +171,7 @@ public class MainActivity extends Activity {
         for (HomeMenu menu : menus) {
             addNav(topNav, menu.name, () -> openCategory(menu));
         }
+        addNav(topNav, "Jogos", () -> startActivity(new Intent(this, GamesActivity.class)));
         addNav(topNav, "Música", () -> startActivity(new Intent(this, MusicActivity.class)));
         addNav(topNav, "Buscar", this::searchDialog);
         addNav(topNav, "Perfis", () -> startActivity(new Intent(this, ProfileActivity.class)));
