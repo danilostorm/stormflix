@@ -10,13 +10,13 @@ const require=createRequire(import.meta.url);
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
 const root=path.resolve(import.meta.dirname,'../internal/webui/static');
 const temp=fs.mkdtempSync(path.join(os.tmpdir(),'stormflix-controls-'));
-execFileSync('ffmpeg',['-loglevel','error','-f','lavfi','-i','testsrc2=size=640x360:rate=24','-t','30','-c:v','libx264','-preset','ultrafast',path.join(temp,'sample.mp4')]);
+execFileSync('ffmpeg',['-loglevel','error','-f','lavfi','-i','testsrc2=size=640x360:rate=24','-t','30','-c:v','libvpx','-deadline','realtime',path.join(temp,'sample.webm')]);
 const server=http.createServer((req,res)=>{
  const url=new URL(req.url,'http://localhost');
  if(url.pathname.startsWith('/api/')){res.setHeader('Content-Type','application/json');if(url.pathname==='/api/v1/setup/status')res.end('{"needs_setup":false}');else{res.statusCode=401;res.end('{"error":"Test session"}')}return}
- const file=url.pathname==='/sample.mp4'?path.join(temp,'sample.mp4'):path.join(root,url.pathname==='/'?'index.html':url.pathname);
+ const file=url.pathname==='/sample.webm'?path.join(temp,'sample.webm'):path.join(root,url.pathname==='/'?'index.html':url.pathname);
  if(!fs.existsSync(file)||!fs.statSync(file).isFile()){res.writeHead(404);res.end();return}
- const data=fs.readFileSync(file),ext=path.extname(file);res.setHeader('Content-Type',({'.js':'text/javascript','.css':'text/css','.html':'text/html','.mp4':'video/mp4','.json':'application/json'})[ext]||'application/octet-stream');
+ const data=fs.readFileSync(file),ext=path.extname(file);res.setHeader('Content-Type',({'.js':'text/javascript','.css':'text/css','.html':'text/html','.webm':'video/webm','.json':'application/json'})[ext]||'application/octet-stream');
  const range=/bytes=(\d+)-(\d*)/.exec(req.headers.range||'');if(range){const a=+range[1],b=Math.min(data.length-1,range[2]?+range[2]:data.length-1);res.writeHead(206,{'Content-Range':`bytes ${a}-${b}/${data.length}`,'Accept-Ranges':'bytes'});res.end(data.subarray(a,b+1))}else res.end(data);
 });
 await new Promise(r=>server.listen(0,'127.0.0.1',r));
@@ -25,7 +25,7 @@ try{
  const page=await browser.newPage({viewport:{width:1280,height:800}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto(`http://localhost:${server.address().port}`);
  await page.waitForSelector('#sf-simple-speed',{state:'attached'});
- await page.evaluate(async()=>{document.querySelector('#player-modal').classList.remove('hidden');document.querySelector('#sf-v4-title').textContent='StormFlix · Player';const v=document.querySelector('#player');v.src='/sample.mp4';await v.play()});
+ await page.evaluate(async()=>{document.querySelector('#player-modal').classList.remove('hidden');document.querySelector('#sf-v4-title').textContent='StormFlix · Player';const v=document.querySelector('#player');v.src='/sample.webm';await v.play()});
  await page.waitForFunction(()=>document.querySelector('#player').currentTime>.1);
  assert.equal(await page.locator('#sf-settings').isVisible(),false);
  assert.equal(await page.locator('.sf-v4-status').isVisible(),false);
