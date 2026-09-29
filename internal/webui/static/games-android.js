@@ -9,7 +9,7 @@
     .sf-android-games button:focus,.sf-android-games [tabindex]:focus{outline:3px solid white!important;outline-offset:3px}
     .sf-android-games [data-gx-exit]{display:none!important}`;document.head.appendChild(style);
   const api=()=>window.StormFlixGamePlayer;
-  const held=new Set();let booted=false,starting=false,backgroundWork=null;
+  const held=new Set();let booted=false,starting=false,backgroundWork=null,nativeBackground=false;
   function visible(el){return el&&getComputedStyle(el).visibility!=='hidden'&&el.getClientRects().length>0&&!el.closest('.hidden')}
   function menu(){return document.querySelector('.sf-g4-panel:not(.hidden)')}
   function release(){for(const key of held)api()?.pressUp(key);held.clear()}
@@ -47,14 +47,15 @@
     return false;
   }
   async function background(){
+    nativeBackground=true;
     release();if(backgroundWork)return backgroundWork;
     backgroundWork=(async()=>{if(api()?.runtime()?.getStatus?.()==='running')await api().pause();if(api()?.active())await api().save()})();
     try{await backgroundWork}finally{backgroundWork=null}
   }
-  window.sfAndroidGames={key:(b,d)=>key(b==='confirm'&&!d?'start':b,d),back,background};
+  window.sfAndroidGames={key:(b,d)=>key(b==='confirm'&&!d?'start':b,d),back,background,foreground:()=>{nativeBackground=false}};
   window.addEventListener('blur',release);
   document.addEventListener('visibilitychange',()=>{if(document.hidden)void background()});
-  window.addEventListener('stormflix:game-started',()=>{if(params.get('stormflix_tv')==='1')api()?.patchPreferences({touch:{mode:'off'}});if(document.hidden)void background()});
+  window.addEventListener('stormflix:game-started',()=>{if(params.get('stormflix_tv')==='1')api()?.patchPreferences({touch:{mode:'off'}});if(document.hidden||nativeBackground)void background()});
   window.addEventListener('stormflix:game-closed',release);
   async function boot(){
     if(booted||starting||!visible(document.querySelector('#shell'))||visible(document.querySelector('#profile-picker'))||typeof window.sfLoadScreenBundle!=='function')return;

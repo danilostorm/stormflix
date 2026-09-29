@@ -79,7 +79,7 @@ public final class GamesActivity extends Activity {
             if (!"true".equals(result)) finish();
         });
     }
-    @Override protected void onResume() { super.onResume(); foreground = true; if (web != null) web.onResume(); }
+    @Override protected void onResume() { super.onResume(); foreground = true; if (web != null) web.onResume(); call("foreground()"); }
     @Override protected void onPause() {
         foreground = false;
         // Keep the JS runtime alive long enough to pause and upload saves. Do not

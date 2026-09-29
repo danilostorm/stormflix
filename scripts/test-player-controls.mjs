@@ -43,6 +43,7 @@ try{
  await page.locator('[data-framing-reset]').click();
  await page.locator('[data-v54-close]').click();
  await page.locator('#sf-simple-lock').click();
+ await page.waitForTimeout(2900);
  const paused=await page.evaluate(()=>document.querySelector('#player').paused);
  await page.keyboard.press('Space');
  assert.equal(await page.evaluate(()=>document.querySelector('#player').paused),paused);
