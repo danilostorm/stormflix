@@ -26,3 +26,7 @@
 #player-modal.sf-touch-locked .sf-v4-controls{opacity:1!important;transform:none!important}
 @media(max-width:800px){#player-modal.sf-simple-player #sf-v5-diagnostics-toggle,#player-modal.sf-simple-player #sf-v4-pip{display:none!important}}
 @media(max-width:440px){#player-modal.sf-simple-player .sf-v4-volume-group{display:none!important}#player-modal.sf-simple-player .sf-control-btn{min-width:38px;width:38px}#player-modal.sf-simple-player #sf-simple-lock{min-width:78px;width:auto;padding:0 5px}}
+#sf-caption-menu{right:18px;bottom:94px;width:min(360px,calc(100vw - 36px));max-height:65vh;overflow:auto;z-index:80}
+.sf-caption-option{display:block;width:100%;text-align:left;padding:14px;color:#fff;background:transparent;border:0;border-radius:8px;font-size:14px}.sf-caption-option:hover,.sf-caption-option[aria-pressed=true]{background:#ffffff22}
+#sf-unlock-audio{position:absolute;z-index:90;left:50%;top:18%;transform:translateX(-50%);padding:14px 22px;border:1px solid #ffffff55;border-radius:9px;background:#15191fee;color:white;font-size:16px}
+#sf-subtitle[aria-pressed=true]{box-shadow:inset 0 -3px white}

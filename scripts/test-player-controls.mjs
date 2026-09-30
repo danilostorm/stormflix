@@ -13,6 +13,7 @@ const temp=fs.mkdtempSync(path.join(os.tmpdir(),'stormflix-controls-'));
 execFileSync('ffmpeg',['-loglevel','error','-f','lavfi','-i','testsrc2=size=640x360:rate=24','-t','30','-c:v','libvpx','-deadline','realtime',path.join(temp,'sample.webm')]);
 const server=http.createServer((req,res)=>{
  const url=new URL(req.url,'http://localhost');
+ if(url.pathname==='/captions.vtt'){res.setHeader('Content-Type','text/vtt');res.end('WEBVTT\n\n00:00:00.000 --> 00:00:30.000\nCAPTION MENU TEST\n');return}
  if(url.pathname.startsWith('/api/')){res.setHeader('Content-Type','application/json');if(url.pathname==='/api/v1/setup/status')res.end('{"needs_setup":false}');else{res.statusCode=401;res.end('{"error":"Test session"}')}return}
  const file=url.pathname==='/sample.webm'?path.join(temp,'sample.webm'):path.join(root,url.pathname==='/'?'index.html':url.pathname);
  if(!fs.existsSync(file)||!fs.statSync(file).isFile()){res.writeHead(404);res.end();return}
@@ -27,6 +28,11 @@ try{
  await page.waitForSelector('#sf-simple-speed',{state:'attached'});
  await page.evaluate(async()=>{document.querySelector('#player-modal').classList.remove('hidden');document.querySelector('#sf-v4-title').textContent='StormFlix · Player';const v=document.querySelector('#player');v.src='/sample.webm';await v.play()});
  await page.waitForFunction(()=>document.querySelector('#player').currentTime>.1);
+ await page.evaluate(()=>{const t=document.createElement('track');t.kind='subtitles';t.label='Português';t.srclang='pt';t.dataset.subtitleId='10';t.src='/captions.vtt';document.querySelector('#player').appendChild(t)});
+ await page.locator('#sf-subtitle').click();await page.locator('[data-caption-id="10"]').click();
+ await page.waitForFunction(()=>document.querySelector('track[data-subtitle-id="10"]').track.mode==='showing'&&document.querySelector('track[data-subtitle-id="10"]').track.activeCues?.length>0);
+ await page.locator('#sf-subtitle').click();await page.locator('[data-caption-id="0"]').click();
+ assert.equal(await page.evaluate(()=>document.querySelector('track[data-subtitle-id="10"]').track.mode),'disabled');
  assert.equal(await page.locator('#sf-settings').isVisible(),false);
  assert.equal(await page.locator('.sf-v4-status').isVisible(),false);
  await page.locator('#sf-simple-speed').click();
@@ -55,16 +61,32 @@ try{
  await page.evaluate(()=>sfShowControls());
  assert.equal(await page.locator('#sf-v54-screen').isVisible(),true);
  await page.screenshot({path:path.join(temp,'mobile-player.png')});
+ // Render the actual APK catalog with representative fixture data.
+ await page.setViewportSize({width:390,height:844});
+ await page.goto(`http://localhost:${server.address().port}/?stormflix_native_games=1`);
+ await page.evaluate(async()=>{
+   const games=['Aventura na floresta','Corrida espacial','Mundo dos dinossauros','Jornada do herói'].map((title,i)=>({id:i+1,title,platform:'snes',playable:true,play_seconds:3600,last_played_at:'2026-09-29',saves:{},cover_url:'data:image/svg+xml,'+encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="120" height="160"><rect width="120" height="160" fill="${['#24765d','#244f92','#a34337','#8b6722'][i]}"/><text x="12" y="85" fill="white" font-size="40">${i+1}</text></svg>`)}));
+   window.request=async url=>url==='/games/home'?{continue_playing:games,platforms:[{platform:'snes',count:4}]}:games;
+   document.querySelector('#shell').classList.remove('hidden');document.querySelector('#login')?.classList.add('hidden');document.querySelector('#profile-picker')?.classList.add('hidden');
+   await sfLoadScreenBundle('games');document.querySelector('#games-nav').click();
+ });
+ await page.waitForSelector('.g48-continue-card');
+ await page.waitForTimeout(750);
+ const top=await page.locator('.gx-topbar').boundingBox(),hero=await page.locator('.g48-dashboard>.gx-hero').boundingBox();
+ assert(top.y>=0&&top.y<5,'APK navigation must start at the top');assert(hero.y>=top.y+top.height,'navigation must not overlap hero');
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+ await page.screenshot({path:path.join(temp,'games-mobile.png')});console.log('Games screenshot:',path.join(temp,'games-mobile.png'));
  // Verify native input forwarding and pause/save ordering without copyrighted ROMs.
  await page.goto(`http://localhost:${server.address().port}/?stormflix_native_games=1`);
  await page.waitForFunction(()=>!!window.sfAndroidGames);
- await page.evaluate(()=>{
+ await page.evaluate(async()=>{
+   await sfLoadScreenBundle('games');
    window.calls=[];let status='running';
    window.StormFlixGamePlayer={active:()=>true,runtime:()=>({getStatus:()=>status}),pressDown:b=>calls.push('down:'+b),pressUp:b=>calls.push('up:'+b),pause:async()=>{status='paused';calls.push('pause')},save:async()=>calls.push('save')};
    sfAndroidGames.key('b',true);sfAndroidGames.key('b',true);sfAndroidGames.key('b',false);
    sfAndroidGames.key('confirm',true);sfAndroidGames.key('confirm',false);
  });
- assert.deepEqual(await page.evaluate(()=>calls),['down:b','up:b','down:start','up:start']);
+ assert.deepEqual(await page.evaluate(()=>calls),['down:b','up:b','down:a','up:a']);
  await page.evaluate(()=>sfAndroidGames.background());
  assert.deepEqual(await page.evaluate(()=>calls.slice(-2)),['pause','save']);
  assert.deepEqual(errors,[]);

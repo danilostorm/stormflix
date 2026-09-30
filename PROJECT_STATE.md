@@ -4,6 +4,42 @@
 
 Last architecture update: **2026-09-29**.
 
+## Web audio/captions and APK game input correction — 2026-09-29
+
+Android **0.9.1 / versionCode 30** maps native gamepad A/B/X/Y to the same
+emulator button names; remote confirm presses A during gameplay. Catalog/menu
+A confirms and B goes back. Virtual buttons capture pointers and release on
+pointer-up outside the button, cancellation, lost capture, blur or background.
+A no longer uses the pressed blue appearance while idle. The APK Games catalog
+removes the Web shell's reserved top gap, keeps navigation above the hero and
+uses readable single-column resume cards on phones.
+
+Web now requests the **original-only PlaybackPlan** before selecting HTML video
+or local libmedia decoding. The cheaper original endpoint lacked audio codec
+metadata: a browser could display video without accepting AC3/DTS, never raising
+the error needed to trigger a fallback. Android's original fast route is unchanged.
+Web planning can incur a source probe/cache lookup before startup; no server
+remux or audio/video transcode is enabled. Browser/device codec limits remain.
+
+Local Web audio explicitly resumes the AudioContext on user gestures, with an
+“Ativar som” action if autoplay policy keeps it suspended. Captions have an
+explicit Off/track menu shared with the keyboard shortcut and TV navigation.
+External VTT is fetched on selection and rendered separately from libmedia:
+eager sidecar loading could fail its stream analysis and abort video startup.
+Embedded subtitle streams use decoder selection. Failed/empty sidecars report
+an error instead of falsely announcing successful activation. External captions
+currently preserve text and line breaks, not advanced ASS styling/positioning.
+
+Validation: real Chromium MP4/AAC and MKV/AC3 tests measure a nonzero signal at
+the Web Audio destination (not merely decoded audio frames), select/disable a
+VTT sidecar, seek and switch audio tracks. Full-page tests load active native
+VTT cues through the new menu and check APK catalog layout. A generated original
+NES diagnostic ROM runs in the real fceumm core: A and Select produce distinct
+outputs; drag-out release and touch cancellation return to idle. CI also builds
+Android and runs server tests/build. Physical phone/TV controls, the user's media
+and Unraid deployment are not verified by these browser tests. Both server/Web
+and APK require updating.
+
 ## Player controls and APK Games — 2026-09-29
 
 Android **0.9.0 / versionCode 29** adds a controller-visible Tela / Zoom menu:

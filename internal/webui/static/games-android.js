@@ -30,12 +30,12 @@
     if(!down){if(held.has(button)){api()?.pressUp(button);held.delete(button)}return}
     if(button==='menu'){release();window.dispatchEvent(new Event('stormflix:game-menu-request'));return}
     if(api()?.active()&&!menu()&&api()?.runtime()?.getStatus?.()==='running'){
-      const input=button==='confirm'?'start':button;
+      const input=button==='confirm'?'a':button;
       if(!held.has(input)){api().pressDown(input);held.add(input)}return;
     }
     if(['up','down','left','right'].includes(button)){navigate(button);return}
-    if(button==='confirm'||button==='b'||button==='start'){if(visible(document.activeElement)&&focusScope().contains(document.activeElement))document.activeElement.click();else navigate('down')}
-    if(button==='a')back();
+    if(button==='confirm'||button==='a'||button==='start'){if(visible(document.activeElement)&&focusScope().contains(document.activeElement))document.activeElement.click();else navigate('down')}
+    if(button==='b')back();
   }
   function back(){
     release();
@@ -52,7 +52,7 @@
     backgroundWork=(async()=>{if(api()?.runtime()?.getStatus?.()==='running')await api().pause();if(api()?.active())await api().save()})();
     try{await backgroundWork}finally{backgroundWork=null}
   }
-  window.sfAndroidGames={key:(b,d)=>key(b==='confirm'&&!d?'start':b,d),back,background,foreground:()=>{nativeBackground=false}};
+  window.sfAndroidGames={key:(b,d)=>key(b==='confirm'&&!d?'a':b,d),back,background,foreground:()=>{nativeBackground=false}};
   window.addEventListener('blur',release);
   document.addEventListener('visibilitychange',()=>{if(document.hidden)void background()});
   window.addEventListener('stormflix:game-started',()=>{if(params.get('stormflix_tv')==='1')api()?.patchPreferences({touch:{mode:'off'}});if(document.hidden||nativeBackground)void background()});

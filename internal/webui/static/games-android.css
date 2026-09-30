@@ -1,0 +1,23 @@
+/* APK has its own native navigation: remove offsets reserved for the Web shell. */
+body.sf-android-games.games-mode #topbar,body.sf-android-games.games-mode .mobile-bottom-nav{display:none!important}
+body.sf-android-games.games-mode{--sf-bottom-nav:0px}
+body.sf-android-games.games-mode #games-view{padding:0!important;min-height:100dvh}
+body.sf-android-games.games-mode .gx-app{min-height:100dvh!important}
+body.sf-android-games.games-mode .gx-topbar{position:sticky!important;top:0!important;z-index:950!important;padding:0!important;min-height:48px!important}
+body.sf-android-games.games-mode .gx-mainnav{width:100%!important;padding:0 12px!important;overflow-x:auto!important;flex-wrap:nowrap!important}
+body.sf-android-games.games-mode .gx-content{width:calc(100% - 32px)!important;padding:20px 0 24px!important}
+body.sf-android-games.games-mode .gx-mainnav button{font-size:13px!important;min-height:48px!important;height:48px!important;flex-shrink:0}
+@media(max-width:600px){
+ body.sf-android-games.games-mode .g48-dashboard>.gx-hero{grid-template-columns:86px minmax(0,1fr)!important;min-height:180px!important;padding:14px!important;gap:14px!important}
+ body.sf-android-games.games-mode .gx-hero h1,body.sf-android-games.games-mode .gx-hero h2{font-size:24px!important;line-height:1.12!important;overflow-wrap:anywhere}
+ body.sf-android-games.games-mode .g48-activity-grid{grid-template-columns:1fr!important}
+ body.sf-android-games.games-mode .g48-continue-card>button:first-child{grid-template-columns:56px minmax(0,1fr)!important}
+ body.sf-android-games.games-mode .g48-continue-card .gx-cover{width:56px!important;height:76px!important;min-width:0!important;grid-row:1/3!important}
+ body.sf-android-games.games-mode .g48-continue-card .gx-cover img{width:100%!important;height:100%!important;object-fit:cover}
+ body.sf-android-games.games-mode .g48-continue-card .gx-cover>*:not(img){display:none!important}
+ body.sf-android-games.games-mode .g48-continue-card strong{font-size:14px!important;white-space:normal!important}
+ body.sf-android-games.games-mode .g48-continue-card small{font-size:11px!important}
+}
+/* Only a live pointer produces the pressed colour. */
+.sf-g44-pad button:not(.pressed){background:rgba(10,14,20,.78)!important}
+.sf-g44-pad button{user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}

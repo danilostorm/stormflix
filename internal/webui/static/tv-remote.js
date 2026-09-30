@@ -55,7 +55,7 @@
   function menuElements(){
     return [
       '#sf-player-settings-panel','#sf-v5-quality-menu','#sf-v5-diagnostics',
-      '#sf-v53-audio-menu','#sf-v54-screen-menu'
+      '#sf-v53-audio-menu','#sf-v54-screen-menu','#sf-caption-menu'
     ].map(selector=>document.querySelector(selector)).filter(visible);
   }
   function menuOpen(){return menuElements().length>0}

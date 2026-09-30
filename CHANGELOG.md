@@ -4,6 +4,15 @@ This file records user-visible and architectural changes. `PROJECT_STATE.md` is 
 
 ## 2026-09-29
 
+### Audio, captions and game input corrections (Android 0.9.1)
+
+- Web checks original-file audio compatibility before choosing HTML/local decoding; unlocks suspended Web Audio on interaction. Server transcoding remains disabled.
+- Add explicit caption Off/track selection, load external VTT on demand and render it independently of the local decoder; surface subtitle failures.
+- APK maps gamepad letters consistently and remote confirm to A; release virtual controls on drag-out/cancel/background and remove A's permanently pressed appearance.
+- Fix the mobile Games top gap, overlapping navigation and cramped resume cards.
+- Validate actual audio output, captions on/off and real NES A/Select/release behavior, using generated media and an original diagnostic ROM.
+
+
 - Android 0.9.0: Fit, Pan & Scan/fill, stretch and manual zoom presets in the embedded player.
 - Web: simpler playback controls, speed, touch lock, seek/volume gestures and zoom/pan for native video and local-decoder surfaces; remove persistent quality badges.
 - APK: Jogos entry and embedded authenticated games screen with native input, focus navigation and background pause/save. Physical-device gameplay remains to validate.
