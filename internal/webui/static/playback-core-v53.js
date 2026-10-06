@@ -386,6 +386,17 @@
     const b=document.createElement('button');b.className='sf-control-btn';b.id='sf-pip';b.type='button';b.setAttribute('aria-label','Picture-in-Picture');b.textContent='▣';b.onclick=()=>togglePictureInPicture();b.classList.toggle('hidden',Boolean(activePlan?.local_origin));fullscreen.parentElement.insertBefore(b,fullscreen);
   }
 
+  async function requestPlan(id,body){
+    const controller=new AbortController();
+    let timer;
+    try {
+      return await Promise.race([
+        request(`/media/${Number(id)}/playback/plan`,{method:'POST',body:JSON.stringify(body),signal:controller.signal}),
+        new Promise((_,reject)=>{timer=setTimeout(()=>{reject(new Error('O servidor demorou demais para preparar o arquivo. Tente novamente.'));controller.abort()},30000)})
+      ]);
+    } finally { clearTimeout(timer) }
+  }
+
   async function start(item,options={}){
     if(!item?.id)return null;
     const generation=++planGeneration;
@@ -393,34 +404,34 @@
     const hasResume=Number.isFinite(options.resumePosition),requestedPosition=hasResume?Number(options.resumePosition):undefined;
     const requestedAudio=Number.isInteger(options.audioStream)?Number(options.audioStream):null;
     if(Number(item.id)!==rejectionMediaID){rejectionMediaID=Number(item.id);nativeSourceRejected=false;localOriginRuntimeFailed=false;localDecodeRuntimeFailed=false}
-    activeItem=item;if(!options.recovery)runtimeRecoveryCount=0;startupInProgress=true;beginStartupMetrics();stallStartedAt=0;applyPlanState(null);setHelp('',false);window.sfPlaybackLastError='';
+    activeItem=item;if(!options.recovery)runtimeRecoveryCount=0;startupInProgress=true;beginStartupMetrics();stallStartedAt=0;applyPlanState(null);setHelp('Abrindo vídeo…',true);window.sfPlaybackLastError='';
     let plan;
     try{
       if(typeof window.sfCatalogCapabilityQuery==='function')await window.sfCatalogCapabilityQuery();
       // HTML video can accept the container while silently dropping AC3/DTS.
       // Resolve audio compatibility before choosing HTML vs local decode.
       // The planner remains original-only: no server conversion is permitted.
-      plan=await request(`/media/${Number(item.id)}/playback/plan`,{method:'POST',body:JSON.stringify(clientRequest(previousSession,options.quality||preferredQuality,requestedPosition,requestedAudio))});
+      plan=await requestPlan(item.id,clientRequest(previousSession,options.quality||preferredQuality,requestedPosition,requestedAudio));
       startupMetrics.plan_ms=Math.max(0,performance.now()-startupMetrics.started_at);window.sfPlaybackStartupMetrics=startupMetrics;
     }catch(err){
-      if(generation!==planGeneration)return null;startupInProgress=false;window.sfPlaybackLastError=String(err?.message||err);visibleFailure('Não foi possível iniciar este vídeo.');return null;
+      if(generation!==planGeneration)return null;startupInProgress=false;window.sfPlaybackLastError=String(err?.message||err);visibleFailure(window.sfPlaybackLastError||'Não foi possível iniciar este vídeo.');return null;
     }
     if(generation!==planGeneration)return plan;
     applyPlanState(plan);
-    if(!plan?.available){startupInProgress=false;visibleFailure(plan?.reason||'Este arquivo não possui uma rota compatível.');return plan}
-    if(plan.auto_selected_version&&typeof sfLoadPlayerOptions==='function')await sfLoadPlayerOptions(plan.selected_media_id);
+    if(!plan?.available){startupInProgress=false;void destroyLocalOrigin();visibleFailure(plan?.reason||'Este arquivo não possui uma rota compatível.');return plan}
+    if(plan.auto_selected_version&&typeof sfLoadPlayerOptions==='function'){if(typeof sfCurrentMedia!=='undefined')sfCurrentMedia={...sfCurrentMedia,id:plan.selected_media_id};void sfLoadPlayerOptions(plan.selected_media_id).catch(()=>{})}
     if(generation!==planGeneration)return plan;
     const resume=hasResume?requestedPosition:Number(plan.resume_position_seconds||item.position_seconds||0),autoplay=options.autoplay!==false;
     try{
       if(plan?.local_origin)await loadLocalOrigin(plan,resume,autoplay,generation);else if(isHLSSource(plan.url))await loadHls(plan.url,resume,autoplay,generation);else await loadProgressive(plan.url,resume,autoplay,generation);
     }catch(err){
       if(generation!==planGeneration)return plan;startupInProgress=false;window.sfPlaybackLastError=String(err?.message||err);
-      if(plan?.local_origin)localOriginRuntimeFailed=true;else if(plan?.local_decode)localDecodeRuntimeFailed=true;
+      if(plan?.local_origin){localOriginRuntimeFailed=true;void destroyLocalOrigin()}else if(plan?.local_decode)localDecodeRuntimeFailed=true;
       if(Number(plan?.video_width)>=3200||Number(plan?.video_height)>=2000)window.sfRejectUHDCodec?.(plan?.source_video_codec);
       // Retry this source with the local decoder without invalidating the
       // browser's support for every other MP4/AAC title.
       rejectNativePlan(plan);
-      if(runtimeRecoveryCount>=2)visibleFailure('Não foi possível iniciar este vídeo.');else{runtimeRecoveryCount++;return start(item,{resumePosition:resume,autoplay,quality:preferredQuality,audioStream:activeAudioStream,recovery:true})}
+      if(runtimeRecoveryCount>=2){void destroyLocalOrigin();visibleFailure(window.sfPlaybackLastError||'Não foi possível iniciar este vídeo.');}else{runtimeRecoveryCount++;return start(item,{resumePosition:resume,autoplay,quality:preferredQuality,audioStream:activeAudioStream,recovery:true})}
       return plan;
     }
     if(generation!==planGeneration)return plan;
@@ -452,7 +463,7 @@
     activeAudioStream=null;
     const title=document.querySelector('#player-title');if(title)title.textContent=item.title||'StormFlix';
     const modal=document.querySelector('#player-modal');if(modal){modal.classList.remove('hidden');modal.classList.remove('sf-controls-hidden')}
-    if(typeof sfLoadPlayerOptions==='function')await sfLoadPlayerOptions(item.id);if(typeof sfShowControls==='function')sfShowControls();return start(item,{autoplay:true,quality:preferredQuality});
+    if(typeof sfLoadPlayerOptions==='function')void sfLoadPlayerOptions(item.id).catch(()=>{});if(typeof sfShowControls==='function')sfShowControls();return start(item,{autoplay:true,quality:preferredQuality});
   }
   playMedia=playPlanned;
 
@@ -460,7 +471,7 @@
     if(!id||Number(id)===Number(sfCurrentMedia?.id))return;const version=(sfVersions||[]).find(v=>Number(v.id)===Number(id));if(!version)return;
     const oldTime=Number.isFinite(player.currentTime)?player.currentTime:0,wasPlaying=!player.paused,session=activePlan?.playback_session_id||window.sfPlaybackSessionID||'';
     const next={...sfCurrentMedia,...version,id:Number(id)};sfCurrentMedia=next;activeItem=next;activeAudioStream=null;
-    if(typeof sfLoadPlayerOptions==='function')await sfLoadPlayerOptions(id);await start(next,{resumePosition:oldTime,autoplay:wasPlaying,sessionID:session,quality:preferredQuality});if(typeof sfToast==='function')sfToast(version.label||'Versão alterada');if(typeof sfRenderSettings==='function')sfRenderSettings();
+    if(typeof sfLoadPlayerOptions==='function')void sfLoadPlayerOptions(id).catch(()=>{});await start(next,{resumePosition:oldTime,autoplay:wasPlaying,sessionID:session,quality:preferredQuality});if(typeof sfToast==='function')sfToast(version.label||'Versão alterada');if(typeof sfRenderSettings==='function')sfRenderSettings();
   };
 
   const previousClosePlayer=closePlayer;

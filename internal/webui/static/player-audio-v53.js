@@ -2,7 +2,7 @@
 (function(){
   let mediaID=0;
   let tracks=[];
-  let loading=false;
+  let loading=false,loadGeneration=0;
   const modal=document.querySelector('#player-modal');
   if(!modal)return;
 
@@ -39,13 +39,13 @@
   }
 
   async function load(id){
-    id=Number(id||0);mediaID=id;tracks=[];
+    const generation=++loadGeneration;id=Number(id||0);mediaID=id;tracks=[];
     if(!id){render();return}
     try{
       const data=await request(`/media/${id}/playback/streams`);
-      if(id!==mediaID)return;
+      if(generation!==loadGeneration||id!==mediaID||Number(sfCurrentMedia?.id)!==id)return;
       tracks=Array.isArray(data?.audio)?data.audio:[];
-    }catch{tracks=[]}
+    }catch{if(generation!==loadGeneration||Number(sfCurrentMedia?.id)!==id)return;tracks=[]}
     render();
     renderSettingsAudio();
   }
@@ -95,7 +95,11 @@
     tracks.forEach(track=>section.appendChild(makeTrackButton(track)));
   }
 
+  function loadCurrent(){const id=Number(sfCurrentMedia?.id||0);if(id&&id!==mediaID)void load(id)}
+  document.querySelector('#player')?.addEventListener('playing',loadCurrent);
+
   function open(){
+    loadCurrent();
     if(typeof sfToggleSettings==='function')sfToggleSettings(false);
     render();menu.classList.remove('hidden');
   }
@@ -103,7 +107,7 @@
 
   if(typeof sfLoadPlayerOptions==='function'){
     const baseLoad=sfLoadPlayerOptions;
-    sfLoadPlayerOptions=async function(id){const result=await baseLoad(id);await load(id);return result};
+    sfLoadPlayerOptions=async function(id){loadGeneration++;mediaID=0;tracks=[];render();return baseLoad(id)};
   }
   if(typeof sfRenderSettings==='function'){
     const baseRender=sfRenderSettings;
