@@ -41,11 +41,9 @@
       const section=document.createElement('section');
       section.className='content-row';
       section.dataset.virtualRow=String(row.id||row.title||'row');
-      section.innerHTML=`<div class="row-head"><h2>${escapeHTML(row.title)}</h2><span>${row.items.length} títulos</span></div><div class="row-track"></div><button type="button" class="catalog-load-more hidden" aria-label="Carregar mais títulos">Carregar mais</button><div class="catalog-load-sentinel" aria-hidden="true"></div>`;
+      section.innerHTML=`<div class="row-head"><h2>${escapeHTML(row.title)}</h2><span>${row.items.length} títulos</span></div><div class="row-track"></div>`;
       root.appendChild(section);
       const track=section.querySelector('.row-track');
-      const button=section.querySelector('.catalog-load-more');
-      const sentinel=section.querySelector('.catalog-load-sentinel');
       let rendered=0;
       const append=()=>{
         if(rendered>=row.items.length)return;
@@ -54,11 +52,21 @@
         track.insertAdjacentHTML('beforeend',next.map((item,index)=>cardHTML(item,urgentRow&&start+index<4)).join(''));
         rendered+=next.length;
         bindCards(track);
-        const complete=rendered>=row.items.length;
-        button.classList.toggle('hidden',complete);
-        sentinel.classList.toggle('hidden',complete);
+        // Fill wide screens too; lazy rows remain bounded to the visible rail.
+        requestAnimationFrame(()=>{
+          if(track.isConnected&&track.clientWidth>0&&track.scrollWidth<=track.clientWidth+1)append();
+        });
       };
-      button.onclick=append;
+      track.addEventListener('focusin',event=>{
+        const cards=[...track.children];
+        if(cards.slice(-3).some(card=>card.contains(event.target)))append();
+      });
+      if('ResizeObserver'in window){
+        const resize=new ResizeObserver(()=>{
+          if(rendered>0&&track.clientWidth>0&&track.scrollWidth<=track.clientWidth+1)append();
+        });
+        resize.observe(track);observers.push(resize);
+      }
       // Only visible rails create posters. Horizontal paging uses the actual
       // track edge, not a vertical sentinel that eagerly drains every row.
       track.style.minHeight='260px';

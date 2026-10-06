@@ -134,4 +134,5 @@ jobs:
         run: |
           node scripts/test-embedded-browser.mjs
           node scripts/test-player-controls.mjs
+          node scripts/test-catalog-paging.mjs
           node scripts/test-game-input.mjs

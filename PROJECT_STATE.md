@@ -4,6 +4,45 @@
 
 Last architecture update: **2026-10-06**.
 
+## Automatic rails and genre parity — 2026-10-06 (Android 0.9.3)
+
+Android **0.9.3 / versionCode 32** adds the missing Web fallback: menus without
+configured child sections group authorized catalog cards by their first recognized
+genre, using the same Portuguese/English vocabulary, count ordering and Outros
+fallback as `category-nav.js`. Configured sections remain authoritative and keep
+their aggregate rail. This covers movies, series, anime and cartoons routed
+through CategoryBrowseActivity; Games/Music retain their dedicated navigation.
+The previous 0.9.2 fix only restored configured sections and did not implement
+this automatic genre grouping. Cards without provider genres stay in Outros.
+
+Web no longer renders a Load More button. Rails append 12 cards near the scroll
+edge or keyboard focus, and fill wide/resized viewports automatically. Off-screen
+rows still initialize lazily; observers disconnect when the catalog changes.
+Browser regression tests cover last-item reachability, duplicates, focus paging,
+wide screens and mobile-sized rails.
+
+Movie searches with a year now add conservative camel-case/embedded-digit
+alternatives (for example L4astJ4ws → Last Jaws), keeping the original search first
+and leaving source filenames/scanner identity untouched. When TMDB returns no
+acceptable primary name, matching checks provider-confirmed alternative titles
+for at most three same-year candidates. Alias matching requires an exact normalized
+name; ambiguous checked aliases remain unmatched. This adds bounded API requests
+only to metadata jobs, never Home/playback or full-file remote reads. It is not
+video fingerprinting, embedded-tag/NFO scanning or universal recognition.
+
+Rambo.2008.1080p.AMZN.WEB-DL.DDP5.1.H264 already parses as Rambo / 2008;
+regressions now cover that exact release pattern. If it remains unmatched, inspect
+Admin → Fila & atividades for provider configuration/API/job errors after running
+Admin → Bibliotecas → Metadados. Existing matched/manual items stay protected.
+No production catalog has been inspected or rewritten. Local Go tests/build and
+browser paging checks validate the code; exact PR/main CI and Android compilation
+are release gates, with physical-device/Unraid acceptance still outstanding.
+
+Unraid update workaround: if Buildx cannot write `/root/.docker/buildx`, create
+`/mnt/user/appdata/stormflix-buildx` and prefix the Compose command with
+`BUILDX_CONFIG=/mnt/user/appdata/stormflix-buildx`. This redirects builder state;
+it does not diagnose or repair the original read-only filesystem.
+
 ## Catalog sections, identification and first video frame — 2026-10-06
 
 Android **0.9.2 / versionCode 31** shows configured gallery sections before the
@@ -260,7 +299,7 @@ Server HTTP port: **8090**, normally behind an HTTPS reverse proxy.
 - Server code line: **`0.29.0-device-aware-4k`**.
 - Web Player: **Playback Engine v7**, retaining the v5.3 session and v5.4 controls. Native Direct Play remains first; eligible desktop browsers can demux and decode the authenticated original file locally. Native API server conversion is disabled.
 - Games Web Player: G2 browser/WASM runtime plus G2.5 dedicated Admin/metadata and RomMix-inspired browsing; G3 adds virtual mobile controls, TV/gamepad focus/menu behavior and profile-owned save-state previews. Games metadata uses Metadata Stack v2.
-- Android package: `cloud.stormflix.app`, **0.8.2 / versionCode 28**, minSdk 23, targetSdk 36, Java 17. Media3 plus a bundled local audio decoder is the primary Android/Android TV/Fire TV runtime, with optional external-player handoff.
+- Android package: `cloud.stormflix.app`, **0.9.3 / versionCode 32**, minSdk 23, targetSdk 36, Java 17. Media3 plus a bundled local audio decoder is the primary Android/Android TV/Fire TV runtime, with optional external-player handoff.
 - Android phone/tablet, Android TV and Fire TV keep native StormFlix catalog/navigation and now execute PlaybackPlan directly through Media3 for Direct Play, remux/audio compatibility and HLS transcode. Media3 uses authenticated HTTP Range for original files, so compatible media no longer waits for a WebView bootstrap. Browser WASM/local-origin decode remains Web-only and the legacy Web Player is used only if a vendor Media3/decoder path fails.
 - Samsung Tizen: `apps/tizen` 0.1.0 thin shell; final WGT requires the developer's Samsung/Tizen signing profile.
 - LG webOS: `apps/webos` 0.1.0 thin shell; CI can package the Developer Mode IPK.

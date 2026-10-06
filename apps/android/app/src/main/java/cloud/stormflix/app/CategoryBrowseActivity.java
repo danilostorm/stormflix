@@ -130,11 +130,36 @@ public class CategoryBrowseActivity extends Activity {
                 }
 
                 List<CardItem> general = new ArrayList<>(aggregate.values());
-                main.post(() -> render(rootTitle, general, sections));
+                if (children.isEmpty()) sections.addAll(genreSections(general));
+                main.post(() -> render(rootTitle, general, sections, !children.isEmpty()));
             } catch (Exception e) {
                 main.post(() -> error(e));
             }
         });
+    }
+
+    private List<Section> genreSections(List<CardItem> items) {
+        Map<String, List<CardItem>> groups = new LinkedHashMap<>();
+        for (CardItem item : items) {
+            String title = "Outros";
+            JSONArray genres = item.raw.optJSONArray("genres");
+            if (genres != null) for (int i = 0; i < genres.length(); i++) {
+                String genre = CatalogGenres.title(genres.optString(i));
+                if (genre != null) { title = genre; break; }
+            }
+            groups.computeIfAbsent(title, key -> new ArrayList<>()).add(item);
+        }
+        List<Section> sections = new ArrayList<>();
+        for (Map.Entry<String, List<CardItem>> entry : groups.entrySet())
+            sections.add(new Section(entry.getKey(), entry.getValue()));
+        java.text.Collator collator = java.text.Collator.getInstance(new java.util.Locale("pt", "BR"));
+        sections.sort((a, b) -> {
+            if (a.title.equals("Outros")) return b.title.equals("Outros") ? 0 : 1;
+            if (b.title.equals("Outros")) return -1;
+            int count = Integer.compare(b.items.size(), a.items.size());
+            return count != 0 ? count : collator.compare(a.title, b.title);
+        });
+        return sections;
     }
 
     private List<CardItem> categoryItems(JSONObject data) {
@@ -165,7 +190,7 @@ public class CategoryBrowseActivity extends Activity {
         return out;
     }
 
-    private void render(String title, List<CardItem> general, List<Section> sections) {
+    private void render(String title, List<CardItem> general, List<Section> sections, boolean configuredSections) {
         Ui.clear(content);
         Button back = Ui.button(this, "← Voltar", false);
         back.setOnClickListener(v -> finish());
@@ -174,7 +199,7 @@ public class CategoryBrowseActivity extends Activity {
         content.addView(Ui.muted(this, general.size() + " títulos", 12), Ui.margin(this, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 4, 0, 8));
 
         for (Section section : sections) content.addView(row(section.title, section.items));
-        if (!general.isEmpty()) content.addView(row(sections.isEmpty() ? title : "Todos os títulos", general));
+        if (!general.isEmpty() && (sections.isEmpty() || configuredSections)) content.addView(row(sections.isEmpty() ? title : "Todos os títulos", general));
         if (general.isEmpty() && sections.isEmpty()) content.addView(Ui.muted(this, "Este menu ainda não possui títulos.", 14));
         RemoteUi.focusFirst(content);
     }
