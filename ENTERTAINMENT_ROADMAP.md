@@ -344,3 +344,11 @@ A feature is not considered production-ready until:
 - Web + TV interaction is coherent where applicable;
 - CI/tests/build pass on the exact PR head and again on `main` after merge;
 - `PROJECT_STATE.md` and `CHANGELOG.md` describe the deployed behavior.
+
+## Catalog follow-up — Android 0.9.3
+
+Native menus now mirror Web automatic genre sections when no children are
+configured. Web paging is automatic without Load More. Metadata adds bounded
+movie-name alternatives and verified same-year TMDB aliases. Full-file identity
+fingerprinting and embedded-tag/NFO enrichment are not implemented by this patch;
+ambiguous files still require an explicit manual match and real catalog QA.

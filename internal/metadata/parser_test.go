@@ -138,3 +138,29 @@ func TestReportedReleaseNames(t *testing.T) {
 		}
 	}
 }
+
+func TestReleaseSearchVariantsPreserveIdentity(t *testing.T) {
+	cases := []struct {
+		path, title string
+		year        int
+		alternate   string
+	}{
+		{"/movies/Rambo.2008.1080p.AMZN.WEB-DL.DDP5.1.H264.DUAL-andreHsa.mkv", "Rambo", 2008, ""},
+		{"/movies/L4astJ4ws.81.BD1080p.MemoriadaTV.Remux.mkv", "L4astJ4ws", 1981, "Last Jaws"},
+		{"/movies/Se7en.1995.mkv", "Se7en", 1995, ""},
+		{"/movies/Toy Story 4 (2019).mkv", "Toy Story 4", 2019, ""},
+	}
+	for _, tc := range cases {
+		p := ParseFilename(tc.path, "movies")
+		if p.Title != tc.title || p.Year != tc.year {
+			t.Fatalf("%s: %+v", tc.path, p)
+		}
+		if tc.alternate != "" && !strings.Contains(strings.Join(p.SearchTitles(), "|"), tc.alternate) {
+			t.Fatalf("missing variant %s: %+v", tc.alternate, p)
+		}
+	}
+	p := ParseFilename("/series/L4astJ4ws.S01E01.mkv", "series")
+	if strings.Contains(strings.Join(p.SearchTitles(), "|"), "Last Jaws") {
+		t.Fatal("movie heuristic modified series")
+	}
+}

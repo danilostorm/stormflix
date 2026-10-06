@@ -2,6 +2,13 @@
 
 This file records user-visible and architectural changes. `PROJECT_STATE.md` is the authoritative current-state handoff and `ENTERTAINMENT_ROADMAP.md` tracks planned work.
 
+## 2026-10-06 — Android 0.9.3
+
+- Remove Web Load More buttons; automatically append cards when scrolling/focusing near the end, including wide/resized screens.
+- Add the Web automatic genre grouping to native catalog menus without configured sections (Ação, Aventura, etc.), retaining profile-authorized catalog data.
+- Try bounded movie-name deobfuscation alternatives and verify same-year TMDB alternative titles instead of rejecting valid aliases or guessing popular results.
+- Cover reported filename patterns and automatic browser pagination with regressions. Existing unmatched media requires another metadata job; no full-file deep scan or production rematch is performed.
+
 ## 2026-10-06 — Android 0.9.2
 
 - Restore inherited smart gallery sections in the authenticated catalog; place sections before the aggregate APK rail.

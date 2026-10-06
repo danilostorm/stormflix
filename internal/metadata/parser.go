@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 var (
@@ -243,6 +244,10 @@ func ParseFilename(path, libraryKind string) ParsedName {
 			}
 		}
 	}
+	// Search variants never redefine scanner identity or the original filename.
+	if out.LikelyMovie && out.Year > 0 {
+		out.Alternates = append(out.Alternates, noisyTitleAlternates(out.Title)...)
+	}
 	out.Alternates = uniqueTitles(out.Title, out.Alternates)
 	return out
 }
@@ -405,4 +410,61 @@ func isReleaseToken(word string) bool {
 		return true
 	}
 	return false
+}
+
+// Bounded alternatives for release names with camel case or inserted/leet digits.
+// Keep the original first, preserve standalone sequel numbers, and only apply
+// this heuristic to movies carrying a year. Provider evidence is still required.
+func noisyTitleAlternates(title string) []string {
+	if len(title) > 160 {
+		return nil
+	}
+	words := strings.Fields(title)
+	changed := false
+	for i, word := range words {
+		runes := []rune(word)
+		letters, digits := 0, 0
+		for _, r := range runes {
+			if unicode.IsLetter(r) {
+				letters++
+			}
+			if unicode.IsDigit(r) {
+				digits++
+			}
+		}
+		if letters < 4 || digits == 0 {
+			continue
+		}
+		for j := 1; j+1 < len(runes); j++ {
+			replacement, ok := map[rune]rune{'0': 'o', '1': 'i', '3': 'e', '4': 'a', '5': 's', '7': 't'}[runes[j]]
+			if !ok || !unicode.IsLetter(runes[j-1]) || !unicode.IsLetter(runes[j+1]) {
+				continue
+			}
+			// L4ast -> Last (insertion); J4ws -> Jaws (substitution).
+			if unicode.ToLower(runes[j+1]) == replacement {
+				runes[j] = 0
+			} else {
+				runes[j] = replacement
+			}
+			changed = true
+		}
+		words[i] = strings.ReplaceAll(string(runes), "\x00", "")
+	}
+	decoded := strings.Join(words, " ")
+	var split strings.Builder
+	runes := []rune(decoded)
+	for i, r := range runes {
+		if i > 0 && unicode.IsLower(runes[i-1]) && unicode.IsUpper(r) {
+			split.WriteByte(' ')
+		}
+		split.WriteRune(r)
+	}
+	out := []string{}
+	if split.String() != title {
+		out = append(out, split.String())
+	}
+	if changed {
+		out = append(out, decoded)
+	}
+	return out
 }

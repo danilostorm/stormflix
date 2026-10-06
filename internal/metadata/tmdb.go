@@ -186,6 +186,49 @@ func (p *TMDBProvider) search(ctx context.Context, mediaType, title string, year
 			bestID = candidate.ID
 		}
 	}
+	if bestID != 0 {
+		return bestID, nil
+	}
+	// Search also indexes aliases that are absent from its title fields. Verify
+	// those names explicitly rather than accepting the first/popular result.
+	// Keep extra requests bounded and require the known release year.
+	if year <= 0 {
+		return 0, nil
+	}
+	checked := 0
+	for _, candidate := range response.Results {
+		candidateYear := yearFromDate(candidate.ReleaseDate)
+		if candidateYear == 0 {
+			candidateYear = yearFromDate(candidate.FirstAirDate)
+		}
+		if candidate.ID <= 0 || candidateYear != year {
+			continue
+		}
+		if checked >= 3 {
+			break
+		}
+		checked++
+		var aliases struct {
+			Titles []struct {
+				Title string `json:"title"`
+			} `json:"titles"`
+			Results []struct {
+				Title string `json:"title"`
+			} `json:"results"`
+		}
+		if err := p.get(ctx, fmt.Sprintf("https://api.themoviedb.org/3/%s/%d/alternative_titles", mediaType, candidate.ID), &aliases); err != nil {
+			return 0, err
+		}
+		for _, alias := range append(aliases.Titles, aliases.Results...) {
+			if normalizeSearchTitle(alias.Title) == want {
+				// Ambiguous aliases remain unmatched for manual identification.
+				if bestID != 0 && bestID != candidate.ID {
+					return 0, nil
+				}
+				bestID = candidate.ID
+			}
+		}
+	}
 	return bestID, nil
 }
 
