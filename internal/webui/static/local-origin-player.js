@@ -16,7 +16,7 @@
   };
   let runtimePromise=null;
   let engine=null;
-  let firstFrame=false;
+  let firstFrame=false,decoderError=null;
   let active=false;
   let generation=0;
   let statsTimer=0;
@@ -137,7 +137,7 @@
     on(Events.TIME||'time',milliseconds=>{state.time=Number(milliseconds||0)/1000;state.buffered=Math.max(state.buffered,state.time+3);dispatch('timeupdate');dispatch('progress')});
     on(Events.VOLUME_CHANGE||'volumeChange',()=>dispatch('volumechange'));
     on(Events.FIRST_VIDEO_RENDERED||'firstVideoRendered',()=>{firstFrame=true;dispatch('stormflix:local-origin-first-frame')});
-    on(Events.ERROR||'error',error=>{window.sfPlaybackLastError=String(error?.message||error||'Falha no decode local');dispatch('error',error)});
+    on(Events.ERROR||'error',error=>{decoderError=error instanceof Error?error:new Error(String(error?.message||error||'Falha no decode local'));window.sfPlaybackLastError=String(error?.message||error||'Falha no decode local');dispatch('error',error)});
   }
   function wasmURL(type,codecId){
     if(type==='resampler')return`${BASE}resample-simd.wasm`;
@@ -170,23 +170,35 @@
       },100);
     });
   }
+  function waitStage(operation,token,timeout,message,code){
+    return new Promise((resolve,reject)=>{
+      let done=false;
+      const finish=(fn,value)=>{if(done)return;done=true;clearTimeout(timer);clearInterval(poll);fn(value)};
+      const timer=setTimeout(()=>{const error=new Error(message);error.code=code;finish(reject,error)},timeout);
+      const poll=setInterval(()=>{
+        if(token!==generation)finish(reject,new Error('reprodução cancelada'));
+        else if(decoderError)finish(reject,decoderError);
+      },100);
+      Promise.resolve(operation).then(value=>finish(resolve,value),error=>finish(reject,error));
+    });
+  }
   async function load(url,plan,options={}){
     const expected=generation+1;
     try{return await loadAttempt(url,plan,options)}catch(error){
-      if(error.code!=='NO_VIDEO_FRAME'||generation!==expected||options.software)throw error;
+      if(!['NO_VIDEO_FRAME','DECODER_START_TIMEOUT'].includes(error.code)||generation!==expected||options.software)throw error;
       // A working audio clock does not prove that WebCodecs rendered video.
       return loadAttempt(url,plan,{...options,software:true});
     }
   }
   async function loadAttempt(url,plan,options={}){
     const cleanup=destroy();
-    firstFrame=false;
+    firstFrame=false;decoderError=null;
     loadedMediaID=Number(plan?.media_id||0);
     const token=generation;
-    await cleanup;
+    await waitStage(cleanup,token,5000,'Não foi possível encerrar a reprodução anterior','CLEANUP_TIMEOUT');
     if(token!==generation)throw new Error('inicialização local cancelada');
     if(!wasmSIMD())throw new Error('WebAssembly SIMD indisponível');
-    const AVPlayer=await ensureRuntime();
+    const AVPlayer=await waitStage(ensureRuntime(),token,20000,'Não foi possível carregar os componentes do player. Verifique a conexão.','RUNTIME_TIMEOUT');
     if(token!==generation)throw new Error('inicialização local cancelada');
     try{native.pause();video.removeAttribute('src');native.load()}catch{}
     state={time:0,duration:0,paused:true,volume:Number(video.volume??1),muted:Boolean(video.muted),rate:1,width:Number(plan?.video_width||0),height:Number(plan?.video_height||0),buffered:0};
@@ -202,7 +214,7 @@
     // Blob workers have no page-relative base URL. Resolve media and sidecars
     // before handing them to libmedia's network worker.
     const source=new URL(url,location.href).href;
-    await instance.load(source,{ext:String(plan?.source_container||'').replace(/^matroska$/,'mkv'),http:{credentials:'same-origin'}});
+    await waitStage(instance.load(source,{ext:String(plan?.source_container||'').replace(/^matroska$/,'mkv'),http:{credentials:'same-origin'}}),token,30000,'O arquivo demorou demais para responder. Tente novamente.','SOURCE_TIMEOUT');
     if(token!==generation)throw new Error('carregamento local cancelado');
     state.duration=Number(instance.getDuration?.()||0n)/1000;
     // The constructor callback receives ALL raw streams, not typed streams.
@@ -210,7 +222,7 @@
     pendingAudioStream=Number.isInteger(requestedAudio)&&requestedAudio>=0?requestedAudio:null;
     window.sfLocalSubtitleID=0;
     pendingResume=Math.max(0,Number(options.resume)||0);
-    if(options.autoplay!==false){await play();await waitForFirstFrame(token)}
+    if(options.autoplay!==false){await waitStage(play(),token,20000,'Não foi possível iniciar a imagem deste arquivo.','DECODER_START_TIMEOUT');await waitStage(waitForFirstFrame(token),token,21000,'O decoder não apresentou imagem','NO_VIDEO_FRAME')}
     return true;
   }
   async function selectAudio(index){

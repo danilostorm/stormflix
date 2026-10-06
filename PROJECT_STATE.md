@@ -4,6 +4,36 @@
 
 Last architecture update: **2026-10-06**.
 
+## Web startup unblocked — 2026-10-06
+
+Web no longer awaits optional versions/subtitles/audio menus before requesting
+its PlaybackPlan and opening the original stream. Versions and subtitles load
+independently in the background, with generation/media guards against stale
+responses after switching or closing. Audio-list probing is deferred until the
+player emits playing (or the audio menu is explicitly opened), avoiding a second
+cold probe in parallel with planning. Auto-selected versions use the selected
+media identity for their controls. Android remains **0.9.3 / versionCode 32**;
+this fix ships through the server/Web assets only.
+
+A full-page regression reproduced the black idle player when optional metadata
+never settled: the old flow never reached its planner or decoder. The corrected
+`playMedia` entry point renders real generated MKV/H.264/AC3 and HEVC 10-bit/AC3
+with all optional endpoints left pending. This is stronger than earlier isolated
+decoder tests, but does not establish the cause for every production file.
+
+Startup shows Abrindo vídeo and bounds planning (30s), runtime download (20s),
+original-source initialization (30s), decoder play (20s) and first-frame wait.
+The existing software retry also covers a decoder play timeout. Decoder error
+events reject pending startup; failed/exhausted routes show a visible error and
+detach the local surface. Closing during planning cannot reopen playback.
+No server remux/transcode or external-player requirement was introduced.
+
+Validation: full-page browser tests cover real rendering, optional endpoints
+never resolving, visible server failure, cancellation and stalled planner/local
+initialization. Server Go tests/build and exact PR/main CI remain release gates.
+The user's Unraid source availability, proxy, codecs and remote latency remain
+production checks; a remaining failure should now provide an actionable message.
+
 ## Automatic rails and genre parity — 2026-10-06 (Android 0.9.3)
 
 Android **0.9.3 / versionCode 32** adds the missing Web fallback: menus without

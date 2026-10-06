@@ -173,14 +173,25 @@ function sfLanguage(code){
   const c=String(code||'').toLowerCase();const names={'pt-br':'Português (Brasil)','pt':'Português','en':'English','es':'Español','fr':'Français','de':'Deutsch','it':'Italiano','ja':'日本語'};return names[c]||String(code||'Legenda');
 }
 
+let sfOptionsGeneration=0;
 async function sfLoadPlayerOptions(id){
-  try{sfVersions=await request(`/media/${id}/versions`)}catch{sfVersions=[]}
-  try{sfSubtitles=await request(`/media/${id}/subtitles`)}catch{sfSubtitles=[]}
+  const generation=++sfOptionsGeneration;
+  sfVersions=[];sfSubtitles=[];
   player.querySelectorAll('track[data-subtitle-id]').forEach(t=>t.remove());
-  sfSubtitles.forEach((sub,index)=>{
-    const track=document.createElement('track');track.kind='subtitles';track.label=sfLanguage(sub.language);track.srclang=String(sub.language||'').slice(0,2)||'pt';track.src=`${api}/media/${id}/subtitles/${sub.id}/vtt`;track.dataset.subtitleId=sub.id;if(index===0)track.default=false;player.appendChild(track);
-  });
-  sfRenderSettings();
+  const current=()=>generation===sfOptionsGeneration&&Number(sfCurrentMedia?.id)===Number(id);
+  // These controls are optional; a remote subtitle/version lookup must not
+  // prevent the original stream from opening or overwrite a newer movie.
+  await Promise.allSettled([
+    request(`/media/${id}/versions`).then(rows=>{if(!current())return;sfVersions=Array.isArray(rows)?rows:[];sfRenderSettings()}),
+    request(`/media/${id}/subtitles`).then(rows=>{
+      if(!current())return;
+      sfSubtitles=Array.isArray(rows)?rows:[];
+      sfSubtitles.forEach(sub=>{
+        const track=document.createElement('track');track.kind='subtitles';track.label=sfLanguage(sub.language);track.srclang=String(sub.language||'').slice(0,2)||'pt';track.src=`${api}/media/${id}/subtitles/${sub.id}/vtt`;track.dataset.subtitleId=sub.id;track.default=false;player.appendChild(track);
+      });
+      sfRenderSettings();window.dispatchEvent(new Event('stormflix:local-tracks'));
+    })
+  ]);
 }
 
 function sfFormatBytes(bytes){
@@ -198,7 +209,7 @@ playMedia=async function(item){
 
 const sfOriginalClosePlayer=closePlayer;
 closePlayer=function(){
-  clearTimeout(sfHideTimer);sfToggleSettings(false);sfCurrentMedia=null;sfVersions=[];sfSubtitles=[];
+  sfOptionsGeneration++;clearTimeout(sfHideTimer);sfToggleSettings(false);sfCurrentMedia=null;sfVersions=[];sfSubtitles=[];
   player.pause();player.querySelectorAll('track[data-subtitle-id]').forEach(t=>t.remove());player.removeAttribute('src');player.load();sfModal.classList.add('hidden');sfModal.classList.remove('sf-controls-hidden');
 };
 $('#player-close').onclick=closePlayer;

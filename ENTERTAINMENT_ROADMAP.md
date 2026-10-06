@@ -352,3 +352,8 @@ configured. Web paging is automatic without Load More. Metadata adds bounded
 movie-name alternatives and verified same-year TMDB aliases. Full-file identity
 fingerprinting and embedded-tag/NFO enrichment are not implemented by this patch;
 ambiguous files still require an explicit manual match and real catalog QA.
+
+Web startup follow-up (2026-10-06): optional player menus are off the startup
+critical path; planner/decoder waits are bounded and errors visible. Full-page
+MKV/HEVC rendering with stalled metadata is now tested alongside isolated decode.
+Real Unraid/proxy/source compatibility and device performance remain acceptance.

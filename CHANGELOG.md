@@ -2,6 +2,13 @@
 
 This file records user-visible and architectural changes. `PROJECT_STATE.md` is the authoritative current-state handoff and `ENTERTAINMENT_ROADMAP.md` tracks planned work.
 
+## 2026-10-06 — Web startup hotfix
+
+- Start original playback without waiting for optional versions/subtitle/audio metadata; defer audio probing until playback or explicit menu access.
+- Prevent stale option responses from modifying a closed or newer movie.
+- Bound planner/runtime/source/decoder startup and surface failures instead of an indefinitely black idle player; retain software retry and original-only playback.
+- Test the actual full-page playMedia path with MKV/HEVC, stalled optional endpoints, cancellation and timeouts. APK stays at 0.9.3; update the server and reload Web assets.
+
 ## 2026-10-06 — Android 0.9.3
 
 - Remove Web Load More buttons; automatically append cards when scrolling/focusing near the end, including wide/resized screens.
