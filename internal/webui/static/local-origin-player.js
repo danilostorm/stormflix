@@ -16,6 +16,7 @@
   };
   let runtimePromise=null;
   let engine=null;
+  let firstFrame=false;
   let active=false;
   let generation=0;
   let statsTimer=0;
@@ -135,7 +136,7 @@
     on(Events.RESUME||'resume',()=>dispatch('playing'));
     on(Events.TIME||'time',milliseconds=>{state.time=Number(milliseconds||0)/1000;state.buffered=Math.max(state.buffered,state.time+3);dispatch('timeupdate');dispatch('progress')});
     on(Events.VOLUME_CHANGE||'volumeChange',()=>dispatch('volumechange'));
-    on(Events.FIRST_VIDEO_RENDERED||'firstVideoRendered',()=>dispatch('stormflix:local-origin-first-frame'));
+    on(Events.FIRST_VIDEO_RENDERED||'firstVideoRendered',()=>{firstFrame=true;dispatch('stormflix:local-origin-first-frame')});
     on(Events.ERROR||'error',error=>{window.sfPlaybackLastError=String(error?.message||error||'Falha no decode local');dispatch('error',error)});
   }
   function wasmURL(type,codecId){
@@ -158,8 +159,28 @@
       window.dispatchEvent(new CustomEvent('stormflix:local-decode-stat',{detail:window.sfLocalDecodeStats}));
     },1000);
   }
+  function waitForFirstFrame(token){
+    if(firstFrame)return Promise.resolve();
+    return new Promise((resolve,reject)=>{
+      const started=performance.now();
+      const timer=setInterval(()=>{
+        if(token!==generation){clearInterval(timer);reject(new Error('reprodução cancelada'));return}
+        if(firstFrame){clearInterval(timer);resolve();return}
+        if(performance.now()-started>20000){clearInterval(timer);const error=new Error('O decoder não apresentou imagem');error.code='NO_VIDEO_FRAME';reject(error)}
+      },100);
+    });
+  }
   async function load(url,plan,options={}){
+    const expected=generation+1;
+    try{return await loadAttempt(url,plan,options)}catch(error){
+      if(error.code!=='NO_VIDEO_FRAME'||generation!==expected||options.software)throw error;
+      // A working audio clock does not prove that WebCodecs rendered video.
+      return loadAttempt(url,plan,{...options,software:true});
+    }
+  }
+  async function loadAttempt(url,plan,options={}){
     const cleanup=destroy();
+    firstFrame=false;
     loadedMediaID=Number(plan?.media_id||0);
     const token=generation;
     await cleanup;
@@ -173,7 +194,7 @@
     const requestedAudio=Number.isInteger(options.audioStream)?options.audioStream:Number(plan?.audio_stream);
     const instance=new AVPlayer({
       container:surface,getWasm:wasmURL,checkUseMSE:()=>false,
-      enableHardware:true,enableWebCodecs:true,enableWebGPU:Boolean(navigator.gpu),enableWorker:true,enableAudioWorklet:Boolean(window.isSecureContext&&window.AudioWorkletNode),
+      enableHardware:!options.software,enableWebCodecs:!options.software,enableWebGPU:!options.software&&Boolean(navigator.gpu),enableWorker:true,enableAudioWorklet:Boolean(window.isSecureContext&&window.AudioWorkletNode),
       lowLatency:false,preLoadTime:3,audioWorkletBufferLength:14
     });
     engine=instance;
@@ -189,7 +210,7 @@
     pendingAudioStream=Number.isInteger(requestedAudio)&&requestedAudio>=0?requestedAudio:null;
     window.sfLocalSubtitleID=0;
     pendingResume=Math.max(0,Number(options.resume)||0);
-    if(options.autoplay!==false)await play();
+    if(options.autoplay!==false){await play();await waitForFirstFrame(token)}
     return true;
   }
   async function selectAudio(index){

@@ -2,7 +2,52 @@
 
 > **Authoritative continuation note.** Any coding agent/session continuing StormFlix must read this file, `AGENTS.md` and `ENTERTAINMENT_ROADMAP.md` before changing code. Update this document after meaningful architecture, compatibility, schema, playback or deployment changes.
 
-Last architecture update: **2026-09-29**.
+Last architecture update: **2026-10-06**.
+
+## Catalog sections, identification and first video frame — 2026-10-06
+
+Android **0.9.2 / versionCode 31** shows configured gallery sections before the
+aggregate rail. `/categories` now includes rule-based sections that inherit
+libraries from their parent, applying the requesting user's library access before
+returning them. Previously sections without direct library assignments were
+filtered out, even though their smart endpoint contained accessible titles.
+
+Scanner metadata and catalog fallback recognize compact season folders S01/S02,
+including sources pointed at a show's folder. Release suffixes and empty year
+parentheses are removed from scanner search/display names. Episode suffixes do
+not pollute provider queries; localized “A Série” gets a shorter alternate query.
+TMDB matching now folds common accents for search only, tolerates small spelling
+errors and requires title similarity. Empty provider names/popularity alone no
+longer choose unrelated results. Scanner keys and manual matches retain their
+existing normalization. Confidence thresholds may leave ambiguous aliases for a
+manual match instead of assigning the wrong title.
+
+Theme preview lookup strips episode numbers/names from the query. APK series
+pages offer an explicit preview button when the representative media has a URL;
+audio stops on pause/exit or opening playback. Web already consumes these previews.
+This is the existing provider's short preview, not a full downloaded soundtrack.
+
+Web startup now waits for an actual video frame. Local decoding retries once
+with WebCodecs/hardware/WebGPU disabled if no frame arrives within 20 seconds;
+audio-clock progress alone no longer counts as successful startup. Exhausted
+routes use the existing visible error flow. Original-only playback remains in
+force; no server conversion was added. This addresses a missing failure check,
+not proof that every black frame or unsupported codec is fixed.
+
+Validation: Go tests cover the reported filename patterns, compact season roots,
+smart-section visibility/access restrictions, accented/typo matching, rejection
+of unrelated popular results, and series-only theme queries. Full Go test/build
+and Chromium MP4/AAC, MKV/AC3 plus software HEVC 10-bit/AC3 tests pass locally,
+including first-frame gating, output audio, captions, seek and track switching.
+Android is validated by CI compilation; physical device/theme playback and the
+user's Batman file/Unraid deployment remain unverified.
+
+After updating the server and APK, use Admin → Bibliotecas → Metadados for the
+affected libraries (or Metadados de todas). This rebuilds scanner identity before
+fetching pending metadata. Existing incorrect manual/provider matches may need
+an explicit manual correction/forced refresh; no destructive blanket rematch or
+production database rewrite is performed by this release. Provider credentials
+and job errors still need checking when a clean search title remains unmatched.
 
 ## Web audio/captions and APK game input correction — 2026-09-29
 

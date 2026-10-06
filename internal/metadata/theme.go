@@ -25,6 +25,11 @@ func NewThemeProvider(country string) *ThemeProvider {
 
 func (p *ThemeProvider) Lookup(ctx context.Context, title string, year int) (previewURL, previewTitle string, err error) {
 	title = strings.TrimSpace(title)
+	// Providers append episode identity to display titles; soundtrack searches
+	// must use the show name, not "Show S01E01 · Episode".
+	if loc := seasonRE.FindStringIndex(title); loc != nil {
+		title = compactTitle(title[:loc[0]])
+	}
 	if title == "" {
 		return "", "", nil
 	}

@@ -34,21 +34,37 @@ func (s *server) listCategories(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	if roleLevel(u.Role) < 2 {
-		for i := range items {
-			items[i].LibraryIDs = intersectIDs(items[i].LibraryIDs, u.LibraryIDs)
-		}
-	}
 	visible := make([]libraryCategory, 0, len(items))
 	for _, c := range items {
-		// Parent nodes may intentionally contain no directly assigned library but
-		// still need to be visible when a child contains accessible media.
 		if !c.Active {
 			continue
 		}
-		if len(c.LibraryIDs) > 0 || c.ChildCount > 0 {
-			visible = append(visible, c)
+		config, err := s.categoryRule(r.Context(), c.ID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
 		}
+		ids, err := s.smartCategoryLibraries(r.Context(), c, config.RuleMode)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		// Root menus also include libraries assigned to their child sections.
+		if c.ParentID == nil {
+			ids, err = s.categoryTreeLibraries(r.Context(), c.ID)
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		if roleLevel(u.Role) < 2 {
+			ids = intersectIDs(ids, u.LibraryIDs)
+		}
+		if len(ids) == 0 {
+			continue
+		}
+		c.LibraryIDs = ids
+		visible = append(visible, c)
 	}
 	writeJSON(w, http.StatusOK, visible)
 }

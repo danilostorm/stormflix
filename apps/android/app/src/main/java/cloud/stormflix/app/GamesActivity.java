@@ -38,7 +38,7 @@ public final class GamesActivity extends Activity {
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(false);
         settings.setSupportMultipleWindows(false);
-        settings.setUserAgentString(settings.getUserAgentString() + " StormFlixGames/0.9.1");
+        settings.setUserAgentString(settings.getUserAgentString() + " StormFlixGames/0.9.2");
         CookieManager cookies = CookieManager.getInstance();
         cookies.setAcceptCookie(true);
         cookies.setAcceptThirdPartyCookies(web, false);

@@ -16,7 +16,7 @@ import (
 var (
 	seriesSeasonEpisodeRE  = regexp.MustCompile(`(?i)\bS(\d{1,2})[ ._-]*E(\d{1,3})\b`)
 	seriesXEpisodeRE       = regexp.MustCompile(`(?i)\b(\d{1,2})x(\d{1,3})\b`)
-	seriesSeasonDirRE      = regexp.MustCompile(`(?i)^(?:season|temporada)[ ._-]*(\d{1,3})$`)
+	seriesSeasonDirRE      = regexp.MustCompile(`(?i)^(?:season|temporada|s)[ ._-]*(\d{1,3})$`)
 	seriesLooseSeasonDirRE = regexp.MustCompile(`(?i)^(?:\d{1,3}[ºª°]?[ ._-]*(?:season|temporada)|(?:season|temporada)[ ._-]*\d{1,3})(?:[ ._-].*)?$`)
 	seriesTechnicalDirRE   = regexp.MustCompile(`(?i)^(?:remux(?:es)?|blu[ ._-]?ray|bdrip|brrip|web[ ._-]?dl|webrip|hdtv|uhd|4k|2160p|1080p|720p|480p|disc(?:o)?[ ._-]*\d+|disk[ ._-]*\d+|cd[ ._-]*\d+|volume[ ._-]*\d+|vol[ ._-]*\d+|parte[ ._-]*\d+|part[ ._-]*\d+)$`)
 	seriesCompactEpisodeRE = regexp.MustCompile(`(?i)^(\d{1,3})[[:alpha:]]{1,6}(?:[ ._-]|$)`)

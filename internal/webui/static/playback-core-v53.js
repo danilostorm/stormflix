@@ -253,15 +253,17 @@
   }
 
   function waitForPlayable(generation,timeout=START_TIMEOUT_MS){
-    if(generation!==planGeneration||player.readyState>=HTMLMediaElement.HAVE_CURRENT_DATA)return Promise.resolve();
+    if(generation!==planGeneration)return Promise.resolve();
     return new Promise((resolve,reject)=>{
-      let settled=false;
-      const events=['loadeddata','canplay','playing'];
-      const cleanup=()=>{clearTimeout(timer);events.forEach(n=>player.removeEventListener(n,ready));player.removeEventListener('error',failed)};
+      let settled=false,frame=0;
+      const cleanup=()=>{clearTimeout(timer);clearInterval(poll);if(frame)player.cancelVideoFrameCallback?.(frame);player.removeEventListener('error',failed)};
       const finish=(fn,v)=>{if(settled)return;settled=true;cleanup();fn(v)};
-      const ready=()=>finish(resolve),failed=()=>finish(reject,new Error(player.error?.message||'O navegador recusou a fonte'));
+      const failed=()=>finish(reject,new Error(player.error?.message||'O navegador recusou a fonte'));
+      const ready=()=>{if(generation!==planGeneration)return finish(resolve);const count=player.getVideoPlaybackQuality?.().totalVideoFrames;if(player.videoWidth>0&&(count>0||(!player.requestVideoFrameCallback&&player.readyState>=2)))finish(resolve)};
       const timer=setTimeout(()=>finish(reject,new Error('tempo excedido aguardando o primeiro quadro')),timeout);
-      events.forEach(n=>player.addEventListener(n,ready,{once:true}));player.addEventListener('error',failed,{once:true});
+      const poll=setInterval(ready,100);
+      if(player.requestVideoFrameCallback)frame=player.requestVideoFrameCallback(()=>finish(resolve));
+      player.addEventListener('error',failed,{once:true});ready();
     });
   }
 
