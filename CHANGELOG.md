@@ -2,6 +2,14 @@
 
 This file records user-visible and architectural changes. `PROJECT_STATE.md` is the authoritative current-state handoff and `ENTERTAINMENT_ROADMAP.md` tracks planned work.
 
+## 2026-10-06 — Android 0.9.2
+
+- Restore inherited smart gallery sections in the authenticated catalog; place sections before the aggregate APK rail.
+- Recognize S01/S02 season folders, clean episodic search titles and improve accent/typo matching while rejecting unrelated TMDB results.
+- Search soundtrack previews by show name and expose an optional series preview button in the APK, with lifecycle cleanup.
+- Wait for a real Web video frame; retry local software decoding after a no-frame hardware startup.
+- Add regression coverage for catalog permissions, reported filenames, matching confidence and real HEVC 10-bit/AC3 browser playback. Server metadata refresh is required for existing unmatched items.
+
 ## 2026-09-29
 
 ### Audio, captions and game input corrections (Android 0.9.1)

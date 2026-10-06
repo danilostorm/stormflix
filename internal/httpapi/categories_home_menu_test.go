@@ -115,7 +115,7 @@ func TestGallerySectionUsesSelectedLibraryWithoutKindHidingAnimeMovies(t *testin
 		t.Fatalf("insert gallery section: %v", err)
 	}
 	sectionID, _ := section.LastInsertId()
-	if _, err := db.Exec(`INSERT INTO library_category_libraries(category_id,library_id,sort_order) VALUES(?,?,0)`, sectionID, libraryID); err != nil {
+	if _, err := db.Exec(`INSERT OR IGNORE INTO library_category_libraries(category_id,library_id,sort_order) VALUES(?,?,0)`, sectionID, libraryID); err != nil {
 		t.Fatalf("assign section library: %v", err)
 	}
 
@@ -140,5 +140,55 @@ func TestGallerySectionUsesSelectedLibraryWithoutKindHidingAnimeMovies(t *testin
 	}
 	if response.Media[0].ID != mediaID {
 		t.Fatalf("media id=%d want %d", response.Media[0].ID, mediaID)
+	}
+}
+
+func TestSmartSectionInheritsVisibleLibraries(t *testing.T) {
+	db, err := database.Open(filepath.Join(t.TempDir(), "stormflix.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	library, err := db.Exec(`INSERT INTO libraries(name,kind,path,enabled) VALUES('Movies','movies','/movies',1)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	libraryID, _ := library.LastInsertId()
+	var root int64
+	if err = db.QueryRow(`SELECT id FROM library_categories WHERE slug='movie'`).Scan(&root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`INSERT OR IGNORE INTO library_category_libraries(category_id,library_id,sort_order) VALUES(?,?,0)`, root, libraryID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`INSERT INTO library_categories(name,slug,kind,parent_id,sort_order,active,system,rule_mode,rules_json) VALUES('Recentes','recentes-test','movie',?,1,1,0,'rules','{}')`, root); err != nil {
+		t.Fatal(err)
+	}
+	s := &server{db: db}
+	for _, allowed := range []bool{true, false} {
+		user := auth.User{ID: 1, Role: "user", LibraryIDs: []int64{}}
+		if allowed {
+			user.LibraryIDs = []int64{libraryID}
+		}
+		req := httptest.NewRequest("GET", "/api/v1/categories", nil)
+		req = req.WithContext(context.WithValue(req.Context(), userKey, user))
+		rec := httptest.NewRecorder()
+		s.listCategories(rec, req)
+		if rec.Code != 200 {
+			t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+		}
+		var categories []libraryCategory
+		if err = json.Unmarshal(rec.Body.Bytes(), &categories); err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, c := range categories {
+			if c.Slug == "recentes-test" {
+				found = true
+			}
+		}
+		if found != allowed {
+			t.Fatalf("allowed=%v found=%v: %s", allowed, found, rec.Body.String())
+		}
 	}
 }

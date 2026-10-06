@@ -121,3 +121,20 @@ func TestParseOld007TwoDigitYearAndGluedNao(t *testing.T) {
 		t.Fatalf("expected glued NAO to be normalized, got %q", p.Title)
 	}
 }
+
+func TestReportedReleaseNames(t *testing.T) {
+	for _, tc := range []struct {
+		path, kind, title     string
+		year, season, episode int
+	}{
+		{"/movies/Rambo.Last.Blood.Bluray.1080p.AC3.5.1.mkv", "movies", "Rambo Last Blood", 0, 0, 0},
+		{"/movies/Looney Tunes De Volta à Ação 2003.mkv", "movies", "Looney Tunes De Volta à Ação", 2003, 0, 0},
+		{"/series/Resident Evil/S01/Resident Evil - A Série S01E01 - Piloto.mkv", "series", "Resident Evil - A Série", 0, 1, 1},
+		{"/series/Resident Evil/S02/03.mkv", "series", "Resident Evil", 0, 2, 3},
+	} {
+		got := ParseFilename(tc.path, tc.kind)
+		if got.Title != tc.title || got.Year != tc.year || got.Season != tc.season || got.Episode != tc.episode {
+			t.Fatalf("%s: %+v", tc.path, got)
+		}
+	}
+}

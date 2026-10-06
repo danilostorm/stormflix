@@ -26,6 +26,12 @@ selecting HTML/local decoding so unsupported audio cannot silently disappear.
 Android keeps its fast original route. Browser diagnostics now measure audio
 output and run a real NES input ROM; physical-device acceptance remains pending.
 
+Android 0.9.2 restores inherited smart sections and adds explicit series theme
+previews. Compact season identity and search confidence now have regression tests;
+production rematching and ambiguous aliases still require catalog validation.
+Web first-frame/software recovery is covered by generated HEVC 10-bit/AC3 media;
+this does not establish compatibility with every original file or device.
+
 ## Current playback direction — 2026-09-27
 
 The original-only update replaces native API server conversion at the user's

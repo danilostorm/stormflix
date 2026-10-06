@@ -38,6 +38,8 @@ public class SeriesDetailActivity extends Activity {
     private String seriesId;
     private boolean television;
     private int selectedSeason;
+    private android.media.MediaPlayer themePlayer;
+    private Button themeButton;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -67,7 +69,13 @@ public class SeriesDetailActivity extends Activity {
         io.submit(() -> {
             try {
                 JSONObject data = new JSONObject(api.get("/series/" + seriesId));
-                main.post(() -> render(data));
+                JSONObject representative = null;
+                long mediaId = data.optLong("representative_media_id");
+                if (mediaId > 0) {
+                    try { representative = new JSONObject(api.get("/media/" + mediaId)); } catch (Exception ignored) {}
+                }
+                final String theme = representative == null ? "" : representative.optString("theme_preview_url", "");
+                main.post(() -> { if (!isFinishing() && !isDestroyed()) { render(data); addTheme(theme); } });
             } catch (Exception e) {
                 main.post(() -> {
                     Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show();
@@ -309,7 +317,34 @@ public class SeriesDetailActivity extends Activity {
         startActivity(intent);
     }
 
+    private void addTheme(String url) {
+        if (url.isEmpty()) return;
+        themeButton = Ui.button(this, "♫ Ouvir prévia da trilha", false);
+        content.addView(themeButton, 1, Ui.margin(this, ViewGroup.LayoutParams.WRAP_CONTENT, Ui.dp(this, 44), 22, 12, 22, 0));
+        themeButton.setOnClickListener(v -> {
+            if (themePlayer != null) { stopTheme(); return; }
+            android.media.MediaPlayer player = new android.media.MediaPlayer();
+            themePlayer = player;
+            themeButton.setText("Carregando trilha…");
+            player.setAudioAttributes(new android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_MEDIA).setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC).build());
+            player.setVolume(.2f, .2f);
+            player.setOnPreparedListener(p -> { if (themePlayer == p) { p.start(); themeButton.setText("■ Parar trilha"); } });
+            player.setOnCompletionListener(p -> stopTheme());
+            player.setOnErrorListener((p, what, extra) -> { stopTheme(); Toast.makeText(this, "Não foi possível carregar a trilha", Toast.LENGTH_SHORT).show(); return true; });
+            try { player.setDataSource(url); player.prepareAsync(); }
+            catch (Exception error) { stopTheme(); Toast.makeText(this, "Trilha indisponível", Toast.LENGTH_SHORT).show(); }
+        });
+    }
+
+    private void stopTheme() {
+        if (themePlayer != null) { themePlayer.release(); themePlayer = null; }
+        if (themeButton != null) themeButton.setText("♫ Ouvir prévia da trilha");
+    }
+
+    @Override protected void onPause() { stopTheme(); super.onPause(); }
+
     @Override protected void onDestroy() {
+        stopTheme();
         io.shutdownNow();
         super.onDestroy();
     }

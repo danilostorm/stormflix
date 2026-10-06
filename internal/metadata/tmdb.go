@@ -158,26 +158,28 @@ func (p *TMDBProvider) search(ctx context.Context, mediaType, title string, year
 		return 0, nil
 	}
 
-	want := normalizeTitle(title)
-	bestID := response.Results[0].ID
+	want := normalizeSearchTitle(title)
+	bestID := int64(0)
 	bestScore := -1.0
 	for _, candidate := range response.Results {
 		names := []string{candidate.Title, candidate.OriginalTitle, candidate.Name, candidate.OriginalName}
-		score := candidate.Popularity / 100000
+		confidence := 0.0
 		for _, name := range names {
-			n := normalizeTitle(name)
-			if n == want && n != "" {
-				score += 10
-			} else if strings.Contains(n, want) || strings.Contains(want, n) {
-				score += 2
+			if score := searchTitleSimilarity(want, normalizeSearchTitle(name)); score > confidence {
+				confidence = score
 			}
 		}
+		// Empty translated/original names and popularity are not match evidence.
+		if confidence < .82 {
+			continue
+		}
+		score := confidence * 10
 		candidateYear := yearFromDate(candidate.ReleaseDate)
 		if candidateYear == 0 {
 			candidateYear = yearFromDate(candidate.FirstAirDate)
 		}
 		if year > 0 && candidateYear == year {
-			score += 4
+			score += 1
 		}
 		if score > bestScore {
 			bestScore = score
@@ -414,6 +416,42 @@ func imageLanguages(language string) string {
 		return "en,null"
 	}
 	return lang + ",en,null"
+}
+
+// Search-only normalization: scanner keys and manual identities stay stable.
+func normalizeSearchTitle(value string) string {
+	value = strings.NewReplacer("á", "a", "à", "a", "â", "a", "ã", "a", "ä", "a", "é", "e", "è", "e", "ê", "e", "ë", "e", "í", "i", "ï", "i", "ó", "o", "ô", "o", "õ", "o", "ö", "o", "ú", "u", "ü", "u", "ç", "c", "ñ", "n").Replace(strings.ToLower(value))
+	return normalizeTitle(value)
+}
+
+func searchTitleSimilarity(a, b string) float64 {
+	if a == "" || b == "" {
+		return 0
+	}
+	if a == b {
+		return 1
+	}
+	x, y := []rune(a), []rune(b)
+	if len(x) < 6 || len(y) < 6 || len(x) > 300 || len(y) > 300 {
+		return 0
+	}
+	previous := make([]int, len(y)+1)
+	for j := range previous {
+		previous[j] = j
+	}
+	for i, ch := range x {
+		current := make([]int, len(y)+1)
+		current[0] = i + 1
+		for j, other := range y {
+			cost := 0
+			if ch != other {
+				cost = 1
+			}
+			current[j+1] = min(current[j]+1, previous[j+1]+1, previous[j]+cost)
+		}
+		previous = current
+	}
+	return 1 - float64(previous[len(y)])/float64(max(len(x), len(y)))
 }
 
 func normalizeTitle(value string) string {

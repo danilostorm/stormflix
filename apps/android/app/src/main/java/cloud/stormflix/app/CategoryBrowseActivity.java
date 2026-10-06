@@ -173,8 +173,8 @@ public class CategoryBrowseActivity extends Activity {
         content.addView(Ui.title(this, title, 32));
         content.addView(Ui.muted(this, general.size() + " títulos", 12), Ui.margin(this, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 4, 0, 8));
 
-        if (!general.isEmpty()) content.addView(row(title, general));
         for (Section section : sections) content.addView(row(section.title, section.items));
+        if (!general.isEmpty()) content.addView(row(sections.isEmpty() ? title : "Todos os títulos", general));
         if (general.isEmpty() && sections.isEmpty()) content.addView(Ui.muted(this, "Este menu ainda não possui títulos.", 14));
         RemoteUi.focusFirst(content);
     }

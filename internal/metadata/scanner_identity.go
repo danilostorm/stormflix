@@ -15,7 +15,7 @@ import (
 var scannerSeriesIdentity sync.Map
 
 var (
-	scannerSeasonDirRE   = regexp.MustCompile(`(?i)(?:^|[ ._-])(?:season|temporada)[ ._-]*(\d{1,3})(?:$|[ ._-])`)
+	scannerSeasonDirRE     = regexp.MustCompile(`(?i)(?:^|[ ._-])(?:season|temporada)[ ._-]*(\d{1,3})(?:$|[ ._-])`)
 	scannerLeadingSeasonRE = regexp.MustCompile(`(?i)^(\d{1,3})[ºª°]?[ ._-]*(?:season|temporada)(?:$|[ ._-])`)
 )
 
@@ -209,6 +209,10 @@ func scannerSeasonFromPath(path string) int {
 	dir := filepath.Dir(path)
 	for depth := 0; depth < 8; depth++ {
 		name := cleanMetadataText(filepath.Base(dir))
+		if match := compactSeasonDirRE.FindStringSubmatch(name); len(match) == 2 {
+			n, _ := strconv.Atoi(match[1])
+			return n
+		}
 		if match := scannerSeasonDirRE.FindStringSubmatch(name); len(match) == 2 {
 			n, _ := strconv.Atoi(match[1])
 			return n
@@ -229,7 +233,7 @@ func scannerSeasonFromPath(path string) int {
 func cleanSeriesFolderName(value string) string {
 	value = cleanMetadataText(value)
 	value = yearRE.ReplaceAllString(value, " ")
-	return compactTitle(value)
+	return compactTitle(trimReleaseTail(emptyGroupRE.ReplaceAllString(value, " ")))
 }
 
 func applyScannerIdentity(path string, parsed ParsedName) ParsedName {

@@ -12,10 +12,11 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
 const root=path.resolve(import.meta.dirname,'../internal/webui/static');
 const temp=fs.mkdtempSync(path.join(os.tmpdir(),'stormflix-decoder-'));
 const failures=[];
-for(const [name,codec] of [['sample.mp4','aac'],['sample.mkv','ac3']]){
+for(const [name,codec] of [['sample.mp4','aac'],['sample.mkv','ac3'],['sample-hevc.mkv','ac3']]){
   execFileSync('ffmpeg',['-hide_banner','-loglevel','error','-f','lavfi','-i','testsrc2=size=320x180:rate=24',
     '-f','lavfi','-i','sine=frequency=440:sample_rate=48000','-f','lavfi','-i','sine=frequency=880:sample_rate=48000',
-    '-map','0:v','-map','1:a','-map','2:a','-t','12','-c:v','libx264','-preset','ultrafast','-pix_fmt','yuv420p',
+    '-map','0:v','-map','1:a','-map','2:a','-t','12','-c:v',name.includes('hevc')?'libx265':'libx264','-preset','ultrafast','-pix_fmt',name.includes('hevc')?'yuv420p10le':'yuv420p',
+    ...(name.includes('hevc')?['-x265-params','pools=1:frame-threads=1:log-level=error']:[]),
     '-c:a',codec,'-metadata:s:a:0','language=eng','-metadata:s:a:1','language=por',path.join(temp,name)]);
 }
 let rangeRequests=0;
@@ -31,7 +32,7 @@ const server=http.createServer((req,res)=>{
     res.setHeader('Content-Type','image/png');
     res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC','base64'));return;
   }
-  const media=url.pathname==='/sample.mp4'||url.pathname==='/sample.mkv';
+  const media=url.pathname==='/sample.mp4'||url.pathname==='/sample.mkv'||url.pathname==='/sample-hevc.mkv';
   const file=path.join(media?temp:root,url.pathname);
   if(!fs.existsSync(file)){res.writeHead(404);res.end();return}
   const bytes=fs.readFileSync(file);
@@ -74,11 +75,11 @@ try{
     assert.equal(await page.locator('#cover-test').getAttribute('srcset'),null);
     assert.equal(await page.locator('#cover-test').getAttribute('src'),'/assets/poster.png');
 
-    for(const name of ['sample.mp4','sample.mkv']){
+    for(const name of ['sample.mp4','sample.mkv','sample-hevc.mkv']){
       await page.evaluate(async name=>{
         window.sfSubtitles=[{id:10,language:'por'}];
         window.errors=[];document.querySelector('#player').addEventListener('error',()=>window.errors.push(window.sfPlaybackLastError));
-        await Promise.race([window.sfLocalOrigin.load('/'+name,{media_id:1,source_container:name.split('.').pop(),audio_stream:2},{autoplay:true,resume:3}),new Promise((_,reject)=>setTimeout(()=>reject(new Error('Decoder startup timeout: '+JSON.stringify(window.sfLocalDecodeStats))),30000))]);
+        await Promise.race([window.sfLocalOrigin.load('/'+name,{media_id:1,source_container:name.split('.').pop(),audio_stream:2},{autoplay:true,resume:3,software:name.includes('hevc')}),new Promise((_,reject)=>setTimeout(()=>reject(new Error('Decoder startup timeout: '+JSON.stringify(window.sfLocalDecodeStats))),30000))]);
       },name);
       await page.mouse.click(10,10);
       await page.waitForFunction(()=>!window.sfLocalOrigin.isAudioSuspended());

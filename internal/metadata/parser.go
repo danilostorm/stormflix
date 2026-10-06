@@ -8,24 +8,25 @@ import (
 )
 
 var (
-	yearRE                    = regexp.MustCompile(`\b(19\d{2}|20\d{2})\b`)
-	twoDigitYearRE            = regexp.MustCompile(`(?:^|[ ._-])(\d{2})(?:$|[ ._-])`)
-	seasonRE                  = regexp.MustCompile(`(?i)\bS(\d{1,2})[ ._-]*E[ ._-]*(\d{1,3})\b`)
-	xEpisode                  = regexp.MustCompile(`(?i)\b(\d{1,2})x[ ._-]*(\d{1,3})\b`)
-	serialEpisodeRE           = regexp.MustCompile(`(?i)(?:^|[ ._-])(?:ep(?:isode|isodio|isódio)?[ ._-]*)?(\d{1,3})$`)
-	leadingEpisodeRE          = regexp.MustCompile(`(?i)^(?:ep(?:isode|isodio|isódio)?[ ._-]*)?(\d{1,3})(?:[ ._-]+|$)`)
-	animeEmbeddedEpisodeRE    = regexp.MustCompile(`(?i)(?:^|[ ._-])(?:ep(?:i|isode|isodio|isódio)?)[ ._-]*(\d{1,3})`)
-	animeStandaloneEpisodeRE  = regexp.MustCompile(`(?:^|[ ._-])(\d{1,3})(?:[ ._-]|$)`)
-	compactCartoonEpisodeRE   = regexp.MustCompile(`(?i)^(\d{1,3})[[:alpha:]]{1,6}(?:[ ._-]|$)`)
-	bracketRE                 = regexp.MustCompile(`\[[^\]]+\]|\([^\)]*(?:1080|2160|720|480|x26|hevc|av1|web|bluray|remux|hdr|dv)[^\)]*\)`)
-	junkParenRE               = regexp.MustCompile(`(?i)\((?:vhs|dvd|bdrip|bluray|blu-ray|dublado|dual[ ._-]*audio|legendado|webrip|web-dl|remux)\)`)
-	emptyGroupRE              = regexp.MustCompile(`\(\s*\)|\[\s*\]|\{\s*\}`)
-	movieIndexRE              = regexp.MustCompile(`(?i)\b(?:filme|movie)\s*[-_. ]*\d{1,3}\b`)
-	seasonDirRE               = regexp.MustCompile(`(?i)^(?:(?:season|temporada)[ ._-]*\d{1,3}|\d{1,3}[ºª°]?[ ._-]*(?:season|temporada))(?:[ ._-].*)?$`)
-	seasonDirNumberRE         = regexp.MustCompile(`(?i)^(?:season|temporada)[ ._-]*(\d{1,3})(?:[ ._-].*)?$`)
-	seasonLeadingNumberRE     = regexp.MustCompile(`(?i)^(\d{1,3})[ºª°]?[ ._-]*(?:season|temporada)(?:[ ._-].*)?$`)
-	wordNumberEndRE           = regexp.MustCompile(`(?i)([[:alpha:]])(\d{1,2})(?:$|[ ._-])`)
-	technicalSeriesDirRE      = regexp.MustCompile(`(?i)^(?:remux(?:es)?|blu[ ._-]?ray|bdrip|brrip|web[ ._-]?dl|webrip|hdtv|uhd|4k|2160p|1080p|720p|480p|disc(?:o)?[ ._-]*\d+|disk[ ._-]*\d+|cd[ ._-]*\d+|volume[ ._-]*\d+|vol[ ._-]*\d+|parte[ ._-]*\d+|part[ ._-]*\d+)$`)
+	compactSeasonDirRE       = regexp.MustCompile(`(?i)^s[ ._-]*(\d{1,3})$`)
+	yearRE                   = regexp.MustCompile(`\b(19\d{2}|20\d{2})\b`)
+	twoDigitYearRE           = regexp.MustCompile(`(?:^|[ ._-])(\d{2})(?:$|[ ._-])`)
+	seasonRE                 = regexp.MustCompile(`(?i)\bS(\d{1,2})[ ._-]*E[ ._-]*(\d{1,3})\b`)
+	xEpisode                 = regexp.MustCompile(`(?i)\b(\d{1,2})x[ ._-]*(\d{1,3})\b`)
+	serialEpisodeRE          = regexp.MustCompile(`(?i)(?:^|[ ._-])(?:ep(?:isode|isodio|isódio)?[ ._-]*)?(\d{1,3})$`)
+	leadingEpisodeRE         = regexp.MustCompile(`(?i)^(?:ep(?:isode|isodio|isódio)?[ ._-]*)?(\d{1,3})(?:[ ._-]+|$)`)
+	animeEmbeddedEpisodeRE   = regexp.MustCompile(`(?i)(?:^|[ ._-])(?:ep(?:i|isode|isodio|isódio)?)[ ._-]*(\d{1,3})`)
+	animeStandaloneEpisodeRE = regexp.MustCompile(`(?:^|[ ._-])(\d{1,3})(?:[ ._-]|$)`)
+	compactCartoonEpisodeRE  = regexp.MustCompile(`(?i)^(\d{1,3})[[:alpha:]]{1,6}(?:[ ._-]|$)`)
+	bracketRE                = regexp.MustCompile(`\[[^\]]+\]|\([^\)]*(?:1080|2160|720|480|x26|hevc|av1|web|bluray|remux|hdr|dv)[^\)]*\)`)
+	junkParenRE              = regexp.MustCompile(`(?i)\((?:vhs|dvd|bdrip|bluray|blu-ray|dublado|dual[ ._-]*audio|legendado|webrip|web-dl|remux)\)`)
+	emptyGroupRE             = regexp.MustCompile(`\(\s*\)|\[\s*\]|\{\s*\}`)
+	movieIndexRE             = regexp.MustCompile(`(?i)\b(?:filme|movie)\s*[-_. ]*\d{1,3}\b`)
+	seasonDirRE              = regexp.MustCompile(`(?i)^(?:(?:season|temporada)[ ._-]*\d{1,3}|\d{1,3}[ºª°]?[ ._-]*(?:season|temporada))(?:[ ._-].*)?$`)
+	seasonDirNumberRE        = regexp.MustCompile(`(?i)^(?:season|temporada)[ ._-]*(\d{1,3})(?:[ ._-].*)?$`)
+	seasonLeadingNumberRE    = regexp.MustCompile(`(?i)^(\d{1,3})[ºª°]?[ ._-]*(?:season|temporada)(?:[ ._-].*)?$`)
+	wordNumberEndRE          = regexp.MustCompile(`(?i)([[:alpha:]])(\d{1,2})(?:$|[ ._-])`)
+	technicalSeriesDirRE     = regexp.MustCompile(`(?i)^(?:remux(?:es)?|blu[ ._-]?ray|bdrip|brrip|web[ ._-]?dl|webrip|hdtv|uhd|4k|2160p|1080p|720p|480p|disc(?:o)?[ ._-]*\d+|disk[ ._-]*\d+|cd[ ._-]*\d+|volume[ ._-]*\d+|vol[ ._-]*\d+|parte[ ._-]*\d+|part[ ._-]*\d+)$`)
 )
 
 type ParsedName struct {
@@ -220,6 +221,28 @@ func ParseFilename(path, libraryKind string) ParsedName {
 	}
 
 	out.Title = compactTitle(out.Title)
+	// Keep provider searches independent of release tags and episode titles.
+	if out.Episode > 0 {
+		if loc := seasonRE.FindStringIndex(cleanMetadataText(base)); loc != nil {
+			if prefix := compactTitle(cleanMetadataText(base)[:loc[0]]); prefix != "" {
+				if out.Year > 0 {
+					prefix = yearRE.ReplaceAllString(prefix, " ")
+				}
+				prefix = compactTitle(emptyGroupRE.ReplaceAllString(prefix, " "))
+				if !simpleEpisode {
+					out.Alternates = append(out.Alternates, out.Title)
+					out.Title = prefix
+				} else {
+					out.Alternates = append(out.Alternates, prefix)
+				}
+			}
+		}
+		for _, suffix := range []string{" - A Série", " A Série", " - A Serie", " A Serie"} {
+			if strings.HasSuffix(strings.ToLower(out.Title), strings.ToLower(suffix)) {
+				out.Alternates = append(out.Alternates, strings.TrimSpace(out.Title[:len(out.Title)-len(suffix)]))
+			}
+		}
+	}
 	out.Alternates = uniqueTitles(out.Title, out.Alternates)
 	return out
 }
@@ -227,6 +250,10 @@ func ParseFilename(path, libraryKind string) ParsedName {
 func seasonFromDirectory(path string) int {
 	for depth, dir := 0, filepath.Dir(path); depth < 5; depth, dir = depth+1, filepath.Dir(dir) {
 		name := cleanMetadataText(filepath.Base(dir))
+		if match := compactSeasonDirRE.FindStringSubmatch(name); len(match) == 2 {
+			n, _ := strconv.Atoi(match[1])
+			return n
+		}
 		if match := seasonDirNumberRE.FindStringSubmatch(name); len(match) == 2 {
 			n, _ := strconv.Atoi(match[1])
 			return n
@@ -300,7 +327,7 @@ func meaningfulAncestor(path string, ignored ...string) string {
 
 func isGenericDirectory(value string) bool {
 	v := strings.ToLower(compactTitle(value))
-	if seasonDirRE.MatchString(v) || technicalSeriesDirRE.MatchString(v) {
+	if compactSeasonDirRE.MatchString(v) || seasonDirRE.MatchString(v) || technicalSeriesDirRE.MatchString(v) {
 		return true
 	}
 	generic := map[string]bool{

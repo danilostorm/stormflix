@@ -57,3 +57,12 @@ func TestScannerIdentityDoesNotPromoteTechnicalFolder(t *testing.T) {
 		t.Fatalf("SeriesTitle=%q want Looney Tunes", got.SeriesTitle)
 	}
 }
+
+func TestScannerCompactSeasonSource(t *testing.T) {
+	for _, root := range []string{"/media/series", "/media/series/Resident Evil"} {
+		got := deriveScannerIdentity("/media/series/Resident Evil/S02/Resident Evil S02E03.mkv", root, "series")
+		if got.SeriesTitle != "Resident Evil" || got.Season != 2 || got.Episode != 3 {
+			t.Fatalf("root %s: %+v", root, got)
+		}
+	}
+}
