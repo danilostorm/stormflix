@@ -68,6 +68,9 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=android-v$VERSION" >> "$GITHUB_OUTPUT"
 
+      - name: Test catalog recycling
+        run: gradle -p apps/android :app:testDebugUnitTest --no-daemon
+
       # Keep the APK reproducible from the repository without Android Studio.
       - name: Build installable APK
         run: gradle -p apps/android :app:assembleDebug --no-daemon

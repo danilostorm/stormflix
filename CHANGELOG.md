@@ -2,6 +2,13 @@
 
 This file records user-visible and architectural changes. `PROJECT_STATE.md` is the authoritative current-state handoff and `ENTERTAINMENT_ROADMAP.md` tracks planned work.
 
+## 2026-10-11 — Android 0.9.4
+
+- Recycle catalog sections and poster cards instead of creating the entire Filmes catalog at once.
+- Share a bounded poster pool, clear recycled cover requests and preserve each genre's horizontal position.
+- Keep card dimensions stable during cover loading/focus; retain existing genre grouping and detail navigation.
+- Add Android catalog regression tests before APK builds. Physical-device scrolling validation remains pending.
+
 ## 2026-10-06 — Web startup hotfix
 
 - Start original playback without waiting for optional versions/subtitle/audio metadata; defer audio probing until playback or explicit menu access.
