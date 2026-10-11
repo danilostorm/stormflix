@@ -2,19 +2,13 @@ package cloud.stormflix.app;
 
 import android.app.Activity;
 import android.content.Intent;
-import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
-import android.widget.HorizontalScrollView;
-import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
-import android.widget.TextView;
 import android.widget.Toast;
 
 import org.json.JSONArray;
@@ -34,7 +28,7 @@ import java.util.concurrent.Executors;
  * smart child membership is resolved by the server.
  */
 public class CategoryBrowseActivity extends Activity {
-    private static final class CardItem {
+    static final class CardItem {
         final JSONObject raw;
         final boolean series;
         final String key;
@@ -45,9 +39,10 @@ public class CategoryBrowseActivity extends Activity {
         }
     }
 
-    private static final class Section {
+    static final class Section {
         final String title;
         final List<CardItem> items;
+        android.os.Parcelable scrollState;
         Section(String title, List<CardItem> items) {
             this.title = title;
             this.items = items;
@@ -71,17 +66,15 @@ public class CategoryBrowseActivity extends Activity {
         if (slug == null) slug = "";
         if (requestedTitle == null) requestedTitle = "";
 
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.setBackgroundColor(Ui.BG);
         content = Ui.vertical(this, RemoteUi.isTelevision(this) ? 24 : 18);
-        scroll.addView(content, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        setContentView(scroll);
+        content.setBackgroundColor(Ui.BG);
+        setContentView(content);
         loading();
         load();
     }
 
     private void loading() {
+        if (isFinishing() || isDestroyed()) return;
         Ui.clear(content);
         Button back = Ui.button(this, "← Voltar", false);
         back.setOnClickListener(v -> finish());
@@ -191,6 +184,7 @@ public class CategoryBrowseActivity extends Activity {
     }
 
     private void render(String title, List<CardItem> general, List<Section> sections, boolean configuredSections) {
+        if (isFinishing() || isDestroyed()) return;
         Ui.clear(content);
         Button back = Ui.button(this, "← Voltar", false);
         back.setOnClickListener(v -> finish());
@@ -198,70 +192,33 @@ public class CategoryBrowseActivity extends Activity {
         content.addView(Ui.title(this, title, 32));
         content.addView(Ui.muted(this, general.size() + " títulos", 12), Ui.margin(this, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 4, 0, 8));
 
-        for (Section section : sections) content.addView(row(section.title, section.items));
-        if (!general.isEmpty() && (sections.isEmpty() || configuredSections)) content.addView(row(sections.isEmpty() ? title : "Todos os títulos", general));
-        if (general.isEmpty() && sections.isEmpty()) content.addView(Ui.muted(this, "Este menu ainda não possui títulos.", 14));
+        List<Section> rows = new ArrayList<>(sections);
+        if (!general.isEmpty() && (rows.isEmpty() || configuredSections))
+            rows.add(new Section(rows.isEmpty() ? title : "Todos os títulos", general));
+        if (rows.isEmpty()) content.addView(Ui.muted(this, "Este menu ainda não possui títulos.", 14));
+        else {
+            androidx.recyclerview.widget.RecyclerView list = new androidx.recyclerview.widget.RecyclerView(this);
+            list.setLayoutManager(new androidx.recyclerview.widget.LinearLayoutManager(this));
+            list.setHasFixedSize(true);
+            list.setItemAnimator(null);
+            list.setItemViewCacheSize(2);
+            list.setClipToPadding(false);
+            list.setAdapter(new CatalogSectionAdapter(this, rows, images, this::openCard));
+            content.addView(list, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+        }
         RemoteUi.focusFirst(content);
     }
 
-    private View row(String title, List<CardItem> items) {
-        LinearLayout section = Ui.vertical(this, 0);
-        section.addView(Ui.title(this, title, 21), Ui.margin(this, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 20, 0, 10));
-        HorizontalScrollView scroll = new HorizontalScrollView(this);
-        scroll.setHorizontalScrollBarEnabled(false);
-        scroll.setFocusable(false);
-        LinearLayout rail = Ui.horizontal(this, 0);
-        for (CardItem item : items) rail.addView(card(item));
-        scroll.addView(rail);
-        section.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, 292)));
-        return section;
-    }
-
-    private View card(CardItem item) {
+    private void openCard(CardItem item) {
         JSONObject raw = item.raw;
-        LinearLayout card = Ui.vertical(this, 0);
-        card.setFocusable(true);
-        card.setClickable(true);
-        card.setBackground(Ui.round(Color.TRANSPARENT, 10));
-        card.setOnFocusChangeListener((v, focused) -> RemoteUi.cardFocus(v, focused));
-
-        ImageView poster = new ImageView(this);
-        poster.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        poster.setBackground(Ui.round(Color.rgb(25, 29, 38), 8));
-        card.addView(poster, new LinearLayout.LayoutParams(Ui.dp(this, 150), Ui.dp(this, 225)));
-        String posterUrl = raw.optString("poster_url", "");
-        if (!posterUrl.isEmpty()) images.load(poster, posterUrl);
-
-        TextView name = Ui.title(this, raw.optString("title", item.series ? "Série" : "Título"), 12);
-        name.setMaxLines(1);
-        card.addView(name, Ui.margin(this, Ui.dp(this, 150), ViewGroup.LayoutParams.WRAP_CONTENT, 0, 7, 0, 0));
-        String meta = item.series
-            ? raw.optInt("season_count", 0) + " temp. · " + raw.optInt("episode_count", 0) + " ep."
-            : (raw.optInt("year", 0) > 0 ? String.valueOf(raw.optInt("year")) : raw.optString("media_type", ""));
-        TextView detail = Ui.muted(this, meta, 10);
-        detail.setMaxLines(1);
-        card.addView(detail);
-
-        card.setOnClickListener(v -> {
-            if (item.series) {
-                String id = raw.optString("series_id", raw.optString("id", ""));
-                Intent intent = new Intent(this, SeriesDetailActivity.class);
-                intent.putExtra("series_id", id);
-                startActivity(intent);
-            } else {
-                long id = raw.optLong("id");
-                Intent intent = new Intent(this, DetailActivity.class);
-                intent.putExtra("media_id", id);
-                startActivity(intent);
-            }
-        });
-
-        LinearLayout holder = new LinearLayout(this);
-        holder.addView(card, Ui.margin(this, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 10, 0));
-        return holder;
+        Intent intent = new Intent(this, item.series ? SeriesDetailActivity.class : DetailActivity.class);
+        if (item.series) intent.putExtra("series_id", raw.optString("series_id", raw.optString("id", "")));
+        else intent.putExtra("media_id", raw.optLong("id"));
+        startActivity(intent);
     }
 
     private void error(Exception e) {
+        if (isFinishing() || isDestroyed()) return;
         if (e instanceof ApiClient.ApiException && ((ApiClient.ApiException) e).status == 401) {
             api.store().clear();
             startActivity(new Intent(this, LoginActivity.class));
@@ -275,6 +232,7 @@ public class CategoryBrowseActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        main.removeCallbacksAndMessages(null);
         io.shutdownNow();
         super.onDestroy();
     }

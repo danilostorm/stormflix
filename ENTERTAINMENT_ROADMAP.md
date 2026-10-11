@@ -357,3 +357,7 @@ Web startup follow-up (2026-10-06): optional player menus are off the startup
 critical path; planner/decoder waits are bounded and errors visible. Full-page
 MKV/HEVC rendering with stalled metadata is now tested alongside isolated decode.
 Real Unraid/proxy/source compatibility and device performance remain acceptance.
+
+### 2026-10-11 — Native catalog performance
+
+Android 0.9.4 virtualizes both catalog axes and preserves row position. Large-catalog regression tests gate APK builds; measure scrolling on physical phone/TV/Fire TV after installation.

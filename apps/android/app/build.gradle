@@ -1,4 +1,4 @@
-// StormFlix Android 0.9.3 - original playback, local audio decoding, Cast/DLNA
+// StormFlix Android 0.9.4 - original playback, local audio decoding, Cast/DLNA
 plugins {
     id 'com.android.application'
 }
@@ -11,8 +11,8 @@ android {
         applicationId 'cloud.stormflix.app'
         minSdk 23
         targetSdk 36
-        versionCode 32
-        versionName '0.9.3'
+        versionCode 33
+        versionName '0.9.4'
     }
 
     buildTypes {
@@ -22,6 +22,10 @@ android {
         }
     }
 
+    testOptions {
+        unitTests.includeAndroidResources = true
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
@@ -29,6 +33,8 @@ android {
 }
 
 dependencies {
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.14.1'
     // Google Cast is native; DLNA/UPnP is implemented directly with Android/
     // Java network APIs and does not require a casting application dependency.
     implementation 'com.google.android.gms:play-services-cast-framework:22.3.1'

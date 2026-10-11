@@ -2,7 +2,23 @@
 
 > **Authoritative continuation note.** Any coding agent/session continuing StormFlix must read this file, `AGENTS.md` and `ENTERTAINMENT_ROADMAP.md` before changing code. Update this document after meaningful architecture, compatibility, schema, playback or deployment changes.
 
-Last architecture update: **2026-10-06**.
+Last architecture update: **2026-10-11**.
+
+## Android catalog scrolling — 2026-10-11 (0.9.4)
+
+Android **0.9.4 / versionCode 33** replaces the eager ScrollView/HorizontalScrollView
+catalog with vertical and horizontal RecyclerViews. Only nearby section/card views
+are materialized; compatible poster holders share a bounded pool. Recycled posters
+clear their Glide requests, and each section retains its horizontal scroll position.
+Fixed card bounds avoid reflow when covers load or focus expands a title. Genre
+membership, ordering, profile permissions and detail destinations are unchanged.
+The improvement applies to Filmes and other menus using CategoryBrowseActivity.
+
+Regression coverage uses a large synthetic catalog to check bounded attached views,
+row reuse, scroll restoration and click identity. Android unit tests and APK build
+are release gates. Physical phone/Fire TV/Android TV frame timing remains unmeasured;
+this change removes the identified eager-view cost, not a claim of measured FPS.
+Only an APK update is required; Web/player/server behavior is unchanged.
 
 ## Web startup unblocked — 2026-10-06
 
